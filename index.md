@@ -7,24 +7,28 @@
 *"In truth we arise with a hidden gift"*
 <br/>
 
-<picture>
+[<picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://github.com/vkaxcore/VKAX/blob/master/vkax_logo/vkax2b508.png?raw=true">
   <source media="(prefers-color-scheme: light)" srcset="https://github.com/vkaxcore/VKAX/blob/master/vkax_logo/vkax2w508.png?raw=true">
   <img alt="Shows a black logo in light color mode and a white one in dark color mode." src="https://user-images.githubusercontent.com/25423296/163456779-a8556205-d0a5-45e2-ac17-42d089e3c3f8.png">
-</picture>
+</picture>](https://vkaxcore.github.io/VKAX/)
 
 <br/>
 <br/>
 
-### Quick Links
+### VKAX Wallet
+[[VKAX binaries are built independently by github action]](https://github.com/vkaxcore/VKAX/releases/tag/v100.10.3)
+
+
+
+### VKAX Quick Links
+
 [[VKAX Command Line Reference]](https://vkaxcore.github.io/VKAX/doc/vkax-command-line-rpc-api-reference)
-<br/>
-[[VKAX CLI Arguments & Commands]](https://vkaxcore.github.io/VKAX/doc/vkax-cli-wallet-arguments-and-commands)
 <br/>
 [[VKAX Remote Procedure Calls (RPC)]](https://vkaxcore.github.io/VKAX/doc/vkax-remote-procedure-calls)
 <br/>
 
-### Commmunity Forum
+### VKAX Commmunity Forum
 
 [[Please join the Discussion on github to draft proposals, submit commentary, or to request help]](https://github.com/vkaxcore/VKAX/discussions)
 
