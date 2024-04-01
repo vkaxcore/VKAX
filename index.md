@@ -49,6 +49,17 @@ make
 
 <br/>
 
+
+## Mining VKAX
+### [[SRBMiner] (CPU)](https://github.com/doktor83/SRBMiner-Multi/releases)
+
+### [[XmrigCC] (CPU)](https://github.com/Bendr0id/xmrigCC/releases/tag/3.4.0)
+
+### [[Wildrig] (GPU)](https://github.com/andru-kun/wildrig-multi/releases)
+
+
+<br/>
+
 ## VKAX Documents
 
 ### [[VKAX Test Net Guide]](https://vkaxcore.github.io/VKAX/doc/testnet-participation)
@@ -74,10 +85,4 @@ make
 
 <br/>
 
-## Mining VKAX
-### [[SRBMiner] (CPU)](https://github.com/doktor83/SRBMiner-Multi/releases)
-
-### [[XmrigCC] (CPU)](https://github.com/Bendr0id/xmrigCC/releases/tag/3.4.0)
-
-### [[Wildrig] (GPU)](https://github.com/andru-kun/wildrig-multi/releases)
 
