@@ -22,8 +22,6 @@
 ## VKAX Wallet
 [[built by github]](https://github.com/vkaxcore/VKAX/releases/tag/v100.10.3)
 
-<br/>
-
 ### [[WINDOWS]](https://github.com/vkaxcore/VKAX/releases/download/v100.10.3/vkax-win-.zip)
 
 ### [[MAC]](https://github.com/vkaxcore/VKAX/releases/download/v100.10.3/vkax-macos12-.zip)
