@@ -37,22 +37,16 @@
 ## VKAX Links
 
 ### [[VKAX Command Line Reference]](https://vkaxcore.github.io/VKAX/doc/vkax-command-line-rpc-api-reference)
-<br/>
 
 ### [[VKAX Remote Procedure Calls (RPC)]](https://vkaxcore.github.io/VKAX/doc/vkax-remote-procedure-calls)
-<br/>
 
 ### [[VKAX Explorer 1]](https://x.butkoin.com/network/vkax)
-<br/>
 
 ### [[VKAX Explorer 2]](https://insight.vkax.org/insight/)
-<br/>
 
 ### [VKAX Commmunity Forum]
-<br/>
 
 ### [[VKAX Commmunity Forum]](https://github.com/vkaxcore/VKAX/discussions)
-<br/>
 
 ### [[VKAX Test Net Guide]](https://vkaxcore.github.io/VKAX/doc/testnet-participation)
 
