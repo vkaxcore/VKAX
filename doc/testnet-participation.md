@@ -1,6 +1,5 @@
 # Participating in the VKAX Test Net
-> [!TIP]
-> Learning how to use the VKAX **Test Net** will prepare you to do things like mine solo or run a masternode on the **Main Net**
+Learning how to use the VKAX **Test Net** will prepare you to do things like mine solo or run a masternode on the **Main Net**
 <br/>
 
 ## Getting Ubuntu 
@@ -16,8 +15,7 @@ If you **don't have a few minutes** to learn something new, then you probably **
 <br/>
 <br/>
 
-> [!WARNING]
-> Failure to follow instructions may result in an incorrect build! The order is important, please ensure you review each step
+Failure to follow instructions may result in an incorrect build! The order is important, please ensure you review each step
 
 
 <br/>
@@ -67,8 +65,7 @@ cd .. &&
 ./configure --disable-tests --disable-bench --without-gui --prefix=$PWD/depends/x86_64-pc-linux-gnu/ &&
 make
 ```
-> [!NOTE]  
-> The build will take a long time. Please do not close the system while the script is working
+The build will take a long time. Please do not close the system while the script is working
 
 When it is **complete** it should look like this
 <br/>
@@ -163,8 +160,7 @@ watch systemctl status vkax-test
 sudo su vkax-test
 ```
 
-> [!IMPORTANT]  
-> Always remember to login as vkax-test before running commands, and to log out with `exit` or close the terminal when complete. The daemon will continue to run in the background.
+Always remember to login as vkax-test before running commands, and to log out with `exit` or close the terminal when complete. The daemon will continue to run in the background.
 
 
 <br/>
@@ -267,10 +263,8 @@ To **Stop Mining**
 ## More VKAX Commands
 [VKAX Legacy Command Line Reference](https://github.com/vkaxcore/vkax/blob/master/doc/vkax-command-line-rpc-api-reference.md)
 <br/>
-[VKAX CLI Arguments & Commands](https://github.com/vkaxcore/vkax/blob/master/doc/vkax-cli-wallet-arguments-and-commands.md)
-<br/>
-[VKAX Remote Procedure Calls (RPC)](https://github.com/vkaxcore/vkax/blob/master/doc/vkax-remote-procedure-calls.md)
 
+[VKAX Remote Procedure Calls (RPC)](https://github.com/vkaxcore/vkax/blob/master/doc/vkax-remote-procedure-calls.md)
 <br/> 
 
 ## Conclusion
