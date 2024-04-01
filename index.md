@@ -1,5 +1,3 @@
-# **VKAX**
-
 ## **Vero Kum Abdite Xenium**
 
 
