@@ -79,13 +79,14 @@ A Crypto Currency **Hard Fork** is when the code of a coin is changed in a subst
 
 ## VKAX Documents
 
+### [[VKAX Whitepaper v1]](https://github.com/vkaxcore/VKAX/blob/master/doc/vkaxwhitepaper.pdf)
+
 ### [[VKAX Test Net Guide]](https://vkaxcore.github.io/VKAX/doc/testnet-participation)
 
 ### [[VKAX Command Line Reference]](https://vkaxcore.github.io/VKAX/doc/vkax-command-line-rpc-api-reference)
 
 ### [[VKAX Remote Procedure Calls (RPC)]](https://vkaxcore.github.io/VKAX/doc/vkax-remote-procedure-calls)
 
-### [[VKAX Whitepaper v1]](https://github.com/vkaxcore/VKAX/blob/master/doc/vkaxwhitepaper.pdf)
 
 <br/>
 
