@@ -98,6 +98,8 @@ A Crypto Currency **Hard Fork** is when the code of a coin is changed in a subst
 
 ### [[VKAX Commmunity Forum]](https://github.com/vkaxcore/VKAX/discussions)
 
+### [[VKAX Website]](https://vkaxcore.github.io/VKAX/)
+
 <br/>
 
 <br/>
