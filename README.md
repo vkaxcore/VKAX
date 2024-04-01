@@ -49,27 +49,6 @@ make
 
 <br/>
 
-## VKAX Documents
-
-### [[VKAX Test Net Guide]](https://vkaxcore.github.io/VKAX/doc/testnet-participation)
-
-### [[VKAX Command Line Reference]](https://vkaxcore.github.io/VKAX/doc/vkax-command-line-rpc-api-reference)
-
-### [[VKAX Remote Procedure Calls (RPC)]](https://vkaxcore.github.io/VKAX/doc/vkax-remote-procedure-calls)
-
-<br/>
-
-## VKAX Links
-
-### [[VKAX Explorer 1]](https://x.butkoin.com/network/vkax)
-
-### [[VKAX Explorer 2]](https://insight.vkax.org/insight/)
-
-### [[VKAX Commmunity Forum]](https://github.com/vkaxcore/VKAX/discussions)
-
-<br/>
-<br/>
-
 # VKAX Wallets
 [[built by github]](https://github.com/vkaxcore/VKAX/releases/tag/v100.10.3)
 
@@ -92,6 +71,27 @@ make
 ### [[Wildrig] (GPU)](https://github.com/andru-kun/wildrig-multi/releases)
 
 <br/>
+
+## VKAX Documents
+
+### [[VKAX Test Net Guide]](https://vkaxcore.github.io/VKAX/doc/testnet-participation)
+
+### [[VKAX Command Line Reference]](https://vkaxcore.github.io/VKAX/doc/vkax-command-line-rpc-api-reference)
+
+### [[VKAX Remote Procedure Calls (RPC)]](https://vkaxcore.github.io/VKAX/doc/vkax-remote-procedure-calls)
+
+<br/>
+
+## VKAX Links
+
+### [[VKAX Explorer 1]](https://x.butkoin.com/network/vkax)
+
+### [[VKAX Explorer 2]](https://insight.vkax.org/insight/)
+
+### [[VKAX Commmunity Forum]](https://github.com/vkaxcore/VKAX/discussions)
+
+<br/>
+
 <br/>
 
 ## About VKAX Version 100.10.X
