@@ -68,6 +68,8 @@ make
 
 ### [[VKAX Remote Procedure Calls (RPC)]](https://vkaxcore.github.io/VKAX/doc/vkax-remote-procedure-calls)
 
+### [[VKAX Whitepaper v1]](https://github.com/vkaxcore/VKAX/blob/master/doc/vkaxwhitepaper.pdf)
+
 <br/>
 
 ## VKAX Links
