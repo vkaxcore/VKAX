@@ -47,6 +47,8 @@ cd .. &&
 make
 ```
 
+<br/>
+
 ## VKAX Quick Links
 
 ### [[VKAX Command Line Reference]](https://vkaxcore.github.io/VKAX/doc/vkax-command-line-rpc-api-reference)
