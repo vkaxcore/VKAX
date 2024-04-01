@@ -14,16 +14,6 @@
 *"_With truth arises a hidden gift_"*
 <br/>
 
-> [!CAUTION]
-> Before downloading the main client consider participating in the test net first! At this time, this branch is experimental, untested and may be unstable!
-
-<br/>
-<br/>
-
-> [!NOTE]
-> VKAX is an experimental crypto currency, forked from DASH (and BITCOIN) but utilizing a CPU mining algorithm called MIKE. The VKAX community can ensure the algorithm remains asic resistant through hard forks in the future. 
-<br/>
-
 ### Quick Links
 [[VKAX Command Line Reference]](https://vkaxcore.github.io/vkax/doc/vkax-command-line-rpc-api-reference)
 <br/>
