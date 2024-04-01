@@ -1,20 +1,3 @@
-<head>
-<style>
-@media (prefers-color-scheme: dark) { 
-  body { 
-    background-color: black;
-    color: white; 
-  } 
-} 
-@media (prefers-color-scheme: light) { 
-  body { 
-    background-color: white;
-    color: black; 
-  } 
-} 
-</style>
-</head>
-
 ## **Vero Kum Abdite Xenium**
 
 
