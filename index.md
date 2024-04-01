@@ -72,7 +72,7 @@ make
 
 ## VKAX Links
 
-## [[VKAX Github]](https://github.com/vkaxcore/VKAX)
+### [[VKAX Github]](https://github.com/vkaxcore/VKAX)
 
 ### [[VKAX Explorer 1]](https://x.butkoin.com/network/vkax)
 
