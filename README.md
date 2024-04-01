@@ -29,6 +29,11 @@
 > VKAX is an experimental crypto currency, forked from DASH (and BITCOIN) but utilizing a CPU mining algorithm called MIKE. The VKAX community can ensure the algorithm remains asic resistant through hard forks in the future. 
 <br/>
 
+VKAX is an experimental, community owned cryptocurrency which mirrors parts of the open source [Bitcoin](https://github.com/bitcoin/bitcoin) and [Dash](https://github.com/dashpay/dash) code base. This means VKAX gains the power of the UTXO blockchain model as well as the benefits of masternodes – which allow qualified holders to earn a share of the block reward. The Mike mining algorithm is based on the asic-proof [Ghostrider](https://github.com/Raptor3um/raptoreum) which ensures that the VKAX network has one CPU, one vote. Through upgrades and hardforks, the community can ensure VKAX remains ASIC resistant. Anyone is free to participate and interact with the VKAX network – you are encouraged to start by reading the documents!
+
+<br/>
+
+
 ## Building VKAX
 
 ```
