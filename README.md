@@ -26,15 +26,46 @@
 > VKAX is an experimental crypto currency, forked from DASH (and BITCOIN) but utilizing a CPU mining algorithm called MIKE. The VKAX community can ensure the algorithm remains asic resistant through hard forks in the future. 
 <br/>
 
-# VKAX Quick Links
-[[VKAX Command Line Reference]](https://vkaxcore.github.io/VKAX/doc/vkax-command-line-rpc-api-reference)
-<br/>
-[[VKAX Remote Procedure Calls (RPC)]](https://vkaxcore.github.io/VKAX/doc/vkax-command-line-rpc-api-reference)
+## Building VKAX
+
+```
+git clone https://github.com/vkaxcore/VKAX &&
+cd VKAX/depends/ &&
+chmod +x conf* &&
+make &&
+cd .. &&
+./autogen.sh &&
+./configure --prefix=$PWD/depends/x86_64-pc-linux-gnu/ &&
+make
+```
+
+## VKAX Quick Links
+
+### [[VKAX Command Line Reference]](https://vkaxcore.github.io/VKAX/doc/vkax-command-line-rpc-api-reference)
+
+### [[VKAX Remote Procedure Calls (RPC)]](https://vkaxcore.github.io/VKAX/doc/vkax-remote-procedure-calls)
+
+### [[VKAX Explorer 1]](https://x.butkoin.com/network/vkax)
+
+### [[VKAX Explorer 2]](https://insight.vkax.org/insight/)
+
+### [[VKAX Commmunity Forum]](https://github.com/vkaxcore/VKAX/discussions)
+
+### [[VKAX Test Net Guide]](https://vkaxcore.github.io/VKAX/doc/testnet-participation)
+
 <br/>
 
-## Commmunity Forum
+## VKAX Wallets
+[[built by github]](https://github.com/vkaxcore/VKAX/releases/tag/v100.10.3)
 
-Please join the [[Discussions]](https://github.com/vkaxcore/vkax/discussions) on github to draft proposals, submit commentary, or to request help
+### [[WINDOWS]](https://github.com/vkaxcore/VKAX/releases/download/v100.10.3/vkax-win-.zip)
+
+### [[MAC]](https://github.com/vkaxcore/VKAX/releases/download/v100.10.3/vkax-macos12-.zip)
+
+### [[UBUNTU]](https://github.com/vkaxcore/VKAX/releases/download/v100.10.3/vkax-ubuntu22-.zip)
+
+### [[RASPBERRY PI]](https://github.com/vkaxcore/VKAX/releases/download/v100.10.3/vkax-ubuntu22-arm64-.zip)
+
 
 <br/>
 
@@ -45,12 +76,14 @@ A Crypto Currency **Hard Fork** is when the code of a coin is changed in a subst
 <br/>
 <br/>
 
-# Participating in the VKAX Test Net
+# Testing
+
+## Participating in the VKAX Test Net
 > [!TIP]
 > Learning how to use the VKAX **Test Net** will prepare you to do things like mine solo or run a masternode on the **Main Net**
 <br/>
 
-## Getting Ubuntu 
+### Getting Ubuntu 
 Ubuntu is an open source system which is easy to use, but still powerful and stable. This means that an entire operating system can function with as little as **1 cpu** core and less than **1 gig** of ram! To participate in the VKAX **Test Net** you will need an operational [**Ubuntu**](https://ubuntu.com/) system - either locally or with a cloud service. It is possible for anyone to run a Ubuntu system without difficulty or cost.
 
 Some local examples include, a **[Raspberry Pi](https://www.raspberrypi.com/)**, old hardware like a **[Laptop with Broken Screen](https://www.ebay.com/sch/i.html?_nkw=laptop+broken+screen)**, a **[Discarded PC](https://www.goodwillfinds.com/search/?q=computer)** - or even from within your main PC using [**Virtualbox**](https://duckduckgo.com/?q=how+to+install+ubuntu+on+virtual+box) or [**Vmware Workstation**](https://duckduckgo.com/?q=how+to+install+ubuntu+on+vmware+workstation)
