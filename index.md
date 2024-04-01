@@ -47,12 +47,17 @@ make
 
 <br/>
 
+## VKAX Documents
 
-## VKAX Links
+### [[VKAX Test Net Guide]](https://vkaxcore.github.io/VKAX/doc/testnet-participation)
 
 ### [[VKAX Command Line Reference]](https://vkaxcore.github.io/VKAX/doc/vkax-command-line-rpc-api-reference)
 
 ### [[VKAX Remote Procedure Calls (RPC)]](https://vkaxcore.github.io/VKAX/doc/vkax-remote-procedure-calls)
+
+<br/>
+
+## VKAX Links
 
 ### [[VKAX Explorer 1]](https://x.butkoin.com/network/vkax)
 
@@ -60,7 +65,7 @@ make
 
 ### [[VKAX Commmunity Forum]](https://github.com/vkaxcore/VKAX/discussions)
 
-### [[VKAX Test Net Guide]](https://vkaxcore.github.io/VKAX/doc/testnet-participation)
+
 
 
 <br/>
