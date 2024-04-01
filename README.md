@@ -98,8 +98,8 @@ sudo su vkax-test
 After installing the prerequisites and becoming the vkax-test user, we can **build the daemon from source**
 ```
 cd &&
-git clone https://github.com/vkaxcore/vkax &&
-cd vkax/depends/ &&
+git clone https://github.com/vkaxcore/VKAX &&
+cd VKAX/depends/ &&
 chmod +x conf* &&
 make NO_QT=1 &&
 cd .. &&
@@ -152,9 +152,9 @@ sudo su
 
 **Clean** up the build files
 ```
-mv /home/vkax-test/vkax/src/vkax-cli /home/vkax-test/vkax/src/vkaxd /home/vkax-test/.vkaxcore/ &&
+mv /home/vkax-test/VKAX/src/vkax-cli /home/vkax-test/VKAX/src/vkaxd /home/vkax-test/.vkaxcore/ &&
 chmod 777 /home/vkax-test/.vkaxcore &&
-rm -R /home/vkax-test/vkax/
+rm -R /home/vkax-test/VKAX/
 ```
 <br/>
 
