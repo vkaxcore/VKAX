@@ -33,7 +33,7 @@ make
 ```
 
 
-## Prebuilt VKAX Wallets
+## VKAX Wallets
 [[built by github]](https://github.com/vkaxcore/VKAX/releases/tag/v100.10.3)
 
 ### [[WINDOWS]](https://github.com/vkaxcore/VKAX/releases/download/v100.10.3/vkax-win-.zip)
