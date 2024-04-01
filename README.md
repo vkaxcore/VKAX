@@ -1,4 +1,4 @@
-# [**VKAX**](https://vkaxcore.github.io/VKAX/)
+# [VKAX](https://vkaxcore.github.io/VKAX/)
 
 
 ## **Vero Kum Abdite Xenium**
