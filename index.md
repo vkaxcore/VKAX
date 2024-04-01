@@ -15,16 +15,16 @@
 <br/>
 
 ### Quick Links
-[[VKAX Command Line Reference]](https://vkaxcore.github.io/vkax/doc/vkax-command-line-rpc-api-reference)
+[[VKAX Command Line Reference]](https://vkaxcore.github.io/VKAX/doc/vkax-command-line-rpc-api-reference)
 <br/>
-[[VKAX CLI Arguments & Commands]](https://vkaxcore.github.io/vkax/doc/vkax-cli-wallet-arguments-and-commands)
+[[VKAX CLI Arguments & Commands]](https://vkaxcore.github.io/VKAX/doc/vkax-cli-wallet-arguments-and-commands)
 <br/>
-[[VKAX Remote Procedure Calls (RPC)]](https://vkaxcore.github.io/vkax/doc/vkax-remote-procedure-calls)
+[[VKAX Remote Procedure Calls (RPC)]](https://vkaxcore.github.io/VKAX/doc/vkax-remote-procedure-calls)
 <br/>
 
 ### Commmunity Forum
 
-Please join the [[Discussion]](https://github.com/vkaxcore/vkax/discussions) on github to draft proposals, submit commentary, or to request help
+Please join the [[Discussion]](https://github.com/vkaxcore/VKAX/discussions) on github to draft proposals, submit commentary, or to request help
 
 <br/>
 
