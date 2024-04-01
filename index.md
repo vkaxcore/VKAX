@@ -23,12 +23,6 @@
 ## VKAX Wallet
 [[VKAX binaries are built independently by github action]](https://github.com/vkaxcore/VKAX/releases/tag/v100.10.3)
 
-### Operating Systems
-[[WINDOWS]](https://github.com/vkaxcore/VKAX/releases/download/v100.10.3/vkax-win-.zip)
-[[MAC]](https://github.com/vkaxcore/VKAX/releases/download/v100.10.3/vkax-macos12-.zip)
-[[UBUNTU]](https://github.com/vkaxcore/VKAX/releases/download/v100.10.3/vkax-ubuntu22-.zip)
-[[UBUNTU (Raspberry Pi)]](https://github.com/vkaxcore/VKAX/releases/download/v100.10.3/vkax-ubuntu22-arm64-.zip)
-
 <br/>
 <br/>
 
@@ -43,7 +37,19 @@
 <br/>
 <br/>
 
-### VKAX Commmunity Forum
+### Operating Systems
+[[WINDOWS]](https://github.com/vkaxcore/VKAX/releases/download/v100.10.3/vkax-win-.zip)
+<br/>
+[[MAC]](https://github.com/vkaxcore/VKAX/releases/download/v100.10.3/vkax-macos12-.zip)
+<br/>
+[[UBUNTU]](https://github.com/vkaxcore/VKAX/releases/download/v100.10.3/vkax-ubuntu22-.zip)
+<br/>
+[[RASPBERRY PI]](https://github.com/vkaxcore/VKAX/releases/download/v100.10.3/vkax-ubuntu22-arm64-.zip)
+
+<br/>
+<br/>
+
+## VKAX Commmunity Forum
 
 [[Join the Discussion on Github]](https://github.com/vkaxcore/VKAX/discussions)
 
@@ -53,7 +59,7 @@
 <br/>
 
 
-## Getting Started
+## Getting Started With VKAX
 [[VKAX Test Net Guide]](https://vkaxcore.github.io/VKAX/doc/testnet-participation)
 
 <br/>
