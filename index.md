@@ -44,8 +44,6 @@
 
 ### [[VKAX Explorer 2]](https://insight.vkax.org/insight/)
 
-### [VKAX Commmunity Forum]
-
 ### [[VKAX Commmunity Forum]](https://github.com/vkaxcore/VKAX/discussions)
 
 ### [[VKAX Test Net Guide]](https://vkaxcore.github.io/VKAX/doc/testnet-participation)
