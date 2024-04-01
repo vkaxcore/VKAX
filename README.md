@@ -28,7 +28,7 @@ A Crypto Currency **Hard Fork** is when the code of a coin is changed in a subst
 
 ### Commmunity Forum
 
-Please use the [Discussions](https://github.com/realsetvin/vkax/discussions) tab to draft proposals, submit commentary, or to request help
+Please use the [Discussions](https://github.com/vkaxcore/vkax/discussions) tab to draft proposals, submit commentary, or to request help
 
 <br/>
 
@@ -37,11 +37,11 @@ Please use the [Discussions](https://github.com/realsetvin/vkax/discussions) tab
 <br/>
 
 ### Quick Links
-[VKAX Legacy Command Line Reference](https://github.com/realsetvin/vkax/blob/master/doc/vkax-command-line-rpc-api-reference.md)
+[VKAX Legacy Command Line Reference](https://github.com/vkaxcore/vkax/blob/master/doc/vkax-command-line-rpc-api-reference.md)
 <br/>
-[VKAX CLI Arguments & Commands](https://github.com/realsetvin/vkax/blob/master/doc/vkax-cli-wallet-arguments-and-commands.md)
+[VKAX CLI Arguments & Commands](https://github.com/vkaxcore/vkax/blob/master/doc/vkax-cli-wallet-arguments-and-commands.md)
 <br/>
-[VKAX Remote Procedure Calls (RPC)](https://github.com/realsetvin/vkax/blob/master/doc/vkax-remote-procedure-calls.md)
+[VKAX Remote Procedure Calls (RPC)](https://github.com/vkaxcore/vkax/blob/master/doc/vkax-remote-procedure-calls.md)
 <br/>
 
 
