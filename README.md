@@ -1,11 +1,15 @@
 # **VKAX**
-<br/>
+
 
 ## **Vero Kum Abdite Xenium**
+
+
+*"_In truth we arise with a hidden gift_"*
+
+<br/>
 <br/>
 
-*"_With truth arises a hidden gift_"*
-<br/>
+
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://github.com/vkaxcore/VKAX/blob/master/vkax_logo/vkax2b508.png?raw=true">
@@ -19,7 +23,6 @@
 > [!CAUTION]
 > Before downloading the main client consider participating in the test net first! At this time, this branch is experimental, untested and may be unstable!
 
-<br/>
 <br/>
 
 > [!NOTE]
@@ -67,6 +70,16 @@ make
 ### [[RASPBERRY PI]](https://github.com/vkaxcore/VKAX/releases/download/v100.10.3/vkax-ubuntu22-arm64-.zip)
 
 
+<br/>
+
+## Mining VKAX
+### [[SRBMiner] (CPU)](https://github.com/doktor83/SRBMiner-Multi/releases)
+
+### [[XmrigCC] (CPU)](https://github.com/Bendr0id/xmrigCC/releases/tag/3.4.0)
+
+### [[Wildrig] (GPU)](https://github.com/andru-kun/wildrig-multi/releases)
+
+<br/>
 <br/>
 
 ## About VKAX Version 100.10.X
