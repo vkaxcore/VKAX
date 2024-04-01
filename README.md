@@ -1,10 +1,19 @@
-**VKAX**
+# **VKAX**
 <br/>
 
-**Vero Kum Abdite Xenium**
+## **Vero Kum Abdite Xenium**
 <br/>
 
 *"_With truth arises a hidden gift_"*
+<br/>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://github.com/vkaxcore/VKAX/blob/master/vkax_logo/vkax2b508.png?raw=true">
+  <source media="(prefers-color-scheme: light)" srcset="https://github.com/vkaxcore/VKAX/blob/master/vkax_logo/vkax2w508.png?raw=true">
+  <img alt="Shows a black logo in light color mode and a white one in dark color mode." src="https://user-images.githubusercontent.com/25423296/163456779-a8556205-d0a5-45e2-ac17-42d089e3c3f8.png">
+</picture>
+
+<br/>
 <br/>
 
 > [!CAUTION]
@@ -17,21 +26,19 @@
 > VKAX is an experimental crypto currency, forked from DASH (and BITCOIN) but utilizing a CPU mining algorithm called MIKE. The VKAX community can ensure the algorithm remains asic resistant through hard forks in the future. 
 <br/>
 
-### Quick Links
-[[VKAX Command Line Reference]](https://vkaxcore.github.io/vkax/doc/vkax-command-line-rpc-api-reference)
+# VKAX Quick Links
+[[VKAX Command Line Reference]](https://vkaxcore.github.io/VKAX/doc/vkax-command-line-rpc-api-reference)
 <br/>
-[[VKAX CLI Arguments & Commands]](https://vkaxcore.github.io/vkax/doc/vkax-cli-wallet-arguments-and-commands)
-<br/>
-[[VKAX Remote Procedure Calls (RPC)]](https://vkaxcore.github.io/vkax/doc/vkax-remote-procedure-calls)
+[[VKAX Remote Procedure Calls (RPC)]](https://vkaxcore.github.io/VKAX/doc/vkax-command-line-rpc-api-reference)
 <br/>
 
-### Commmunity Forum
+## Commmunity Forum
 
 Please join the [[Discussions]](https://github.com/vkaxcore/vkax/discussions) on github to draft proposals, submit commentary, or to request help
 
 <br/>
 
-### About Version 100.10.X
+## About VKAX Version 100.10.X
 
 A Crypto Currency **Hard Fork** is when the code of a coin is changed in a substantial way, requiring a majority network consensus to achieve. Much like a civil war, this process can be contentious or upsetting for some. Many active network participants must be pressed into service to signal their vote. By running a client from this branch and keeping it online, you are signaling to the network that you **Vote in Favor** of the changes proposed by this branch. A successful **Hard Fork** will be achieved if enough online clients agree.
 
