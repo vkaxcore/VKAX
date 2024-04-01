@@ -35,7 +35,7 @@
 
 
 ## Getting Started
-[[[VKAX Test Net Guide]]](https://vkaxcore.github.io/vkax/doc/testnet-participation)
+[[VKAX Test Net Guide]](https://vkaxcore.github.io/VKAX/doc/testnet-participation)
 
 <br/>
 
