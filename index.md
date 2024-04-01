@@ -1,3 +1,8 @@
+<meta 
+  name    = "color-scheme" 
+  content = "light dark"
+/>
+
 **VKAX**
 <br/>
 
