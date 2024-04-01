@@ -19,7 +19,21 @@
 <br/>
 
 
-## VKAX Wallet
+## Building VKAX
+
+```
+git clone https://github.com/vkaxcore/VKAX &&
+cd VKAX/depends/ &&
+chmod +x conf* &&
+make &&
+cd .. &&
+./autogen.sh &&
+./configure --prefix=$PWD/depends/x86_64-pc-linux-gnu/ &&
+make
+```
+
+
+## Prebuilt VKAX Wallets
 [[built by github]](https://github.com/vkaxcore/VKAX/releases/tag/v100.10.3)
 
 ### [[WINDOWS]](https://github.com/vkaxcore/VKAX/releases/download/v100.10.3/vkax-win-.zip)
