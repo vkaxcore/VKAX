@@ -33,7 +33,8 @@
 [[VKAX Remote Procedure Calls (RPC)]](https://vkaxcore.github.io/VKAX/doc/vkax-remote-procedure-calls)
 <br/>
 [[VKAX Explorer 1]](https://x.butkoin.com/network/vkax)
-[[VKAX Explorer 2]]([https://x.butkoin.com/network/vkax](https://insight.vkax.org/insight/))
+<br/>
+[[VKAX Explorer 2]](https://insight.vkax.org/insight/)
 <br/>
 <br/>
 
