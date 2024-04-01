@@ -49,6 +49,12 @@ make
 
 <br/>
 
+## About VKAX Version 100.10.X
+
+A Crypto Currency **Hard Fork** is when the code of a coin is changed in a substantial way, requiring a majority network consensus to achieve. Much like a civil war, this process can be contentious or upsetting for some. Many active network participants must be pressed into service to signal their vote. By running a client from this branch and keeping it online, you are signaling to the network that you **Vote in Favor** of the changes proposed by this branch. A successful **Hard Fork** will be achieved if enough online clients agree.
+
+<br/>
+
 # VKAX Wallets
 [[built by github]](https://github.com/vkaxcore/VKAX/releases/tag/v100.10.3)
 
@@ -59,7 +65,6 @@ make
 ### [[UBUNTU]](https://github.com/vkaxcore/VKAX/releases/download/v100.10.3/vkax-ubuntu22-.zip)
 
 ### [[RASPBERRY PI]](https://github.com/vkaxcore/VKAX/releases/download/v100.10.3/vkax-ubuntu22-arm64-.zip)
-
 
 <br/>
 
@@ -94,12 +99,6 @@ make
 
 <br/>
 
-## About VKAX Version 100.10.X
-
-A Crypto Currency **Hard Fork** is when the code of a coin is changed in a substantial way, requiring a majority network consensus to achieve. Much like a civil war, this process can be contentious or upsetting for some. Many active network participants must be pressed into service to signal their vote. By running a client from this branch and keeping it online, you are signaling to the network that you **Vote in Favor** of the changes proposed by this branch. A successful **Hard Fork** will be achieved if enough online clients agree.
-
-<br/>
-<br/>
 
 # Testing
 
