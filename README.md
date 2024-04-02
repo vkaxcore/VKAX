@@ -34,7 +34,8 @@ VKAX is an experimental, community owned cryptocurrency which mirrors parts of t
 <br/>
 
 # Emission Schedule
-![image](https://github.com/vkaxcore/VKAX/assets/117243445/6a35f3e5-6639-4d07-b124-3ebd5777cdc8)
+![image](https://github.com/vkaxcore/VKAX/assets/117243445/3784922f-07d4-4dc0-9947-2908001c8538)
+
 
 <br/>
 
