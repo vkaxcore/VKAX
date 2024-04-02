@@ -62,7 +62,7 @@ make
 
 ## VKAX Documents
 
-### [[VKAX Whitepaper v1]](https://github.com/vkaxcore/VKAX/blob/master/doc/vkaxwhitepaper.pdf)
+### [[VKAX Whitepaper v1]](https://vkaxcore.github.io/VKAX/doc/vkaxwhitepaper.pdf)
 
 ### [[VKAX Test Net Guide]](https://vkaxcore.github.io/VKAX/doc/testnet-participation)
 
