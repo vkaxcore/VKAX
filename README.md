@@ -35,7 +35,7 @@ VKAX is an experimental, community owned cryptocurrency which mirrors parts of t
 <br/>
 
 ## Building VKAX
-
+(tested for ubuntu)
 ```
 git clone https://github.com/vkaxcore/VKAX &&
 cd VKAX/depends/ &&
@@ -47,11 +47,6 @@ cd .. &&
 make
 ```
 
-<br/>
-
-## About VKAX Version 100.10.X
-
-A Crypto Currency **Hard Fork** is when the code of a coin is changed in a substantial way, requiring a majority network consensus to achieve. Much like a civil war, this process can be contentious or upsetting for some. Many active network participants must be pressed into service to signal their vote. By running a client from this branch and keeping it online, you are signaling to the network that you **Vote in Favor** of the changes proposed by this branch. A successful **Hard Fork** will be achieved if enough online clients agree.
 
 <br/>
 
@@ -69,9 +64,9 @@ A Crypto Currency **Hard Fork** is when the code of a coin is changed in a subst
 <br/>
 
 ## Mining VKAX
-### [[SRBMiner] (CPU)](https://github.com/doktor83/SRBMiner-Multi/releases)
-
 ### [[XmrigCC] (CPU)](https://github.com/Bendr0id/xmrigCC/releases/tag/3.4.0)
+
+### [[SRBMiner] (CPU)](https://github.com/doktor83/SRBMiner-Multi/releases)
 
 ### [[Wildrig] (GPU)](https://github.com/andru-kun/wildrig-multi/releases)
 
@@ -384,17 +379,15 @@ To **Stop Mining**
 ## More VKAX Commands
 [VKAX Legacy Command Line Reference](https://github.com/vkaxcore/vkax/blob/master/doc/vkax-command-line-rpc-api-reference.md)
 <br/>
-[VKAX CLI Arguments & Commands](https://github.com/vkaxcore/vkax/blob/master/doc/vkax-cli-wallet-arguments-and-commands.md)
-<br/>
-[VKAX Remote Procedure Calls (RPC)](https://github.com/vkaxcore/vkax/blob/master/doc/vkax-remote-procedure-calls.md)
 
+[VKAX Remote Procedure Calls (RPC)](https://github.com/vkaxcore/vkax/blob/master/doc/vkax-remote-procedure-calls.md)
 <br/> 
 
 ## Conclusion
 
 Congrats! You are now running a node on the **VKAX Test Net**
 
-After accumulating **1 000 000** coins you will be eligable to create a **masternode**
+After accumulating **10 000 000** coins you will be eligable to create a **masternode**
 
 Once you are become familiar with the **Test Net** envoirnment, you should be ready to confidently use the VKAX **Main Net**. Good luck!
 
