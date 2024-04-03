@@ -66,9 +66,13 @@ make
 ## Mining VKAX
 ### [[XmrigCC] (CPU)](https://github.com/Bendr0id/xmrigCC/releases/tag/3.4.0)
 
+### [[Cpuminer Rplant] (CPU)](https://github.com/rplant8/cpuminer-opt-rplant/releases)
+
 ### [[SRBMiner] (CPU)](https://github.com/doktor83/SRBMiner-Multi/releases)
 
 ### [[Wildrig] (GPU)](https://github.com/andru-kun/wildrig-multi/releases)
+
+
 
 <br/>
 
