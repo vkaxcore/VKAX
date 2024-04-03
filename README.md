@@ -87,13 +87,16 @@ make
 
 ## VKAX Links
 
+
+### [[VKAX Website]](https://vkaxcore.github.io/VKAX/)
+
 ### [[VKAX Explorer 1]](https://x.butkoin.com/network/vkax)
 
 ### [[VKAX Explorer 2]](https://insight.vkax.org/insight/)
 
 ### [[VKAX Commmunity Forum]](https://github.com/vkaxcore/VKAX/discussions)
 
-### [[VKAX Website]](https://vkaxcore.github.io/VKAX/)
+### [[VKAX Coin Paprika]](https://coinpaprika.com/coin/vkax-vkax/)
 
 ### [[VKAX Mining Pool Stats]](https://miningpoolstats.stream/vkax)
 
@@ -105,7 +108,6 @@ make
 
 <br/>
 
-<br/>
 
 
 # Testing
