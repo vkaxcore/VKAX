@@ -28,11 +28,7 @@ VKAX is an experimental, community owned cryptocurrency which mirrors parts of t
 
 <br/>
 
-# Emission Schedule
-![image](https://github.com/vkaxcore/VKAX/blob/master/VKAXemission.png?raw=true)
 
-
-<br/>
 
 ## Building VKAX
 (tested for ubuntu)
@@ -112,7 +108,10 @@ make
 
 <br/>
 
+# Emission Schedule
+![image](https://github.com/vkaxcore/VKAX/blob/master/VKAXemission.png?raw=true)
 
+<br/>
 
 # Testing
 
