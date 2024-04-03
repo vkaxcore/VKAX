@@ -100,6 +100,14 @@ A Crypto Currency **Hard Fork** is when the code of a coin is changed in a subst
 
 ### [[VKAX Website]](https://vkaxcore.github.io/VKAX/)
 
+### [[VKAX Mining Pool Stats]](https://miningpoolstats.stream/vkax)
+
+### [[VKAX Mining Rig Rental]](https://www.miningrigrentals.com/rigs/mike)
+
+### [[CPU Mining Reddit]](https://www.reddit.com/r/cpumining/)
+
+### [[CPU Mining Discord]](https://discord.gg/AKbJJqMJ7n)
+
 <br/>
 
 <br/>
