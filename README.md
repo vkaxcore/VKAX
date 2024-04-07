@@ -198,9 +198,9 @@ When it is **complete** it should look like this
 ### Write VKAX.conf
 This will **Write** default settings for your VKAX testnet node.
 ```
-mkdir ~/.vkaxcore/
-touch ~/.vkaxcore/vkax.conf &&
-echo -e "rpcuser=vkaxtestnet\nrpcpassword=changemepassword123\nmaxconnections=256\nrpcallowip=127.0.0.1\ntestnet=1\nlisten=1\nserver=1\ndaemon=1\nusehd=1\n" >> ~/.vkaxcore/vkax.conf
+mkdir /home/vkax-test/.vkaxcore/
+touch /home/vkax-test/.vkaxcore/vkax.conf &&
+echo -e "rpcuser=vkaxtestnet\nrpcpassword=changemepassword123\nmaxconnections=256\nrpcallowip=127.0.0.1\ntestnet=1\nlisten=1\nserver=1\ndaemon=1\nusehd=1\n" >> /home/vkax-test/.vkaxcore/vkax.conf
 ```
 
 <br/>
