@@ -90,6 +90,8 @@ make
 
 ### [[VKAX Website]](https://vkaxcore.github.io/VKAX/)
 
+### [[VKAX Twitter (X)]](https://twitter.com/vkaxcore)
+
 ### [[VKAX Explorer 1]](https://x.butkoin.com/network/vkax)
 
 ### [[VKAX Explorer 2]](https://insight.vkax.org/insight/)
