@@ -92,9 +92,11 @@ make
 
 ### [[VKAX Twitter (X)]](https://twitter.com/vkaxcore)
 
-### [[VKAX Explorer 1]](https://x.butkoin.com/network/vkax)
+### [[VKAX Explorer]](http://explorer.vkax.net/)
 
-### [[VKAX Explorer 2]](https://insight.vkax.org/insight/)
+### [[VKAX Insight Explorer]](https://insight.vkax.org/insight/)
+
+### [[VKAX Backup Explorer]](https://x.butkoin.com/network/vkax)
 
 ### [[VKAX Commmunity Forum]](https://github.com/vkaxcore/VKAX/discussions)
 
