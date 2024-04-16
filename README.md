@@ -68,7 +68,7 @@ make
 
 <br/>
 
-# VKAX Wallets
+## VKAX Wallets
 [[built by github]](https://github.com/vkaxcore/VKAX/actions/runs/8527185200/)
 
 ### [[WINDOWS]](https://github.com/vkaxcore/VKAX/actions/runs/8527185200/artifacts/1378669472)
