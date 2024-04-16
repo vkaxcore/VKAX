@@ -43,13 +43,16 @@ VKAX is an experimental, community owned cryptocurrency which mirrors parts of t
 ## Building VKAX
 (tested for ubuntu)
 
+<br/>
+
 Install dependencies
 ```
 sudo apt-get install curl build-essential libtool autotools-dev automake pkg-config python3 bsdmainutils bison
 ```
+
 <br/>
 
-Build from source
+Build from source (will take a few minutes)
 ```
 git clone https://github.com/vkaxcore/VKAX &&
 cd VKAX/depends/ &&
