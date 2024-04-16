@@ -28,7 +28,17 @@ VKAX is an experimental, community owned cryptocurrency which mirrors parts of t
 
 <br/>
 
+## VKAX Links
 
+
+### [[VKAX Website]](https://vkaxcore.github.io/VKAX/)
+
+### [[VKAX Twitter (X)]](https://twitter.com/vkaxcore)
+
+### [[VKAX Explorer]](http://explorer.vkax.net/)
+
+
+<br/>
 
 ## Building VKAX
 (tested for ubuntu)
@@ -92,14 +102,7 @@ make
 
 <br/>
 
-## VKAX Links
-
-
-### [[VKAX Website]](https://vkaxcore.github.io/VKAX/)
-
-### [[VKAX Twitter (X)]](https://twitter.com/vkaxcore)
-
-### [[VKAX Explorer]](http://explorer.vkax.net/)
+## More VKAX Links
 
 ### [[VKAX Insight Explorer]](https://insight.vkax.org/insight/)
 
