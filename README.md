@@ -52,7 +52,7 @@ sudo apt-get install curl build-essential libtool autotools-dev automake pkg-con
 
 <br/>
 
-Build from source (will take a few minutes)
+Build from source 
 ```
 git clone https://github.com/vkaxcore/VKAX &&
 cd VKAX/depends/ &&
@@ -63,6 +63,7 @@ cd .. &&
 ./configure --prefix=$PWD/depends/x86_64-pc-linux-gnu/ &&
 make
 ```
+(will take a few minutes)
 
 
 <br/>
