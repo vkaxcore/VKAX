@@ -271,7 +271,7 @@ To **Stop Mining**
 
 Congrats! You are now running a node on the **VKAX Test Net**
 
-After accumulating **1 000 000** coins you will be eligable to create a **masternode**
+After accumulating **10 000 000** coins you will be eligable to create a **masternode**
 
 Once you are become familiar with the **Test Net** envoirnment, you should be ready to confidently use the VKAX **Main Net**. Good luck!
 
