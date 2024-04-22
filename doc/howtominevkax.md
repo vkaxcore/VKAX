@@ -31,19 +31,23 @@ of your rigs and payments, you can visit the pools wallet page. Congrats! You ar
 mining!
 
 ## VKAX Mining Links
-VKAX Windows Wallet (github.com/vkaxcore/VKAX/releases)
-XmrigCC Windows CPU Miner (github.com/Bendr0id/xmrigCC)
+VKAX Windows Wallet (github.com/vkaxcore/VKAX/releases) <br/>
+XmrigCC Windows CPU Miner (github.com/Bendr0id/xmrigCC) <br/>
+<br/>
 
 ## More Resources
-CPU Mining Reddit (reddit.com/r/cpumining)
-CPU Mining Discord (discord.gg/hKpg6dvR5s)
+CPU Mining Reddit (reddit.com/r/cpumining) <br/>
+CPU Mining Discord (discord.gg/hKpg6dvR5s) <br/>
+<br/>
 
 ## Trade Coins
-XeggeX Exchange (xeggex.com/asset/VKAX)
-
+XeggeX Exchange (xeggex.com/asset/VKAX) <br/>
+<br/>
+ 
 This guide is meant to teach individuals about proof of work Altcoins — this is not an endorsement or recommendation to
 purchase any specific crypto currency. Trading crypto currencies can involve significant risk, you are advised to learn basics
-like self-custody, before spending money. Always do your own research! Affiliate links may be used
+like self-custody, before spending money. Always do your own research! Affiliate links may be used <br/>
+
 
 ## PDF DOWNLOAD 
 [howtmineminvkax.pdf](https://github.com/vkaxcore/VKAX/files/15062366/howtmineminvkax.pdf)
