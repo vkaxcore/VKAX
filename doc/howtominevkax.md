@@ -1,5 +1,6 @@
 ## How to Mine VKAX
 
+
 Mining crypto currencies can be an easy way to put your idle technology to work by
 earning part of the VKAX block rewards. Using a home computer or even a laptop, anyone
 can begin mining!
