@@ -70,13 +70,13 @@ make
 ## VKAX Wallets
 [[built by github]](https://github.com/vkaxcore/VKAX/actions/runs/8527185200/)
 
-### [[WINDOWS]](https://github.com/vkaxcore/VKAX/actions/runs/8527185200/artifacts/1378669472)
+### [[WINDOWS]](https://github.com/vkaxcore/VKAX/releases/download/v100.10.4/vkax-win-.zip)
 
-### [[MAC]](https://github.com/vkaxcore/VKAX/actions/runs/8527185200/artifacts/1378669904)
+### [[MAC]](https://github.com/vkaxcore/VKAX/releases/download/v100.10.4/vkax-macos12-.zip)
 
-### [[UBUNTU]](https://github.com/vkaxcore/VKAX/actions/runs/8527185200/artifacts/1378652395)
+### [[UBUNTU]](https://github.com/vkaxcore/VKAX/releases/download/v100.10.4/vkax-ubuntu22-.zip)
 
-### [[RASPBERRY PI]](https://github.com/vkaxcore/VKAX/actions/runs/8527185200/artifacts/1378666236)
+### [[RASPBERRY PI]](https://github.com/vkaxcore/VKAX/releases/download/v100.10.4/vkax-ubuntu22-arm64-.zip)
 
 
 <br/>
