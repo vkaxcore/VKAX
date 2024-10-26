@@ -35,7 +35,6 @@ VKAX is an experimental, community owned cryptocurrency which mirrors parts of t
 
 ### [[VKAX Explorer]](https://explore.vkax.net/)
 
-### [[VKAX Twitter (X)]](https://twitter.com/vkaxcore)
 
 <br/>
 
@@ -70,7 +69,7 @@ make
 ## VKAX Wallets
 [[built by github]](https://github.com/vkaxcore/VKAX/actions/runs/8527185200/)
 
-### [[WINDOWS]](https://github.com/vkaxcore/VKAX/releases/download/v100.10.4/vkax-win-.zip)
+### [[WINDOWS]](https://github.com/vkaxcore/VKAX/releases/download/v100.10.4-windows/VKAX.Setup.exe)
 
 ### [[MAC]](https://github.com/vkaxcore/VKAX/releases/download/v100.10.4/vkax-macos12-.zip)
 
@@ -115,6 +114,8 @@ make
 
 ### [[VKAX Commmunity Forum]](https://github.com/vkaxcore/VKAX/discussions)
 
+### [[VKAX Coin Gecko]](https://www.coingecko.com/coins/vkax)
+
 ### [[VKAX Coin Paprika]](https://coinpaprika.com/coin/vkax-vkax/)
 
 ### [[VKAX Mining Pool Stats]](https://miningpoolstats.stream/vkax)
@@ -124,6 +125,12 @@ make
 ### [[CPU Mining Reddit]](https://www.reddit.com/r/cpumining/)
 
 ### [[CPU Mining Discord]](https://discord.gg/AKbJJqMJ7n)
+
+## Contact
+
+### [[VKAX Twitter (X)]](https://twitter.com/vkaxcore)
+
+### dev@vkax.net
 
 <br/>
 
