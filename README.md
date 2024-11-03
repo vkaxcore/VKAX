@@ -45,7 +45,7 @@ VKAX is an experimental, community owned cryptocurrency which mirrors parts of t
 
 Install dependencies
 ```
-sudo apt-get install curl build-essential libtool autotools-dev automake pkg-config python3 bsdmainutils bison
+sudo apt-get install curl build-essential libtool autotools-dev automake pkg-config python3 bsdmainutils bison build-essential libtool autotools-dev automake pkg-config libssl-dev libevent-dev bsdmainutils libboost-system-dev libboost-filesystem-dev libboost-chrono-dev libboost-program-options-dev libboost-test-dev libboost-thread-dev g++-aarch64-linux-gnu  g++-mingw-w64-x86-64 mingw-w64-x86-64-dev gperf zip git curl libevent-dev
 ```
 
 <br/>
