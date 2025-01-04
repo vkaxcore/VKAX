@@ -108,11 +108,9 @@ make
 
 ## More VKAX Links
 
-### [[VKAX Insight Explorer]](https://insight.vkax.org/insight/)
+### [[VKAX Explorer]](https://explore.vkax.net/)
 
-### [[VKAX Backup Explorer]](https://x.butkoin.com/network/vkax)
-
-### [[VKAX Commmunity Forum]](https://github.com/vkaxcore/VKAX/discussions)
+### [[VKAX BitcoinTalk Forum]](https://bitcointalk.org/index.php?topic=5414883)
 
 ### [[VKAX Coin Gecko]](https://www.coingecko.com/coins/vkax)
 
@@ -120,15 +118,15 @@ make
 
 ### [[VKAX Mining Pool Stats]](https://miningpoolstats.stream/vkax)
 
-### [[VKAX Mining Rig Rental]](https://www.miningrigrentals.com/rigs/mike)
 
-### [[CPU Mining Reddit]](https://www.reddit.com/r/cpumining/)
+## Socials
 
-### [[CPU Mining Discord]](https://discord.gg/AKbJJqMJ7n)
-
-## Contact
+### [[VKAX Discord]](https://discord.gg/C3sfPFB3)
 
 ### [[VKAX Twitter (X)]](https://twitter.com/vkaxcore)
+
+
+## Contact
 
 ### dev@vkax.net
 
