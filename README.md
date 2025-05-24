@@ -24,7 +24,17 @@
 > VKAX is forked from DASH and BITCOIN, utilizing a CPU mining algorithm based on GHOSTRIDER called MIKE
 <br/>
 
-VKAX is an experimental, community owned cryptocurrency which mirrors parts of the open source [Bitcoin](https://github.com/bitcoin/bitcoin) and [Dash](https://github.com/dashpay/dash) code base. This means VKAX gains the power of the UTXO blockchain model as well as the benefits of masternodes – which allow qualified holders to earn a share of the block reward. The Mike mining algorithm is based on the asic-proof [Ghostrider](https://github.com/Raptor3um/raptoreum) which ensures that the VKAX network has one CPU, one vote. Through upgrades and hardforks, the community can guarantee that VKAX remains ASIC resistant. Anyone is free to participate and interact with the VKAX network – you are encouraged to start by running a wallet!
+VKAX is an experimental, community owned cryptocurrency which mirrors parts of the open source [Bitcoin](https://github.com/bitcoin/bitcoin) and [Dash](https://github.com/dashpay/dash) code base. This means VKAX gains the power of the UTXO blockchain model as well as the benefits of masternodes – which allow qualified holders to earn a share of the block reward. The Mike mining algorithm is based on the asic-proof [Ghostrider](https://github.com/Raptor3um/raptoreum) which ensures that the VKAX network has one CPU, one vote. Through upgrades and hardforks, the community can guarantee that VKAX remains ASIC resistant. 
+
+Operating on a peer-to-peer network without a central authority, VKAX enables secure, private transactions and instant payments. As a full fork of Dash, it incorporates masternodes to enhance transaction speed, privacy, and network security. Masternodes also play a crucial role in governance, guiding the project's future.
+
+VKAX's emission schedule starts with 10,000 VKAX per block, divided between miners (6,750 VKAX) and masternodes (2,250 VKAX). Over time, rewards decrease to control inflation and maintain value. By block height 1,950,005, miner rewards will drop to 222.22 VKAX, and masternode rewards will be around 277.78 VKAX. The 150-second block time ensures consistent reward distribution.
+
+VKAX is community-driven, with masternode operators and network participants proposing and voting on changes. This decentralized governance structure ensures decisions are made by the community, not a centralized entity.
+
+VKAX is built to be sustainable and accessible, with long-term viability ensured by its emission schedule and decentralized governance. It's designed to stand the test of time, driven by a community that values fairness and stability.
+
+The genesis block carries the timestamp: "June 14, 2022, Elon Musk Is Set to Address Twitter Employees for the First Time."
 
 
 
