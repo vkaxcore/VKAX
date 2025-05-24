@@ -341,7 +341,7 @@ public Q_SLOTS:
     void showPeers();
     void showRepair();
 
-    /** Open external (default) editor with springbok.conf */
+    /** Open external (default) editor with vkax.conf */
     void showConfEditor();
     /** Show folder with wallet backups in default file browser */
     void showBackups();

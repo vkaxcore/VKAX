@@ -1,39 +1,39 @@
-SPRINGBOK Core
+VKAX Core
 ==========
 
-This is the official reference wallet for SPRINGBOK digital currency and comprises the backbone of the SPRINGBOK peer-to-peer network. You can [download SPRINGBOK Core](https://www.SPRINGBOK.org/downloads/) or [build it yourself](#building) using the guides below.
+This is the official reference wallet for VKAX digital currency and comprises the backbone of the VKAX peer-to-peer network. You can [download VKAX Core](https://www.VKAX.org/downloads/) or [build it yourself](#building) using the guides below.
 
 Running
 ---------------------
-The following are some helpful notes on how to run SPRINGBOK Core on your native platform.
+The following are some helpful notes on how to run VKAX Core on your native platform.
 
 ### Unix
 
 Unpack the files into a directory and run:
 
-- `bin/springbok-qt` (GUI) or
-- `bin/springbokd` (headless)
+- `bin/vkax-qt` (GUI) or
+- `bin/vkaxd` (headless)
 
 ### Windows
 
-Unpack the files into a directory, and then run SPRINGBOK-qt.exe.
+Unpack the files into a directory, and then run VKAX-qt.exe.
 
 ### macOS
 
-Drag SPRINGBOK Core to your applications folder, and then run SPRINGBOK Core.
+Drag VKAX Core to your applications folder, and then run VKAX Core.
 
 ### Need Help?
 
-* See the [SPRINGBOK documentation]()
+* See the [VKAX documentation]()
 for help and more information.
-* Ask for help on [SPRINGBOK Discord]()
-* Ask for help on the [SPRINGBOK Forum]()
+* Ask for help on [VKAX Discord]()
+* Ask for help on the [VKAX Forum]()
 
   (coming soon)
 
 Building
 ---------------------
-The following are developer notes on how to build SPRINGBOK Core on your native platform. They are not complete guides, but include notes on the necessary libraries, compile flags, etc.
+The following are developer notes on how to build VKAX Core on your native platform. They are not complete guides, but include notes on the necessary libraries, compile flags, etc.
 
 - [macOS Build Notes](build-osx.md)
 - [Unix Build Notes](build-unix.md)
@@ -44,7 +44,7 @@ The following are developer notes on how to build SPRINGBOK Core on your native 
 
 Development
 ---------------------
-The SPRINGBOK Core repo's [root README](/README.md) contains relevant information on the development process and automated testing.
+The VKAX Core repo's [root README](/README.md) contains relevant information on the development process and automated testing.
 
 - [Developer Notes](developer-notes.md)
 - [Productivity Notes](productivity.md)
@@ -62,15 +62,15 @@ The SPRINGBOK Core repo's [root README](/README.md) contains relevant informatio
 - [Benchmarking](benchmarking.md)
 
 ### Resources
-* See the [SPRINGBOK Developer Documentation](https://SPRINGBOKcore.readme.io/)
+* See the [VKAX Developer Documentation](https://VKAXcore.readme.io/)
   for technical specifications and implementation details.
-* Discuss on the [SPRINGBOK Forum](https://SPRINGBOK.org/forum), in the Development & Technical Discussion board.
-* Discuss on [SPRINGBOK Discord](http://staySPRINGBOKy.com)
-* Discuss on [SPRINGBOK Developers Discord](http://chat.SPRINGBOKdevs.org/)
+* Discuss on the [VKAX Forum](https://VKAX.org/forum), in the Development & Technical Discussion board.
+* Discuss on [VKAX Discord](http://stayVKAXy.com)
+* Discuss on [VKAX Developers Discord](http://chat.VKAXdevs.org/)
 
 ### Miscellaneous
 - [Assets Attribution](assets-attribution.md)
-- [SPRINGBOK.conf Configuration File](SPRINGBOK-conf.md)
+- [VKAX.conf Configuration File](VKAX-conf.md)
 - [Files](files.md)
 - [Fuzz-testing](fuzzing.md)
 - [Reduce Memory](reduce-memory.md)

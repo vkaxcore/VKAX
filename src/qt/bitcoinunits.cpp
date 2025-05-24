@@ -18,9 +18,9 @@ BitcoinUnits::BitcoinUnits(QObject *parent):
 QList<BitcoinUnits::Unit> BitcoinUnits::availableUnits()
 {
     QList<BitcoinUnits::Unit> unitlist;
-    unitlist.append(SPRINGBOK);
-    unitlist.append(mSPRINGBOK);
-    unitlist.append(uSPRINGBOK);
+    unitlist.append(VKAX);
+    unitlist.append(mVKAX);
+    unitlist.append(uVKAX);
     unitlist.append(duffs);
     return unitlist;
 }
@@ -29,9 +29,9 @@ bool BitcoinUnits::valid(int unit)
 {
     switch(unit)
     {
-    case SPRINGBOK:
-    case mSPRINGBOK:
-    case uSPRINGBOK:
+    case VKAX:
+    case mVKAX:
+    case uVKAX:
     case duffs:
         return true;
     default:
@@ -45,9 +45,9 @@ QString BitcoinUnits::name(int unit)
     {
         switch(unit)
         {
-            case SPRINGBOK: return QString("SPRINGBOK");
-            case mSPRINGBOK: return QString("mSPRINGBOK");
-            case uSPRINGBOK: return QString::fromUtf8("μSPRINGBOK");
+            case VKAX: return QString("VKAX");
+            case mVKAX: return QString("mVKAX");
+            case uVKAX: return QString::fromUtf8("μVKAX");
             case duffs: return QString("duffs");
             default: return QString("???");
         }
@@ -56,9 +56,9 @@ QString BitcoinUnits::name(int unit)
     {
         switch(unit)
         {
-            case SPRINGBOK: return QString("tSPRINGBOK");
-            case mSPRINGBOK: return QString("mtSPRINGBOK");
-            case uSPRINGBOK: return QString::fromUtf8("μtSPRINGBOK");
+            case VKAX: return QString("tVKAX");
+            case mVKAX: return QString("mtVKAX");
+            case uVKAX: return QString::fromUtf8("μtVKAX");
             case duffs: return QString("tduffs");
             default: return QString("???");
         }
@@ -71,10 +71,10 @@ QString BitcoinUnits::description(int unit)
     {
         switch(unit)
         {
-            case SPRINGBOK: return QString("SPRINGBOK");
-            case mSPRINGBOK: return QString("Milli-SPRINGBOK (1 / 1" THIN_SP_UTF8 "000)");
-            case uSPRINGBOK: return QString("Micro-SPRINGBOK (1 / 1" THIN_SP_UTF8 "000" THIN_SP_UTF8 "000)");
-            case duffs: return QString("Ten Nano-SPRINGBOK (1 / 100" THIN_SP_UTF8 "000" THIN_SP_UTF8 "000)");
+            case VKAX: return QString("Vkax");
+            case mVKAX: return QString("Milli-Vkax (1 / 1" THIN_SP_UTF8 "000)");
+            case uVKAX: return QString("Micro-Vkax (1 / 1" THIN_SP_UTF8 "000" THIN_SP_UTF8 "000)");
+            case duffs: return QString("Ten Nano-Vkax (1 / 100" THIN_SP_UTF8 "000" THIN_SP_UTF8 "000)");
             default: return QString("???");
         }
     }
@@ -82,10 +82,10 @@ QString BitcoinUnits::description(int unit)
     {
         switch(unit)
         {
-            case SPRINGBOK: return QString("TestSPRINGBOKs");
-            case mSPRINGBOK: return QString("Milli-TestSPRINGBOK (1 / 1" THIN_SP_UTF8 "000)");
-            case uSPRINGBOK: return QString("Micro-TestSPRINGBOK (1 / 1" THIN_SP_UTF8 "000" THIN_SP_UTF8 "000)");
-            case duffs: return QString("Ten Nano-TestSPRINGBOK (1 / 100" THIN_SP_UTF8 "000" THIN_SP_UTF8 "000)");
+            case VKAX: return QString("TestVkaxs");
+            case mVKAX: return QString("Milli-TestVkax (1 / 1" THIN_SP_UTF8 "000)");
+            case uVKAX: return QString("Micro-TestVkax (1 / 1" THIN_SP_UTF8 "000" THIN_SP_UTF8 "000)");
+            case duffs: return QString("Ten Nano-TestVkax (1 / 100" THIN_SP_UTF8 "000" THIN_SP_UTF8 "000)");
             default: return QString("???");
         }
     }
@@ -95,9 +95,9 @@ qint64 BitcoinUnits::factor(int unit)
 {
     switch(unit)
     {
-    case SPRINGBOK:  return 100000000;
-    case mSPRINGBOK: return 100000;
-    case uSPRINGBOK: return 100;
+    case VKAX:  return 100000000;
+    case mVKAX: return 100000;
+    case uVKAX: return 100;
     case duffs: return 1;
     default:   return 100000000;
     }
@@ -107,9 +107,9 @@ int BitcoinUnits::decimals(int unit)
 {
     switch(unit)
     {
-    case SPRINGBOK: return 8;
-    case mSPRINGBOK: return 5;
-    case uSPRINGBOK: return 2;
+    case VKAX: return 8;
+    case mVKAX: return 5;
+    case uVKAX: return 2;
     case duffs: return 0;
     default: return 0;
     }

@@ -9,10 +9,10 @@
 
 /**
  * Name of client reported in the 'version' message. Report the same name
- * for both springbokd and springbok-qt, to make it harder for attackers to
+ * for both vkaxd and vkax-qt, to make it harder for attackers to
  * target servers or GUI users specifically.
  */
-const std::string CLIENT_NAME("SPRINGBOK Core");
+const std::string CLIENT_NAME("Vkax Core");
 
 
 #ifdef HAVE_BUILD_INFO

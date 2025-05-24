@@ -90,7 +90,7 @@ public:
         vOutpoints.assign(setSelected.begin(), setSelected.end());
     }
 
-    // SPRINGBOK-specific helpers
+    // Vkax-specific helpers
 
     void UseCoinJoin(bool fUseCoinJoin)
     {

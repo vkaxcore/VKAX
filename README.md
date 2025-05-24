@@ -1,4 +1,4 @@
-# [SPRINGBOK](https://springbokcore.github.io/SPRINGBOK/)
+# [VKAX](https://vkaxcore.github.io/VKAX/)
 
 
 ## **Vero Kum Abdite Xenium**
@@ -12,25 +12,25 @@
 
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="https://github.com/springbokcore/springbokweb/blob/main/logonew.png?raw=true">
-  <source media="(prefers-color-scheme: light)" srcset="https://github.com/springbokcore/springbokweb/blob/main/logonewlight.png?raw=true">
-  <img alt="Shows a black logo in light color mode and a white one in dark color mode." src="https://github.com/springbokcore/springbokweb/blob/main/logonew.png">
+  <source media="(prefers-color-scheme: dark)" srcset="https://github.com/vkaxcore/vkaxweb/blob/main/logonew.png?raw=true">
+  <source media="(prefers-color-scheme: light)" srcset="https://github.com/vkaxcore/vkaxweb/blob/main/logonewlight.png?raw=true">
+  <img alt="Shows a black logo in light color mode and a white one in dark color mode." src="https://github.com/vkaxcore/vkaxweb/blob/main/logonew.png">
 </picture>
 
 <br/>
 <br/>
 
 > [!NOTE]
-> SPRINGBOK is forked from DASH and BITCOIN, utilizing a CPU mining algorithm based on GHOSTRIDER called MIKE
+> VKAX is forked from DASH and BITCOIN, utilizing a CPU mining algorithm based on GHOSTRIDER called MIKE
 <br/>
 
-SPRINGBOK is an experimental, community owned cryptocurrency which mirrors parts of the open source [Bitcoin](https://github.com/bitcoin/bitcoin) and [Dash](https://github.com/dashpay/dash) code base. This means SPRINGBOK gains the power of the UTXO blockchain model as well as the benefits of masternodes – which allow qualified holders to earn a share of the block reward. The Mike mining algorithm is based on the asic-proof [Ghostrider](https://github.com/Raptor3um/raptoreum) which ensures that the SPRINGBOK network has one CPU, one vote. Through upgrades and hardforks, the community can guarantee that SPRINGBOK remains ASIC resistant. Anyone is free to participate and interact with the SPRINGBOK network – you are encouraged to start by running a wallet!
+VKAX is an experimental, community owned cryptocurrency which mirrors parts of the open source [Bitcoin](https://github.com/bitcoin/bitcoin) and [Dash](https://github.com/dashpay/dash) code base. This means VKAX gains the power of the UTXO blockchain model as well as the benefits of masternodes – which allow qualified holders to earn a share of the block reward. The Mike mining algorithm is based on the asic-proof [Ghostrider](https://github.com/Raptor3um/raptoreum) which ensures that the VKAX network has one CPU, one vote. Through upgrades and hardforks, the community can guarantee that VKAX remains ASIC resistant. Anyone is free to participate and interact with the VKAX network – you are encouraged to start by running a wallet!
 
 
 
 <br/>
 
-## Building SPRINGBOK
+## Building VKAX
 (tested for ubuntu)
 
 <br/>
@@ -44,8 +44,8 @@ sudo apt-get install curl build-essential libtool autotools-dev automake pkg-con
 
 Build from source 
 ```
-git clone https://github.com/springbokcore/SPRINGBOK &&
-cd SPRINGBOK/depends/ &&
+git clone https://github.com/vkaxcore/VKAX &&
+cd VKAX/depends/ &&
 chmod +x conf* &&
 make &&
 cd .. &&
@@ -58,21 +58,21 @@ make
 
 <br/>
 
-## SPRINGBOK Wallets
-[[built by github]](https://github.com/springbokcore/SPRINGBOK/actions/runs/8527185200/)
+## VKAX Wallets
+[[built by github]](https://github.com/vkaxcore/VKAX/actions/runs/8527185200/)
 
-### [[WINDOWS]](https://github.com/springbokcore/SPRINGBOK/releases/download/v100.10.4-windows/SPRINGBOK.Setup.exe)
+### [[WINDOWS]](https://github.com/vkaxcore/VKAX/releases/download/v100.10.4-windows/VKAX.Setup.exe)
 
-### [[MAC]](https://github.com/springbokcore/SPRINGBOK/releases/download/v100.10.4/springbok-macos12-.zip)
+### [[MAC]](https://github.com/vkaxcore/VKAX/releases/download/v100.10.4/vkax-macos12-.zip)
 
-### [[UBUNTU]](https://github.com/springbokcore/SPRINGBOK/releases/download/v100.10.4/springbok-ubuntu22-.zip)
+### [[UBUNTU]](https://github.com/vkaxcore/VKAX/releases/download/v100.10.4/vkax-ubuntu22-.zip)
 
-### [[RASPBERRY PI]](https://github.com/springbokcore/SPRINGBOK/releases/download/v100.10.4/springbok-ubuntu22-arm64-.zip)
+### [[RASPBERRY PI]](https://github.com/vkaxcore/VKAX/releases/download/v100.10.4/vkax-ubuntu22-arm64-.zip)
 
 
 <br/>
 
-## Mining SPRINGBOK
+## Mining VKAX
 ### [[XmrigCC] (CPU)](https://github.com/Bendr0id/xmrigCC/releases/tag/3.4.0)
 
 ### [[Cpuminer Rplant] (CPU)](https://github.com/rplant8/cpuminer-opt-rplant/releases)
@@ -85,61 +85,61 @@ make
 
 <br/>
 
-## SPRINGBOK Documents
+## VKAX Documents
 
-### [[SPRINGBOK Whitepaper v1]](https://github.com/springbokcore/SPRINGBOK/blob/master/doc/springbokwhitepaper.pdf)
+### [[VKAX Whitepaper v1]](https://github.com/vkaxcore/VKAX/blob/master/doc/vkaxwhitepaper.pdf)
 
-### [[SPRINGBOK Test Net Guide]](https://springbokcore.github.io/SPRINGBOK/doc/testnet-participation)
+### [[VKAX Test Net Guide]](https://vkaxcore.github.io/VKAX/doc/testnet-participation)
 
-### [[SPRINGBOK Command Line Reference]](https://springbokcore.github.io/SPRINGBOK/doc/springbok-command-line-rpc-api-reference)
+### [[VKAX Command Line Reference]](https://vkaxcore.github.io/VKAX/doc/vkax-command-line-rpc-api-reference)
 
-### [[SPRINGBOK Remote Procedure Calls (RPC)]](https://springbokcore.github.io/SPRINGBOK/doc/springbok-remote-procedure-calls)
+### [[VKAX Remote Procedure Calls (RPC)]](https://vkaxcore.github.io/VKAX/doc/vkax-remote-procedure-calls)
 
 
 <br/>
 
-## SPRINGBOK Links
+## VKAX Links
 
-### [[SPRINGBOK Website]](https://springbokcore.github.io/SPRINGBOK/)
+### [[VKAX Website]](https://vkaxcore.github.io/VKAX/)
 
-### [[SPRINGBOK Explorer]](https://explore.springbok.net/)
+### [[VKAX Explorer]](https://explore.vkax.net/)
 
-### [[SPRINGBOK BitcoinTalk Forum]](https://bitcointalk.org/index.php?topic=5414883)
+### [[VKAX BitcoinTalk Forum]](https://bitcointalk.org/index.php?topic=5414883)
 
-### [[SPRINGBOK Coin Gecko]](https://www.coingecko.com/coins/springbok)
+### [[VKAX Coin Gecko]](https://www.coingecko.com/coins/vkax)
 
-### [[SPRINGBOK Coin Paprika]](https://coinpaprika.com/coin/springbok-springbok/)
+### [[VKAX Coin Paprika]](https://coinpaprika.com/coin/vkax-vkax/)
 
-### [[SPRINGBOK Mining Pool Stats]](https://miningpoolstats.stream/springbok)
+### [[VKAX Mining Pool Stats]](https://miningpoolstats.stream/vkax)
 
 
 ## Socials
 
-### [[SPRINGBOK Discord]](https://discord.gg/C3sfPFB3)
+### [[VKAX Discord]](https://discord.gg/C3sfPFB3)
 
-### [[SPRINGBOK Twitter (X)]](https://twitter.com/springbokcore)
+### [[VKAX Twitter (X)]](https://twitter.com/vkaxcore)
 
 
 ## Contact
 
-### dev@springbok.net
+### dev@vkax.net
 
 <br/>
 
 # Emission Schedule
-![image](https://github.com/springbokcore/SPRINGBOK/blob/master/SPRINGBOKemission.png?raw=true)
+![image](https://github.com/vkaxcore/VKAX/blob/master/VKAXemission.png?raw=true)
 
 <br/>
 
 # Testing
 
-## Participating in the SPRINGBOK Test Net
+## Participating in the VKAX Test Net
 > [!TIP]
-> Learning how to use the SPRINGBOK **Test Net** will prepare you to do things like mine solo or run a masternode on the **Main Net**
+> Learning how to use the VKAX **Test Net** will prepare you to do things like mine solo or run a masternode on the **Main Net**
 <br/>
 
 ### Getting Ubuntu 
-Ubuntu is an open source system which is easy to use, but still powerful and stable. This means that an entire operating system can function with as little as **1 cpu** core and less than **1 gig** of ram! To participate in the SPRINGBOK **Test Net** you will need an operational [**Ubuntu**](https://ubuntu.com/) system - either locally or with a cloud service. It is possible for anyone to run a Ubuntu system without difficulty or cost.
+Ubuntu is an open source system which is easy to use, but still powerful and stable. This means that an entire operating system can function with as little as **1 cpu** core and less than **1 gig** of ram! To participate in the VKAX **Test Net** you will need an operational [**Ubuntu**](https://ubuntu.com/) system - either locally or with a cloud service. It is possible for anyone to run a Ubuntu system without difficulty or cost.
 
 Some local examples include, a **[Raspberry Pi](https://www.raspberrypi.com/)**, old hardware like a **[Laptop with Broken Screen](https://www.ebay.com/sch/i.html?_nkw=laptop+broken+screen)**, a **[Discarded PC](https://www.goodwillfinds.com/search/?q=computer)** - or even from within your main PC using [**Virtualbox**](https://duckduckgo.com/?q=how+to+install+ubuntu+on+virtual+box) or [**Vmware Workstation**](https://duckduckgo.com/?q=how+to+install+ubuntu+on+vmware+workstation)
 
@@ -177,24 +177,24 @@ sudo swapon -s &&
 echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
 ```
 
-### Create SPRINGBOK User
+### Create VKAX User
 Run the below commands in a terminal console one at a time. We will need to create a new **User** to run the daemon. 
 (You can give it any password or press **enter** to skip.)
 ```
-sudo adduser springbok-test
+sudo adduser vkax-test
 ```
-**Login** to become the SPRINGBOK user
+**Login** to become the VKAX user
 ```
-sudo su springbok-test
+sudo su vkax-test
 ```
 <br/>
 
 ### Make the Daemon (Node)
-After installing the prerequisites and becoming the springbok-test user, we can **build the daemon from source**
+After installing the prerequisites and becoming the vkax-test user, we can **build the daemon from source**
 ```
 cd &&
-git clone https://github.com/springbokcore/SPRINGBOK &&
-cd SPRINGBOK/depends/ &&
+git clone https://github.com/vkaxcore/VKAX &&
+cd VKAX/depends/ &&
 chmod +x conf* &&
 make NO_QT=1 &&
 cd .. &&
@@ -208,34 +208,34 @@ make
 When it is **complete** it should look like this
 <br/>
 
-![image](https://github.com/springbokcore/springbok/assets/117243445/447103d0-57ce-47f5-b072-3dae6524c4b6)
+![image](https://github.com/vkaxcore/vkax/assets/117243445/447103d0-57ce-47f5-b072-3dae6524c4b6)
 
 
 <br/>
 
-### Write SPRINGBOK.conf
-This will **Write** default settings for your SPRINGBOK testnet node.
+### Write VKAX.conf
+This will **Write** default settings for your VKAX testnet node.
 ```
-mkdir /home/springbok-test/.springbokcore/
-touch /home/springbok-test/.springbokcore/springbok.conf &&
-echo -e "rpcuser=springboktestnet\nrpcpassword=changemepassword123\nmaxconnections=256\nrpcallowip=127.0.0.1\ntestnet=1\nlisten=1\nserver=1\ndaemon=1\nusehd=1\n" >> /home/springbok-test/.springbokcore/springbok.conf
+mkdir /home/vkax-test/.vkaxcore/
+touch /home/vkax-test/.vkaxcore/vkax.conf &&
+echo -e "rpcuser=vkaxtestnet\nrpcpassword=changemepassword123\nmaxconnections=256\nrpcallowip=127.0.0.1\ntestnet=1\nlisten=1\nserver=1\ndaemon=1\nusehd=1\n" >> /home/vkax-test/.vkaxcore/vkax.conf
 ```
 
 <br/>
 <br/>
 
-**Exit** as the springbok-test user
+**Exit** as the vkax-test user
 ```
 exit
 ```
 > [!CAUTION]
-> If you forget to **log out** of the springbok-test user, the below commands **will not work** properly
+> If you forget to **log out** of the vkax-test user, the below commands **will not work** properly
 
 <br/>
 <br/>
 
 ### Starting the Daemon
-Using **`systemd`** we can create a service which starts the SPRINGBOK daemon on boot, and restarts it after a crash
+Using **`systemd`** we can create a service which starts the VKAX daemon on boot, and restarts it after a crash
 <br/>
 <br/>
 
@@ -247,9 +247,9 @@ sudo su
 
 **Clean** up the build files
 ```
-mv /home/springbok-test/SPRINGBOK/src/springbok-cli /home/springbok-test/SPRINGBOK/src/springbokd /home/springbok-test/.springbokcore/ &&
-chmod 777 /home/springbok-test/.springbokcore &&
-rm -R /home/springbok-test/SPRINGBOK/
+mv /home/vkax-test/VKAX/src/vkax-cli /home/vkax-test/VKAX/src/vkaxd /home/vkax-test/.vkaxcore/ &&
+chmod 777 /home/vkax-test/.vkaxcore &&
+rm -R /home/vkax-test/VKAX/
 ```
 <br/>
 
@@ -269,9 +269,9 @@ sudo ufw enable
 
 **Create** and **Enable** the systemd service
 ```
-touch /etc/systemd/system/springbok-test.service
-echo -e "[Unit]\nDescription=springbok test daemon control service\n\n[Service]\nType=forking\nRestart=on-failure\nRestartSec=5s\nExecStartPre=/bin/sleep 5\nWorkingDirectory=/home/springbok-test/.springbokcore/\nExecStart=/home/springbok-test/.springbokcore/springbokd\nRemainAfterExit=yes\nUser=springbok-test\n\n[Install]\nWantedBy=multi-user.target" >> /etc/systemd/system/springbok-test.service
-systemctl enable springbok-test
+touch /etc/systemd/system/vkax-test.service
+echo -e "[Unit]\nDescription=vkax test daemon control service\n\n[Service]\nType=forking\nRestart=on-failure\nRestartSec=5s\nExecStartPre=/bin/sleep 5\nWorkingDirectory=/home/vkax-test/.vkaxcore/\nExecStart=/home/vkax-test/.vkaxcore/vkaxd\nRemainAfterExit=yes\nUser=vkax-test\n\n[Install]\nWantedBy=multi-user.target" >> /etc/systemd/system/vkax-test.service
+systemctl enable vkax-test
 ```
 <br/>
 
@@ -283,23 +283,23 @@ reboot
 
 We can **Watch** the **Status** of our daemon at any time with the following command
 ```
-watch systemctl status springbok-test
+watch systemctl status vkax-test
 ```
 <br/>
 
 
-## Using SPRINGBOK Test Net
+## Using VKAX Test Net
 
 
 <br/>
 
-**Login** as springbok-test user
+**Login** as vkax-test user
 ```
-sudo su springbok-test
+sudo su vkax-test
 ```
 
 > [!IMPORTANT]  
-> Always remember to login as springbok-test before running commands, and to log out with `exit` or close the terminal when complete. The daemon will continue to run in the background.
+> Always remember to login as vkax-test before running commands, and to log out with `exit` or close the terminal when complete. The daemon will continue to run in the background.
 
 
 <br/>
@@ -308,41 +308,41 @@ sudo su springbok-test
 
 To ensure you have a **connection** with the network you can write
 ```
-~/.springbokcore/springbok-cli -testnet getconnectioncount 
+~/.vkaxcore/vkax-cli -testnet getconnectioncount 
 ```
 <br/> 
 
-Run the **Help** command as the **springbok-test** user to get a full list of available commands! )You must include **-testnet** when using the testnet)
+Run the **Help** command as the **vkax-test** user to get a full list of available commands! )You must include **-testnet** when using the testnet)
 ```
-~/.springbokcore/springbok-cli -testnet help
+~/.vkaxcore/vkax-cli -testnet help
 ```
 <br/> 
 
 # Getting your HD Seed Phrase 
-Getting a seed phrase is essential for anyone who wants security, confidence or is considering doing serious development work on the SPRINGBOK network. 
+Getting a seed phrase is essential for anyone who wants security, confidence or is considering doing serious development work on the VKAX network. 
 All you have to do is write down your seed words and remember to use them.
 
 Display your seed phrase with the below command
 ```
-~/.springbokcore/springbok-cli -testnet dumphdinfo
+~/.vkaxcore/vkax-cli -testnet dumphdinfo
 ```
 > [!CAUTION]
 > ***WRITE THIS DOWN!***
 
-Do not store your **confidential seed phrase** on a computer or on a phone! **Do not share** this phrase with anyone, or leave it out for people to find! There is no support ticket or central body which can recover your coins, so you should **never share these words with anyone! Ever! For any reason!** You can use this same **seed phrase** forever with SPRINGBOK, even on the main net! You can save yourself a lot of time by **writing this down now**. Hackers cannot access a sheet of paper in your sock drawer!
+Do not store your **confidential seed phrase** on a computer or on a phone! **Do not share** this phrase with anyone, or leave it out for people to find! There is no support ticket or central body which can recover your coins, so you should **never share these words with anyone! Ever! For any reason!** You can use this same **seed phrase** forever with VKAX, even on the main net! You can save yourself a lot of time by **writing this down now**. Hackers cannot access a sheet of paper in your sock drawer!
 
 <br/> 
 <br/> 
 
 <br/> 
 
-## Basic SPRINGBOK Commands
+## Basic VKAX Commands
 
 <br/> 
 
 To check the status of the testnet daemon's **debug log**
 ```
-watch tail ~/.springbokcore/testnet3/debug.log -n25
+watch tail ~/.vkaxcore/testnet3/debug.log -n25
 ```
 
 <br/> 
@@ -350,12 +350,12 @@ watch tail ~/.springbokcore/testnet3/debug.log -n25
 
 To start **mining** for blocks
 ```
-~/.springbokcore/springbok-cli -testnet setgenerate true
+~/.vkaxcore/vkax-cli -testnet setgenerate true
 ```
 
 The only indication that mining has started is this output which shows us how many cores are running.
 
-![image](https://github.com/springbokcore/springbok/assets/117243445/f61bccb1-2097-4d99-a854-e8dc410cdfa9)
+![image](https://github.com/vkaxcore/vkax/assets/117243445/f61bccb1-2097-4d99-a854-e8dc410cdfa9)
 
 <br/> 
 
@@ -365,7 +365,7 @@ htop
 ```
 
 `htop` will look liks this. (press **CTRL + C** to exit)
-![image](https://github.com/springbokcore/springbok/assets/117243445/cfdb2012-d202-4207-a162-328836a58428)
+![image](https://github.com/vkaxcore/vkax/assets/117243445/cfdb2012-d202-4207-a162-328836a58428)
 
 
 <br/> 
@@ -373,7 +373,7 @@ htop
 
 After finding a block you will get **sent coins**. Use this command to see the **last 10** transations
 ```
-~/.springbokcore/springbok-cli -testnet listtransactions
+~/.vkaxcore/vkax-cli -testnet listtransactions
 ```
 
 <br/> 
@@ -381,38 +381,38 @@ After finding a block you will get **sent coins**. Use this command to see the *
 To see the current **block** count
 
 ```
-~/.springbokcore/springbok-cli -testnet getblockcount 
+~/.vkaxcore/vkax-cli -testnet getblockcount 
 ```
 <br/> 
 
 To check your **coin** balance (will only display mature blocks after 200 confirmations)
 ```
-~/.springbokcore/springbok-cli -testnet getbalance
+~/.vkaxcore/vkax-cli -testnet getbalance
 ```
 <br/> 
 <br/> 
 
 To **Stop Mining**
 ```
-~/.springbokcore/springbok-cli -testnet setgenerate false 0
+~/.vkaxcore/vkax-cli -testnet setgenerate false 0
 ```
 
 <br/> 
 
-## More SPRINGBOK Commands
-[SPRINGBOK Legacy Command Line Reference](https://github.com/springbokcore/springbok/blob/master/doc/springbok-command-line-rpc-api-reference.md)
+## More VKAX Commands
+[VKAX Legacy Command Line Reference](https://github.com/vkaxcore/vkax/blob/master/doc/vkax-command-line-rpc-api-reference.md)
 <br/>
 
-[SPRINGBOK Remote Procedure Calls (RPC)](https://github.com/springbokcore/springbok/blob/master/doc/springbok-remote-procedure-calls.md)
+[VKAX Remote Procedure Calls (RPC)](https://github.com/vkaxcore/vkax/blob/master/doc/vkax-remote-procedure-calls.md)
 <br/> 
 
 ## Conclusion
 
-Congrats! You are now running a node on the **SPRINGBOK Test Net**
+Congrats! You are now running a node on the **VKAX Test Net**
 
 After accumulating **10 000 000** coins you will be eligable to create a **masternode**
 
-Once you are become familiar with the **Test Net** envoirnment, you should be ready to confidently use the SPRINGBOK **Main Net**. Good luck!
+Once you are become familiar with the **Test Net** envoirnment, you should be ready to confidently use the VKAX **Main Net**. Good luck!
 
 
 

@@ -177,8 +177,8 @@ public:
         consensus.BRRHeight = 1374912; // not needed
         consensus.MinBIP9WarningHeight = 1090656; // dip8 activation height + miner confirmation window
         consensus.powLimit = uint256S("00ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"); // ~uint256(0) >> 20
-        consensus.nPowTargetTimespan = 7 * 24 * 60 * 60; // SPRINGBOK: 1 day
-        consensus.nPowTargetSpacing = 2.5 * 60; // SPRINGBOK: 2.5 minutes
+        consensus.nPowTargetTimespan = 7 * 24 * 60 * 60; // Vkax: 1 day
+        consensus.nPowTargetSpacing = 2.5 * 60; // Vkax: 2.5 minutes
         consensus.fPowAllowMinDifficultyBlocks = false;
         consensus.fPowNoRetargeting = false;
         consensus.nPowKGWHeight = 40;
@@ -250,7 +250,7 @@ public:
         consensus.vDeployments[Consensus::DEPLOYMENT_DIP0024].nThresholdMin = 2420;   // 60% of 4032
         consensus.vDeployments[Consensus::DEPLOYMENT_DIP0024].nFalloffCoeff = 5;      // this corresponds to 10 periods
 
-        // Proposal fee is 5 Million SPRINGBOK not good at all, so will reduce it 
+        // Proposal fee is 5 Million Vkax not good at all, so will reduce it 
         consensus.vDeployments[Consensus::DEPLOYMENT_GOV_FEE].bit = 8;
         consensus.vDeployments[Consensus::DEPLOYMENT_GOV_FEE].nStartTime = 1662141600; // Friday, September 2, 2022 6:00:00 PM
         consensus.vDeployments[Consensus::DEPLOYMENT_GOV_FEE].nTimeout = 1693677600; // Saturday, September 2, 2023 6:00:00 PM
@@ -290,24 +290,24 @@ public:
         // This is fine at runtime as we'll fall back to using them as a oneshot if they don't support the
         // service bits we want, but we should get them updated to support all service bits wanted by any
         // release ASAP to avoid it where possible.
-        vSeeds.emplace_back("dnsseed.springbok.org");
-        vSeeds.emplace_back("dnsseed-02.springbok.org");
-        vSeeds.emplace_back("dnsseed-03.springbok.org");
-        vSeeds.emplace_back("dnsseed-04.springbok.org");
-        vSeeds.emplace_back("dnsseed-05.springbok.org");
+        vSeeds.emplace_back("dnsseed.vkax.org");
+        vSeeds.emplace_back("dnsseed-02.vkax.org");
+        vSeeds.emplace_back("dnsseed-03.vkax.org");
+        vSeeds.emplace_back("dnsseed-04.vkax.org");
+        vSeeds.emplace_back("dnsseed-05.vkax.org");
 
-        // SPRINGBOK addresses start with 'X'
+        // Vkax addresses start with 'X'
         base58Prefixes[PUBKEY_ADDRESS] = std::vector<unsigned char>(1,76);
-        // SPRINGBOK script addresses start with '7'
+        // Vkax script addresses start with '7'
         base58Prefixes[SCRIPT_ADDRESS] = std::vector<unsigned char>(1,16);
-        // SPRINGBOK private keys start with '7' or 'X'
+        // Vkax private keys start with '7' or 'X'
         base58Prefixes[SECRET_KEY] =     std::vector<unsigned char>(1,204);
-        // SPRINGBOK BIP32 pubkeys start with 'xpub' (Bitcoin defaults)
+        // Vkax BIP32 pubkeys start with 'xpub' (Bitcoin defaults)
         base58Prefixes[EXT_PUBLIC_KEY] = {0x04, 0x88, 0xB2, 0x1E};
-        // SPRINGBOK BIP32 prvkeys start with 'xprv' (Bitcoin defaults)
+        // Vkax BIP32 prvkeys start with 'xprv' (Bitcoin defaults)
         base58Prefixes[EXT_SECRET_KEY] = {0x04, 0x88, 0xAD, 0xE4};
 
-        // SPRINGBOK BIP44 coin type is '960'
+        // Vkax BIP44 coin type is '960'
         nExtCoinType = 960;
 
         vFixedSeeds = std::vector<SeedSpec6>(pnSeed6_main, pnSeed6_main + ARRAYLEN(pnSeed6_main));
@@ -395,8 +395,8 @@ public:
         consensus.BRRHeight = 387500;// not needed
         consensus.MinBIP9WarningHeight = 201;  // dip8 activation height + miner confirmation window
         consensus.powLimit = uint256S("00ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"); // ~uint256(0) >> 20
-        consensus.nPowTargetTimespan = 7 * 24 * 60 * 60; // SPRINGBOK: 1 day
-        consensus.nPowTargetSpacing = 2.5 * 60; // SPRINGBOK: 2.5 minutes
+        consensus.nPowTargetTimespan = 7 * 24 * 60 * 60; // Vkax: 1 day
+        consensus.nPowTargetSpacing = 2.5 * 60; // Vkax: 2.5 minutes
         consensus.fPowAllowMinDifficultyBlocks = true;
         consensus.fPowNoRetargeting = false;
         consensus.nPowKGWHeight = 40; // nPowKGWHeight >= nPowDGWHeight means "no KGW"
@@ -459,7 +459,7 @@ public:
         consensus.vDeployments[Consensus::DEPLOYMENT_DIP0020].nThresholdMin = 60; // 60% of 100
         consensus.vDeployments[Consensus::DEPLOYMENT_DIP0020].nFalloffCoeff = 5; // this corresponds to 10 periods
 
-        // Proposal fee is 5 Million SPRINGBOK not good at all, so will reduce it 
+        // Proposal fee is 5 Million Vkax not good at all, so will reduce it 
         consensus.vDeployments[Consensus::DEPLOYMENT_GOV_FEE].bit = 7;
         consensus.vDeployments[Consensus::DEPLOYMENT_GOV_FEE].nStartTime = 1663462800; // September 18, 2022
         consensus.vDeployments[Consensus::DEPLOYMENT_GOV_FEE].nTimeout = 1694998800; // September 18, 2023
@@ -504,18 +504,18 @@ public:
         // nodes with support for servicebits filtering should be at the top
         vSeeds.emplace_back("107.175.221.216"); // Just a static list of stable node(s), only supports x9
 
-        // Testnet SPRINGBOK addresses start with 'y'
+        // Testnet Vkax addresses start with 'y'
         base58Prefixes[PUBKEY_ADDRESS] = std::vector<unsigned char>(1,140);
-        // Testnet SPRINGBOK script addresses start with '8' or '9'
+        // Testnet Vkax script addresses start with '8' or '9'
         base58Prefixes[SCRIPT_ADDRESS] = std::vector<unsigned char>(1,19);
         // Testnet private keys start with '9' or 'c' (Bitcoin defaults)
         base58Prefixes[SECRET_KEY] =     std::vector<unsigned char>(1,239);
-        // Testnet SPRINGBOK BIP32 pubkeys start with 'tpub' (Bitcoin defaults)
+        // Testnet Vkax BIP32 pubkeys start with 'tpub' (Bitcoin defaults)
         base58Prefixes[EXT_PUBLIC_KEY] = {0x04, 0x35, 0x87, 0xCF};
-        // Testnet SPRINGBOK BIP32 prvkeys start with 'tprv' (Bitcoin defaults)
+        // Testnet Vkax BIP32 prvkeys start with 'tprv' (Bitcoin defaults)
         base58Prefixes[EXT_SECRET_KEY] = {0x04, 0x35, 0x83, 0x94};
 
-        // Testnet SPRINGBOK BIP44 coin type is '1' (All coin's testnet default)
+        // Testnet Vkax BIP44 coin type is '1' (All coin's testnet default)
         nExtCoinType = 1;
 
         // long living quorum params
@@ -594,8 +594,8 @@ public:
         consensus.BRRHeight = 201;
         consensus.MinBIP9WarningHeight = 2018; // dip8 activation height + miner confirmation window
         consensus.powLimit = uint256S("7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"); // ~uint256(0) >> 1
-        consensus.nPowTargetTimespan = 7 * 24 * 60 * 60; // SPRINGBOK: 1 day
-        consensus.nPowTargetSpacing = 2.5 * 60; // SPRINGBOK: 2.5 minutes
+        consensus.nPowTargetTimespan = 7 * 24 * 60 * 60; // Vkax: 1 day
+        consensus.nPowTargetSpacing = 2.5 * 60; // Vkax: 2.5 minutes
         consensus.fPowAllowMinDifficultyBlocks = true;
         consensus.fPowNoRetargeting = false;
         consensus.nPowKGWHeight = 4001; // nPowKGWHeight >= nPowDGWHeight means "no KGW"
@@ -701,20 +701,20 @@ public:
 
         vFixedSeeds.clear();
         vSeeds.clear();
-        //vSeeds.push_back(CDNSSeedData("evo.springbok.xyz",  "devnet-seed.springbok.xyz"));
+        //vSeeds.push_back(CDNSSeedData("evo.vkax.xyz",  "devnet-seed.vkax.xyz"));
 
-        // Testnet SPRINGBOK addresses start with 'y'
+        // Testnet Vkax addresses start with 'y'
         base58Prefixes[PUBKEY_ADDRESS] = std::vector<unsigned char>(1,140);
-        // Testnet SPRINGBOK script addresses start with '8' or '9'
+        // Testnet Vkax script addresses start with '8' or '9'
         base58Prefixes[SCRIPT_ADDRESS] = std::vector<unsigned char>(1,19);
         // Testnet private keys start with '9' or 'c' (Bitcoin defaults)
         base58Prefixes[SECRET_KEY] =     std::vector<unsigned char>(1,239);
-        // Testnet SPRINGBOK BIP32 pubkeys start with 'tpub' (Bitcoin defaults)
+        // Testnet Vkax BIP32 pubkeys start with 'tpub' (Bitcoin defaults)
         base58Prefixes[EXT_PUBLIC_KEY] = {0x04, 0x35, 0x87, 0xCF};
-        // Testnet SPRINGBOK BIP32 prvkeys start with 'tprv' (Bitcoin defaults)
+        // Testnet Vkax BIP32 prvkeys start with 'tprv' (Bitcoin defaults)
         base58Prefixes[EXT_SECRET_KEY] = {0x04, 0x35, 0x83, 0x94};
 
-        // Testnet SPRINGBOK BIP44 coin type is '1' (All coin's testnet default)
+        // Testnet Vkax BIP44 coin type is '1' (All coin's testnet default)
         nExtCoinType = 1;
 
         // long living quorum params
@@ -865,8 +865,8 @@ public:
         consensus.nPowFVK = 300;
         consensus.MinBIP9WarningHeight = 0;
         consensus.powLimit = uint256S("7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"); // ~uint256(0) >> 1
-        consensus.nPowTargetTimespan = 7 * 24 * 60 * 60; // SPRINGBOK: 1 day
-        consensus.nPowTargetSpacing = 2.5 * 60; // SPRINGBOK: 2.5 minutes
+        consensus.nPowTargetTimespan = 7 * 24 * 60 * 60; // Vkax: 1 day
+        consensus.nPowTargetSpacing = 2.5 * 60; // Vkax: 2.5 minutes
         consensus.fPowAllowMinDifficultyBlocks = true;
         consensus.fPowNoRetargeting = true;
         consensus.nPowKGWHeight = 40; // same as mainnet
@@ -981,18 +981,18 @@ public:
             0
         };
 
-        // Regtest SPRINGBOK addresses start with 'y'
+        // Regtest Vkax addresses start with 'y'
         base58Prefixes[PUBKEY_ADDRESS] = std::vector<unsigned char>(1,140);
-        // Regtest SPRINGBOK script addresses start with '8' or '9'
+        // Regtest Vkax script addresses start with '8' or '9'
         base58Prefixes[SCRIPT_ADDRESS] = std::vector<unsigned char>(1,19);
         // Regtest private keys start with '9' or 'c' (Bitcoin defaults)
         base58Prefixes[SECRET_KEY] =     std::vector<unsigned char>(1,239);
-        // Regtest SPRINGBOK BIP32 pubkeys start with 'tpub' (Bitcoin defaults)
+        // Regtest Vkax BIP32 pubkeys start with 'tpub' (Bitcoin defaults)
         base58Prefixes[EXT_PUBLIC_KEY] = {0x04, 0x35, 0x87, 0xCF};
-        // Regtest SPRINGBOK BIP32 prvkeys start with 'tprv' (Bitcoin defaults)
+        // Regtest Vkax BIP32 prvkeys start with 'tprv' (Bitcoin defaults)
         base58Prefixes[EXT_SECRET_KEY] = {0x04, 0x35, 0x83, 0x94};
 
-        // Regtest SPRINGBOK BIP44 coin type is '1' (All coin's testnet default)
+        // Regtest Vkax BIP44 coin type is '1' (All coin's testnet default)
         nExtCoinType = 1;
 
         // long living quorum params

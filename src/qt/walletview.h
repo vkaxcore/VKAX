@@ -128,7 +128,7 @@ public Q_SLOTS:
     void requestedSyncWarningInfo();
 
 
-    /** Update selected SPRINGBOK amount from transactionview */
+    /** Update selected VKAX amount from transactionview */
     void trxAmount(QString amount);
 Q_SIGNALS:
     /**  Fired when a message should be reported to the user */

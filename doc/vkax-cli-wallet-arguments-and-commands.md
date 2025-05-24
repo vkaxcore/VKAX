@@ -1,37 +1,37 @@
-# springbok-cli
+# vkax-cli
 
-The `springbok-cli` application provides a command-line option for accessing SPRINGBOK Core RPCs.
+The `vkax-cli` application provides a command-line option for accessing VKAX Core RPCs.
 
 ## Usage
 
 > 🚧 Multiple wallet support
 >
 > Since you may have multiple wallets loaded at the same time, wallet-related RPCs require using the `-rpcwallet` option any time more than one wallet file is loaded. This is to ensure the RPC command is executed using the correct wallet. The syntax is:  
-> `springbok-cli -rpcwallet=<wallet-name> <command>`
+> `vkax-cli -rpcwallet=<wallet-name> <command>`
 
 ```bash Send command
-springbok-cli [options] <command> [params]
+vkax-cli [options] <command> [params]
 ```
 
 ```bash Send command using wallet
-springbok-cli [options] -rpcwallet=<wallet-name> <command> [params]
+vkax-cli [options] -rpcwallet=<wallet-name> <command> [params]
 ```
 
 ```bash Send command (with named arguments)
-  springbok-cli [options] -named <command> [name=value] ... 
+  vkax-cli [options] -named <command> [name=value] ... 
 ```
 
 ```bash List commands
-springbok-cli [options] help
+vkax-cli [options] help
 ```
 
 ```bash Get help for command
-springbok-cli [options] help <command>
+vkax-cli [options] help <command>
 ```
 
 > 📘 RPC Details
 >
-> View [the list of RPCs](../api/remote-procedure-call-quick-reference.md) for more detailed information. Using springbok-cli, this information is available using the `springbok-cli [options] help` and `springbok-cli [options] help <command>` commands.
+> View [the list of RPCs](../api/remote-procedure-call-quick-reference.md) for more detailed information. Using vkax-cli, this information is available using the `vkax-cli [options] help` and `vkax-cli [options] help <command>` commands.
 
 ### Options
 
@@ -41,7 +41,7 @@ springbok-cli [options] help <command>
 
   -conf=<file>
        Specify configuration file. Relative paths will be prefixed by datadir
-       location. (default: SPRINGBOK.conf)
+       location. (default: VKAX.conf)
 
   -datadir=<dir>
        Specify data directory
@@ -51,7 +51,7 @@ springbok-cli [options] help <command>
        RPC generatetoaddress. Optional positional integer arguments are
        number of blocks to generate (default: 1) and maximum iterations
        to try (default: 1000000), equivalent to RPC generatetoaddress
-       nblocks and maxtries arguments. Example: springbok-cli -generate 4
+       nblocks and maxtries arguments. Example: vkax-cli -generate 4
        1000
 
   -getinfo
@@ -96,7 +96,7 @@ springbok-cli [options] help <command>
 
   -rpcwallet=<walletname>
        Send RPC for non-default wallet on RPC server (needs to exactly match
-       corresponding -wallet option passed to SPRINGBOKd). This changes the
+       corresponding -wallet option passed to VKAXd). This changes the
        RPC endpoint used, e.g. http://127.0.0.1:9998/wallet/<walletname>
 
   -stdin
