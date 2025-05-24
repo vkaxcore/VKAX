@@ -57,7 +57,7 @@ namespace BCLog {
         QT          = (1 << 19),
         LEVELDB     = (1 << 20),
 
-        //Start Vkax
+        //Start SPRINGBOK
         CHAINLOCKS  = ((uint64_t)1 << 32),
         GOBJECT     = ((uint64_t)1 << 33),
         INSTANTSEND = ((uint64_t)1 << 34),
@@ -70,11 +70,11 @@ namespace BCLog {
         SPORK       = ((uint64_t)1 << 42),
         NETCONN     = ((uint64_t)1 << 43),
 
-        VKAX        = CHAINLOCKS | GOBJECT | INSTANTSEND | LLMQ | LLMQ_DKG
+        SPRINGBOK        = CHAINLOCKS | GOBJECT | INSTANTSEND | LLMQ | LLMQ_DKG
                     | LLMQ_SIGS | MNPAYMENTS | MNSYNC | COINJOIN | SPORK | NETCONN,
 
         NET_NETCONN = NET | NETCONN, // use this to have something logged in NET and NETCONN as well
-        //End Vkax
+        //End SPRINGBOK
 
         ALL         = ~(uint64_t)0,
     };

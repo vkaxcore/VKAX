@@ -33,7 +33,7 @@ public:
     //! Add wallets that should be opened to list of init interfaces.
     void Construct(InitInterfaces& interfaces) const override;
 
-    // Vkax Specific Wallet Init
+    // SPRINGBOK Specific Wallet Init
     void AutoLockMasternodeCollaterals() const override;
     void InitCoinJoinSettings() const override;
     bool InitAutoBackup() const override;

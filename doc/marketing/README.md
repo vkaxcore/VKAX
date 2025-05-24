@@ -1,1 +1,1 @@
-2024 VKAX Core Community Marketing Team
+2024 SPRINGBOK Core Community Marketing Team

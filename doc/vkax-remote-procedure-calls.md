@@ -1,30 +1,30 @@
-# VKAX Remote Procedure Calls
+# SPRINGBOK Remote Procedure Calls
 
 ## Overview
 
-VKAX Core provides a remote procedure call (RPC) interface for various administrative tasks, [wallet](../resources/glossary.md#wallet) operations, and queries about [network](../resources/glossary.md#network) and [block chain](../resources/glossary.md#block-chain) data.
+SPRINGBOK Core provides a remote procedure call (RPC) interface for various administrative tasks, [wallet](../resources/glossary.md#wallet) operations, and queries about [network](../resources/glossary.md#network) and [block chain](../resources/glossary.md#block-chain) data.
 
-Open-source client libraries for the RPC interface are readily available in most modern programming languages, so you probably don't need to write your own from scratch. VKAX Core also ships with its own compiled C++ RPC client, `vkax-cli`, located in the `bin` directory alongside `VKAXd` and `vkax-qt`. The `vkax-cli` program can be used as a command-line interface (CLI) to VKAX Core or for making RPC calls from applications written in languages lacking a suitable native client. The remainder of this section describes the VKAX Core RPC protocol in detail.
+Open-source client libraries for the RPC interface are readily available in most modern programming languages, so you probably don't need to write your own from scratch. SPRINGBOK Core also ships with its own compiled C++ RPC client, `springbok-cli`, located in the `bin` directory alongside `SPRINGBOKd` and `springbok-qt`. The `springbok-cli` program can be used as a command-line interface (CLI) to SPRINGBOK Core or for making RPC calls from applications written in languages lacking a suitable native client. The remainder of this section describes the SPRINGBOK Core RPC protocol in detail.
 
-> 📘 VKAX Core Configuration
+> 📘 SPRINGBOK Core Configuration
 >
-> The following subsections reference setting configuration values. See the [Examples Page](../examples/introduction.md) for more information about setting VKAX Core configuration values.
-VKAX
+> The following subsections reference setting configuration values. See the [Examples Page](../examples/introduction.md) for more information about setting SPRINGBOK Core configuration values.
+SPRINGBOK
 ### Enabling RPC
 
-If you start VKAX Core using `vkax-qt`, the RPC interface is disabled by default. To enable it, set `server=1` in `VKAX.conf` or supply the `-server` argument when invoking the program. If you start VKAX Core using `VKAXd`, the RPC interface is enabled by default.
+If you start SPRINGBOK Core using `springbok-qt`, the RPC interface is disabled by default. To enable it, set `server=1` in `SPRINGBOK.conf` or supply the `-server` argument when invoking the program. If you start SPRINGBOK Core using `SPRINGBOKd`, the RPC interface is enabled by default.
 
 ### Basic Security
 
-The interface requires the user to provide a password for authenticating RPC requests. This password can be set either using the `rpcpassword` property in `VKAX.conf` or by supplying the `-rpcpassword` program argument. Optionally a username can be set using the `rpcuser` configuration value.
+The interface requires the user to provide a password for authenticating RPC requests. This password can be set either using the `rpcpassword` property in `SPRINGBOK.conf` or by supplying the `-rpcpassword` program argument. Optionally a username can be set using the `rpcuser` configuration value.
 
 ### RPC-Auth Security
 
-Alternatively, the authentication details can be provided using the `rpcauth` property. This removes the need to include a plaintext password in the VKAX.conf file by instead including a salt and hash of the password along with a username in the format:
+Alternatively, the authentication details can be provided using the `rpcauth` property. This removes the need to include a plaintext password in the SPRINGBOK.conf file by instead including a salt and hash of the password along with a username in the format:
 `<USERNAME>:<SALT>$<HASH>`
 
 ``` shell
-# Example VKAX.conf rpcauth entry
+# Example SPRINGBOK.conf rpcauth entry
 rpcauth=myuser:933fff1aaefa1fc5b3e981fd3ceacf03$f799757c0d36be8f1faa1dd3a01562b17ada82f2ff6c968c959103afda9e7c6f
 ```
 
@@ -32,10 +32,10 @@ rpcauth=myuser:933fff1aaefa1fc5b3e981fd3ceacf03$f799757c0d36be8f1faa1dd3a01562b1
 >
 > The `rpcauth` option can be specified multiple times if multiple users are required.
 
-A canonical python script is included in VKAX Core's repository under [share/rpcuser](https://github.com/VKAXpay/VKAX/tree/master/share/rpcauth) to generate the information required for the VKAX.conf file as well as the password required by clients using the rpcauth name.
+A canonical python script is included in SPRINGBOK Core's repository under [share/rpcuser](https://github.com/SPRINGBOKpay/SPRINGBOK/tree/master/share/rpcauth) to generate the information required for the SPRINGBOK.conf file as well as the password required by clients using the rpcauth name.
 
 ``` text
-String to be appended to VKAX.conf:
+String to be appended to SPRINGBOK.conf:
 rpcauth=myuser:b87393f6957f80448f8a0aba5eb8cc00$f67a3321106b13acc2a8881c9eb64e7bbc6eeb4681261b2918cc54da8915be6e
 Your password:
 2-Cl0O92-MT-XavyEIkkV_hxqdC_7fag8w7EF7t3UVg=
@@ -43,7 +43,7 @@ Your password:
 
 ### RPC Whitelist
 
-The RPC whitelist system can limit certain RPC users to only have access to some RPC calls. The system is configured by specifying the following two parameters in the `VKAX.conf` file or by setting them as program arguments on the command line:
+The RPC whitelist system can limit certain RPC users to only have access to some RPC calls. The system is configured by specifying the following two parameters in the `SPRINGBOK.conf` file or by setting them as program arguments on the command line:
 
 * `rpcwhitelist`: set a whitelist to filter incoming RPC calls for a specific user. The field <whitelist> comes in the format: `<USERNAME>:<rpc 1>,<rpc 2>,...,<rpc n>`. If multiple whitelists are set for a given user, they are set-intersected. Default whitelist behavior is defined by `rpcwhitelistdefault`.
 * `rpcwhitelistdefault`: sets default behavior for RPC whitelisting. Unless `rpcwhitelistdefault` is set to `0`, if any `rpcwhitelist` is set, the RPC server acts as if all RPC users are subject to empty-unless-otherwise-specified whitelists. If `rpcwhitelistdefault` is set to `1` and no `rpcwhitelist` is set, the RPC server acts as if all RPC users are subject to empty whitelists.
@@ -69,7 +69,7 @@ In this example, user1 can only call `getnetworkinfo`, user2 can only call `getn
 >
 > This feature is only available on masternodes
 
-As of VKAX Core 0.17.0, an option is provided to add an RPC user that is restricted to a small subset of RPCs that will be used by VKAX Platform. The `platform-user` configuration value sets the name of the RPC user to be restricted.
+As of SPRINGBOK Core 0.17.0, an option is provided to add an RPC user that is restricted to a small subset of RPCs that will be used by SPRINGBOK Platform. The `platform-user` configuration value sets the name of the RPC user to be restricted.
 
 The `platform-user` configuration value must be set to a previously configured [rpcauth user](#rpc-auth-security).
 
@@ -85,7 +85,7 @@ Only the following RPCs are accessible to the restricted user:
 
 ### Default Connection Info
 
-The VKAX Core RPC service listens for HTTP `POST` requests on port 9998 in [mainnet](../resources/glossary.md#mainnet) mode, 19998 in [testnet](../resources/glossary.md#testnet), or 19898 in [regression test mode](../resources/glossary.md#regression-test-mode). The port number can be changed by setting `rpcport` in `VKAX.conf`. By default the RPC service binds to your server's [localhost](https://en.wikipedia.org/wiki/Localhost) loopback network interface so it's not accessible from other servers. Authentication is implemented using [HTTP basic authentication](https://en.wikipedia.org/wiki/Basic_access_authentication). RPC HTTP requests must include a `Content-Type` header set to `text/plain` and a `Content-Length` header set to the size of the request body.
+The SPRINGBOK Core RPC service listens for HTTP `POST` requests on port 9998 in [mainnet](../resources/glossary.md#mainnet) mode, 19998 in [testnet](../resources/glossary.md#testnet), or 19898 in [regression test mode](../resources/glossary.md#regression-test-mode). The port number can be changed by setting `rpcport` in `SPRINGBOK.conf`. By default the RPC service binds to your server's [localhost](https://en.wikipedia.org/wiki/Localhost) loopback network interface so it's not accessible from other servers. Authentication is implemented using [HTTP basic authentication](https://en.wikipedia.org/wiki/Basic_access_authentication). RPC HTTP requests must include a `Content-Type` header set to `text/plain` and a `Content-Length` header set to the size of the request body.
 
 ## Data Formats
 
@@ -98,11 +98,11 @@ Specifically, the HTTP `POST` data of a request must be a JSON object with the f
 | Name                 | Type            | Presence                    | Description
 |----------------------|-----------------|-----------------------------|----------------
 | Request              | object          | Required<br>(exactly 1)     | The JSON-RPC request object
-| → <br>`jsonrpc`      | number (real)   | Optional<br>(0 or 1)        | Version indicator for the JSON-RPC request. Currently ignored by VKAX Core.
+| → <br>`jsonrpc`      | number (real)   | Optional<br>(0 or 1)        | Version indicator for the JSON-RPC request. Currently ignored by SPRINGBOK Core.
 | → <br>`id`           | string          | Optional<br>(0 or 1)        | An arbitrary string that will be returned with the response.  May be omitted or set to an empty string ("")
 | → <br>`method`       | string          | Required<br>(exactly 1)     | The RPC method name (e.g. `getblock`).  See the RPC section for a list of available methods.
 | → <br>`params`       | array           | Optional<br>(0 or 1)        | An array containing positional parameter values for the RPC.  May be an empty array or omitted for RPC calls that don't have any required parameters.
-| → <br>`params`       | object           | Optional<br>(0 or 1)        | Starting from VKAX Core 0.12.3 / Bitcoin Core 0.14.0 (replaces the params array above) An object containing named parameter values for the RPC. May be an empty object or omitted for RPC calls that don’t have any required parameters.
+| → <br>`params`       | object           | Optional<br>(0 or 1)        | Starting from SPRINGBOK Core 0.12.3 / Bitcoin Core 0.14.0 (replaces the params array above) An object containing named parameter values for the RPC. May be an empty object or omitted for RPC calls that don’t have any required parameters.
 | → → <br>Parameter    | *any*           | Optional<br>(0 or more)       | A parameter.  May be any JSON type allowed by the particular RPC method
 
 In the table above and in other tables describing RPC input and output, we use the following conventions
@@ -113,7 +113,7 @@ In the table above and in other tables describing RPC input and output, we use t
 
 * Code-style names like `params` are literal strings that appear in the JSON object.
 
-* "Type" is the JSON data type and the specific VKAX Core type.
+* "Type" is the JSON data type and the specific SPRINGBOK Core type.
 
 * "Presence" indicates whether or not a field must be present within its containing array or object. Note that an optional object may still have required children.
 
@@ -126,7 +126,7 @@ The HTTP response data for a RPC request is a JSON object with the following for
 | Response             | object          | Required<br>(exactly 1)     | The JSON-RPC response object.
 | → <br>`result`       | *any*           | Required<br>(exactly 1)     | The RPC output whose type varies by call.  Has value `null` if an error occurred.
 | → <br>`error`        | null/object     | Required<br>(exactly 1)     | An object describing the error if one occurred, otherwise `null`.
-| → → <br>`code`        | number (int)    | Required<br>(exactly 1)     | The error code returned by the RPC function call. See [rpcprotocol.h](https://github.com/VKAXpay/VKAX/blob/v0.15.x/src/rpc/protocol.h) for a full list of error codes and their meanings.
+| → → <br>`code`        | number (int)    | Required<br>(exactly 1)     | The error code returned by the RPC function call. See [rpcprotocol.h](https://github.com/SPRINGBOKpay/SPRINGBOK/blob/v0.15.x/src/rpc/protocol.h) for a full list of error codes and their meanings.
 | → → <br>`message`     | string          | Required<br>(exactly 1)     | A text description of the error.  May be an empty string ("").
 | → <br>`id`           | string          | Required<br>(exactly 1)     | The value of `id` provided with the request. Has value `null` if the `id` field was omitted in the request.
 
@@ -142,16 +142,16 @@ As an example, here is the JSON-RPC request object for the hash of the [genesis 
 }
 ```
 
-The command to send this request using `vkax-cli` is:
+The command to send this request using `springbok-cli` is:
 
 ```shell Shell
-vkax-cli getblockhash 0
+springbok-cli getblockhash 0
 ```
 
-The command to send this request using `vkax-cli` with named parameters is:
+The command to send this request using `springbok-cli` with named parameters is:
 
 ```shell Shell
-vkax-cli -named getblockhash height=0
+springbok-cli -named getblockhash height=0
 ```
 
 Alternatively, we could `POST` this request using the cURL command-line program as follows:
@@ -178,9 +178,9 @@ The HTTP response data for this request would be:
 
 > 📘
 >
-> Note: In order to minimize its size, the raw JSON response from VKAX Core doesn't include any extraneous whitespace characters.
+> Note: In order to minimize its size, the raw JSON response from SPRINGBOK Core doesn't include any extraneous whitespace characters.
 
-Here whitespace has been added to make the object more readable. `vkax-cli` also transforms the raw response to make it more human-readable. It:
+Here whitespace has been added to make the object more readable. `springbok-cli` also transforms the raw response to make it more human-readable. It:
 
 * Adds whitespace indentation to JSON objects
 * Expands escaped newline characters ("\n") into actual newlines
@@ -188,7 +188,7 @@ Here whitespace has been added to make the object more readable. `vkax-cli` also
 * Strips the outer double-quotes around `result`s of type string
 * Returns only the `error` field if there's an error
 
-Continuing with the example above, the output from the `vkax-cli` command would be simply:
+Continuing with the example above, the output from the `springbok-cli` command would be simply:
 
 ```text
 00000bafbc94add76cb75e2ec92894837288a481e5c005f6563d91623bf8bc2c
@@ -200,25 +200,25 @@ Continuing with the example above, the output from the `vkax-cli` command would 
 
 ### Multi-wallet Support
 
-Since VKAX Core 18.0 introduced the ability to have multiple wallets loaded at
+Since SPRINGBOK Core 18.0 introduced the ability to have multiple wallets loaded at
 the same time, wallet-related RPCs require providing the wallet name when more
 than one wallet file is loaded. This is to ensure the RPC command is executed
 using the correct wallet.
 
-**vkax-cli Example**
+**springbok-cli Example**
 
-Use the vkax-cli `-rpcwallet` option to specify the path of the wallet file to
+Use the springbok-cli `-rpcwallet` option to specify the path of the wallet file to
 access, for example:
 
 ```shell
-vkax-cli -rpcwallet=<wallet-filename> <command>
+springbok-cli -rpcwallet=<wallet-filename> <command>
 ```
 
 To use the default wallet, use `""` for the wallet filename as shown in the
 example below:
 
 ```shell
-vkax-cli -rpcwallet="" getwalletinfo
+springbok-cli -rpcwallet="" getwalletinfo
 ```
 
 **JSON-RPC Example**
@@ -252,7 +252,7 @@ curl --user 'my_username:my_secret_password' --data-binary '''
 
 ### RPCs with sub-commands
 
-VKAX Core has a number of RPC requests that use sub-commands to group access to related data under one RPC method name. Examples of this include the [`gobject`](../api/remote-procedure-calls-VKAX.md#gobject), [`masternode`](../api/remote-procedure-calls-VKAX.md#masternode), [`protx`](../api/remote-procedure-calls-evo.md#protx), and [`quorum`](../api/remote-procedure-calls-evo.md#quorum) RPCs. If using cURL, the sub-commands should be included in the requests `params` field as shown here:
+SPRINGBOK Core has a number of RPC requests that use sub-commands to group access to related data under one RPC method name. Examples of this include the [`gobject`](../api/remote-procedure-calls-SPRINGBOK.md#gobject), [`masternode`](../api/remote-procedure-calls-SPRINGBOK.md#masternode), [`protx`](../api/remote-procedure-calls-evo.md#protx), and [`quorum`](../api/remote-procedure-calls-evo.md#quorum) RPCs. If using cURL, the sub-commands should be included in the requests `params` field as shown here:
 
 ```shell
 curl --user 'my_username:my_secret_password' --data-binary '''
@@ -266,7 +266,7 @@ curl --user 'my_username:my_secret_password' --data-binary '''
 
 ### Error Handling
 
-If there's an error processing a request, VKAX Core sets the `result` field to `null` and provides information about the error in the  `error` field. For example, a request for the block hash at block height -1 would be met with the following response (again, whitespace added for clarity):
+If there's an error processing a request, SPRINGBOK Core sets the `result` field to `null` and provides information about the error in the  `error` field. For example, a request for the block hash at block height -1 would be met with the following response (again, whitespace added for clarity):
 
 ```json
 {
@@ -279,7 +279,7 @@ If there's an error processing a request, VKAX Core sets the `result` field to `
 }
 ```
 
-If `vkax-cli` encounters an error, it exits with a non-zero status code and outputs the `error` field as text to the process's standard error stream:
+If `springbok-cli` encounters an error, it exits with a non-zero status code and outputs the `error` field as text to the process's standard error stream:
 
 ```text
 error code: -8
@@ -289,7 +289,7 @@ Block height out of range
 
 ### Batch Requests
 
-The RPC interface supports request batching as described in [version 2.0 of the JSON-RPC specification](http://www.jsonrpc.org/specification#batch). To initiate multiple RPC requests within a single HTTP request, a client can `POST` a JSON array filled with Request objects. The HTTP response data is then a JSON array filled with the corresponding Response objects. Depending on your usage pattern, request batching may provide significant performance gains. The `vkax-cli` RPC client does not support batch requests.
+The RPC interface supports request batching as described in [version 2.0 of the JSON-RPC specification](http://www.jsonrpc.org/specification#batch). To initiate multiple RPC requests within a single HTTP request, a client can `POST` a JSON array filled with Request objects. The HTTP response data is then a JSON array filled with the corresponding Response objects. Depending on your usage pattern, request batching may provide significant performance gains. The `springbok-cli` RPC client does not support batch requests.
 
 ```shell
 curl --user 'my_username:my_secret_password' --data-binary '''
@@ -308,10 +308,10 @@ curl --user 'my_username:my_secret_password' --data-binary '''
   --header 'Content-Type: text/plain;' localhost:9998
 ```
 
-To keep this documentation compact and readable, the examples for each of the available RPC calls will be given as `vkax-cli` commands:
+To keep this documentation compact and readable, the examples for each of the available RPC calls will be given as `springbok-cli` commands:
 
 ```shell
-vkax-cli [options] <method name> <param1> <param2> ...
+springbok-cli [options] <method name> <param1> <param2> ...
 ```
 
 This translates into an JSON-RPC Request object of the form:
@@ -336,7 +336,7 @@ remote-procedure-call-quick-reference
 remote-procedure-calls-address-index
 remote-procedure-calls-blockchain
 remote-procedure-calls-control
-remote-procedure-calls-VKAX
+remote-procedure-calls-SPRINGBOK
 remote-procedure-calls-evo
 remote-procedure-calls-generating
 remote-procedure-calls-mining

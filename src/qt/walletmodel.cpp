@@ -218,7 +218,7 @@ WalletModel::SendCoinsReturn WalletModel::prepareTransaction(WalletModelTransact
         }
         else
 #endif
-        {   // User-entered vkax address / amount:
+        {   // User-entered springbok address / amount:
             if(!validateAddress(rcp.address))
             {
                 return InvalidAddress;
@@ -303,7 +303,7 @@ WalletModel::SendCoinsReturn WalletModel::sendCoins(WalletModelTransaction &tran
             }
             else
 #endif
-            if (!rcp.message.isEmpty()) // Message from normal vkax:URI (vkax:XyZ...?message=example)
+            if (!rcp.message.isEmpty()) // Message from normal springbok:URI (springbok:XyZ...?message=example)
                 vOrderForm.emplace_back("Message", rcp.message.toStdString());
         }
 

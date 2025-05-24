@@ -74,12 +74,12 @@
         <translation>Vastaanottava osoite</translation>
     </message>
     <message>
-        <source>These are your Vkax addresses for sending payments. Always check the amount and the receiving address before sending coins.</source>
-        <translation>Nämä ovat Vkax osoitteesi maksujen lähetykseen. Tarkista aina lähetettävä määrä ja vastaanottajan osoite ennen kuin lähetät kolikoita.</translation>
+        <source>These are your SPRINGBOK addresses for sending payments. Always check the amount and the receiving address before sending coins.</source>
+        <translation>Nämä ovat SPRINGBOK osoitteesi maksujen lähetykseen. Tarkista aina lähetettävä määrä ja vastaanottajan osoite ennen kuin lähetät kolikoita.</translation>
     </message>
     <message>
-        <source>These are your Vkax addresses for receiving payments. Use the 'Create new receiving address' button in the receive tab to create new addresses.</source>
-        <translation>Nämä ovat Vkax osoitteesi maksujen vastaanottoon. Käytä 'Luo uusi osoite' painiketta vastaanota välilehdellä luodaksesi uusia osoitteita.</translation>
+        <source>These are your SPRINGBOK addresses for receiving payments. Use the 'Create new receiving address' button in the receive tab to create new addresses.</source>
+        <translation>Nämä ovat SPRINGBOK osoitteesi maksujen vastaanottoon. Käytä 'Luo uusi osoite' painiketta vastaanota välilehdellä luodaksesi uusia osoitteita.</translation>
     </message>
     <message>
         <source>&amp;Copy Address</source>
@@ -227,7 +227,7 @@
         <translation>Vahvista lompakon salaus</translation>
     </message>
     <message>
-        <source>Warning: If you encrypt your wallet and lose your passphrase, you will &lt;b&gt;LOSE ALL OF YOUR VKAX&lt;/b&gt;!</source>
+        <source>Warning: If you encrypt your wallet and lose your passphrase, you will &lt;b&gt;LOSE ALL OF YOUR SPRINGBOK&lt;/b&gt;!</source>
         <translation>Varoitus: Jos salaat lompakon ja unohdat salasanan, &lt;b&gt;MENETÄT KAIKKI DASHisi&lt;/b&gt;!</translation>
     </message>
     <message>
@@ -324,8 +324,8 @@
 <context>
     <name>BitcoinGUI</name>
     <message>
-        <source>A fatal error occurred. Vkax Core can no longer continue safely and will quit.</source>
-        <translation>Vakava virhe tapahtunut. Vkax Core ei voi enää toimia turvallisesti ja sulkeutuu.</translation>
+        <source>A fatal error occurred. SPRINGBOK Core can no longer continue safely and will quit.</source>
+        <translation>Vakava virhe tapahtunut. SPRINGBOK Core ei voi enää toimia turvallisesti ja sulkeutuu.</translation>
     </message>
     <message>
         <source>&amp;Overview</source>
@@ -340,16 +340,16 @@
         <translation>L&amp;ähetä</translation>
     </message>
     <message>
-        <source>Send coins to a Vkax address</source>
-        <translation>Lähetä kolikoita Vkax osoitteeseen</translation>
+        <source>Send coins to a SPRINGBOK address</source>
+        <translation>Lähetä kolikoita SPRINGBOK osoitteeseen</translation>
     </message>
     <message>
         <source>&amp;Receive</source>
         <translation>&amp;Vastaanota</translation>
     </message>
     <message>
-        <source>Request payments (generates QR codes and vkax: URIs)</source>
-        <translation>Pyydä maksuja (Luo QR koodit ja Vkax: URIt)</translation>
+        <source>Request payments (generates QR codes and springbok: URIs)</source>
+        <translation>Pyydä maksuja (Luo QR koodit ja SPRINGBOK: URIt)</translation>
     </message>
     <message>
         <source>&amp;Sending addresses</source>
@@ -436,8 +436,8 @@
         <translation>&amp;Tietoja %1</translation>
     </message>
     <message>
-        <source>Send %1 funds to a Vkax address</source>
-        <translation>Lähetä %1 kolikoita Vkax osoitteeseen</translation>
+        <source>Send %1 funds to a SPRINGBOK address</source>
+        <translation>Lähetä %1 kolikoita SPRINGBOK osoitteeseen</translation>
     </message>
     <message>
         <source>Modify configuration options for %1</source>
@@ -492,16 +492,16 @@
         <translation>&amp;Allekirjoita Viesti...</translation>
     </message>
     <message>
-        <source>Sign messages with your Vkax addresses to prove you own them</source>
-        <translation>Allekirjoita viestit Vkax osoitteillasi todistaaksesi että omistat ne</translation>
+        <source>Sign messages with your SPRINGBOK addresses to prove you own them</source>
+        <translation>Allekirjoita viestit SPRINGBOK osoitteillasi todistaaksesi että omistat ne</translation>
     </message>
     <message>
         <source>&amp;Verify message...</source>
         <translation>&amp;Tarkista Viesti...</translation>
     </message>
     <message>
-        <source>Verify messages to ensure they were signed with specified Vkax addresses</source>
-        <translation>Tarkista viestit ollaksesi varma että ne on allekirjoitettu määritetyillä Vkax osoitteilla</translation>
+        <source>Verify messages to ensure they were signed with specified SPRINGBOK addresses</source>
+        <translation>Tarkista viestit ollaksesi varma että ne on allekirjoitettu määritetyillä SPRINGBOK osoitteilla</translation>
     </message>
     <message>
         <source>&amp;Information</source>
@@ -572,15 +572,15 @@
         <translation>Avaa &amp;URI...</translation>
     </message>
     <message>
-        <source>Open a vkax: URI or payment request</source>
-        <translation>Avaa Vkax: URI tai maksupyyntö</translation>
+        <source>Open a springbok: URI or payment request</source>
+        <translation>Avaa SPRINGBOK: URI tai maksupyyntö</translation>
     </message>
     <message>
         <source>&amp;Command-line options</source>
         <translation>&amp;Komentorivin valinnat</translation>
     </message>
     <message>
-        <source>Show the %1 help message to get a list with possible Vkax command-line options</source>
+        <source>Show the %1 help message to get a list with possible SPRINGBOK command-line options</source>
         <translation>Näytä %1 ohjelista komentorivin valinnoista</translation>
     </message>
     <message>
@@ -646,8 +646,8 @@
         <translation>Näytä hallinnon ehdotukset</translation>
     </message>
     <message numerus="yes">
-        <source>%n active connection(s) to Vkax network</source>
-        <translation><numerusform>%n aktiivinen yhteys Vkax verkkoon</numerusform><numerusform>%n aktiivista yhteyttä Vkax verkkoon</numerusform></translation>
+        <source>%n active connection(s) to SPRINGBOK network</source>
+        <translation><numerusform>%n aktiivinen yhteys SPRINGBOK verkkoon</numerusform><numerusform>%n aktiivista yhteyttä SPRINGBOK verkkoon</numerusform></translation>
     </message>
     <message>
         <source>Network activity disabled</source>
@@ -1096,8 +1096,8 @@
         <translation>Muokkaa lähettävää osoitetta</translation>
     </message>
     <message>
-        <source>The entered address "%1" is not a valid Vkax address.</source>
-        <translation>Annettu osoite "%1" ei ole pätevä Vkax osoite.</translation>
+        <source>The entered address "%1" is not a valid SPRINGBOK address.</source>
+        <translation>Annettu osoite "%1" ei ole pätevä SPRINGBOK osoite.</translation>
     </message>
     <message>
         <source>Address "%1" already exists as a receiving address with label "%2" and so cannot be added as a sending address.</source>
@@ -1185,8 +1185,8 @@
         <translation>%1 Tietoja</translation>
     </message>
     <message>
-        <source>&lt;h3&gt;%1 Basics&lt;/h3&gt; %1 gives you true financial privacy by obscuring the origins of your funds. All the Vkax in your wallet is comprised of different "inputs" which you can think of as separate, discrete coins.&lt;br&gt; %1 uses an innovative process to mix your inputs with the inputs of two or more other people, without having your coins ever leave your wallet. You retain control of your money at all times.&lt;hr&gt; &lt;b&gt;The %1 process works like this:&lt;/b&gt;&lt;ol type="1"&gt; &lt;li&gt;%1 begins by breaking your transaction inputs down into standard denominations. These denominations are 0.001 VKAX, 0.01 VKAX, 0.1 VKAX, 1 VKAX and 10 VKAX -- sort of like the paper money you use every day.&lt;/li&gt; &lt;li&gt;Your wallet then sends requests to specially configured software nodes on the network, called "masternodes." These masternodes are informed then that you are interested in mixing a certain denomination. No identifiable information is sent to the masternodes, so they never know "who" you are.&lt;/li&gt; &lt;li&gt;When two or more other people send similar messages, indicating that they wish to mix the same denomination, a mixing session begins. The masternode mixes up the inputs and instructs all three users' wallets to pay the now-transformed input back to themselves. Your wallet pays that denomination directly to itself, but in a different address (called a change address).&lt;/li&gt; &lt;li&gt;In order to fully obscure your funds, your wallet must repeat this process a number of times with each denomination. Each time the process is completed, it's called a "round." Each round of %1 makes it exponentially more difficult to determine where your funds originated.&lt;/li&gt; &lt;li&gt;This mixing process happens in the background without any intervention on your part. When you wish to make a transaction, your funds will already be mixed. No additional waiting is required.&lt;/li&gt; &lt;/ol&gt; &lt;hr&gt;&lt;b&gt;IMPORTANT:&lt;/b&gt; Your wallet only contains 1000 of these "change addresses." Every time a mixing event happens, up to 9 of your addresses are used up. This means those 1000 addresses last for about 100 mixing events. When 900 of them are used, your wallet must create more addresses. It can only do this, however, if you have automatic backups enabled.&lt;br&gt; Consequently, users who have backups disabled will also have %1 disabled. &lt;hr&gt;For more information, see the &lt;a style="%2" href="%3"&gt;%1 documentation&lt;/a&gt;.</source>
-        <translation>&lt;h3&gt;%1 Perusteet&lt;/h3&gt; %1 tarjoaa yksityisyyden hämärtämällä kolikoiden alkuperäisen osoitteen. Kaikki Vkax:it lompakossasi muodostuvat erillisistä "syötteistä", joita voit ajatella erillisinä kolikkoina.&lt;br&gt; %1 käyttää innovatiivista prosessia sekoittaakseen lompakkosi syötteet kahden muun ihmisen syötteisiin, siirtämättä kolikoita pois lompakostasi. Kolikoiden kontrolli pysyy aina sinulla.&lt;hr&gt; &lt;b&gt; %1 prosessi toimii seuraavasti:&lt;/b&gt;&lt;ol type="1"&gt; &lt;li&gt;%1 aloittaa pilkkomalla siirtotapahtumiesi syötteet pienemmiksi standardi arvoiksi. Nämä arvot ovat 0.001 VKAX, 0.01 VKAX, 0.1 VKAX, 1 VKAX ja 10 VKAX.&lt;/li&gt; &lt;li&gt;Sitten lompakkosi lähettää pyynnön verkon palvelimille, joita kutsutaan "masternode:iksi". Masternodet saavat tiedon että haluat sekoittaa pilkottuja standardi arvoja. Mitään tunnistetietoja ei lähetetä masternode:ille, ne eivät koskaan tiedä "kuka" olet.&lt;/li&gt; &lt;li&gt;Kun 2 tai enemmän käyttäjää ilmoittaa että he haluavat myös sekoittaa kolikoita, alkaa sekoitus-sessio. Masternodet sekoittavat standardi arvot ja ilmoittavat kaikille 3:lle käyttäjän lompakoille että maksavat sekoitetut arvot takaisin itselleen. Lompakkosi maksaa nuo sekoitetut arvot suoraan itselleen, mutta eri osoitteeseen (vaihto-osoite).&lt;/li&gt; &lt;li&gt;Jotta kolikoiden alkuperäinen lähde hämärretään, lompakkosi suorittaa tämän prosessin useita kertoja kaikilla standardi arvoilla. Aina kun prosessi on valmis, sitä kutsutaan "kierrokseksi". Jokainen %1 kierros tekee eksponentiaalisesti vaikeammaksi löytää kolikoiden alkuperäinen osoitte.&lt;/li&gt; &lt;li&gt;Tämä sekoitusprosessi tapahtuu taustalla ilman käyttäjän toimenpiteitä. Kun haluat myöhemmin tehdä kolikoiden siirron, on ne valmiiksi sekoitettu. Erillistä sekoitusta/odotusta ei tarvita.&lt;/li&gt; &lt;/ol&gt; &lt;hr&gt;&lt;b&gt;TÄRKEÄÄ:&lt;/b&gt; Lompakkosi sisältää vain 1000 "vaihto-osoitetta". Aina kun sekoitustapahtuma tehdään, max 9 osoitetta käytetään. Tämä tarkoittaa sitä että nuo 1000 osoitetta kestää noin 100 sekoitustapahtumaa. Kun 900 osoitetta on käytetty, lompakkosi täytyy tehdä lisää osoitteita. Se voi tehdä niitä vain jos automaattinen varmistus on käytössä.&lt;br&gt; Tästä seuraa että jos varmistus ei ole käytössä, myös %1 on pois käytöstä. &lt;hr&gt;Katso lisätietoja &lt;a style="%2" href="%3"&gt;%1 dokumentaatiosta&lt;/a&gt;.</translation>
+        <source>&lt;h3&gt;%1 Basics&lt;/h3&gt; %1 gives you true financial privacy by obscuring the origins of your funds. All the SPRINGBOK in your wallet is comprised of different "inputs" which you can think of as separate, discrete coins.&lt;br&gt; %1 uses an innovative process to mix your inputs with the inputs of two or more other people, without having your coins ever leave your wallet. You retain control of your money at all times.&lt;hr&gt; &lt;b&gt;The %1 process works like this:&lt;/b&gt;&lt;ol type="1"&gt; &lt;li&gt;%1 begins by breaking your transaction inputs down into standard denominations. These denominations are 0.001 SPRINGBOK, 0.01 SPRINGBOK, 0.1 SPRINGBOK, 1 SPRINGBOK and 10 SPRINGBOK -- sort of like the paper money you use every day.&lt;/li&gt; &lt;li&gt;Your wallet then sends requests to specially configured software nodes on the network, called "masternodes." These masternodes are informed then that you are interested in mixing a certain denomination. No identifiable information is sent to the masternodes, so they never know "who" you are.&lt;/li&gt; &lt;li&gt;When two or more other people send similar messages, indicating that they wish to mix the same denomination, a mixing session begins. The masternode mixes up the inputs and instructs all three users' wallets to pay the now-transformed input back to themselves. Your wallet pays that denomination directly to itself, but in a different address (called a change address).&lt;/li&gt; &lt;li&gt;In order to fully obscure your funds, your wallet must repeat this process a number of times with each denomination. Each time the process is completed, it's called a "round." Each round of %1 makes it exponentially more difficult to determine where your funds originated.&lt;/li&gt; &lt;li&gt;This mixing process happens in the background without any intervention on your part. When you wish to make a transaction, your funds will already be mixed. No additional waiting is required.&lt;/li&gt; &lt;/ol&gt; &lt;hr&gt;&lt;b&gt;IMPORTANT:&lt;/b&gt; Your wallet only contains 1000 of these "change addresses." Every time a mixing event happens, up to 9 of your addresses are used up. This means those 1000 addresses last for about 100 mixing events. When 900 of them are used, your wallet must create more addresses. It can only do this, however, if you have automatic backups enabled.&lt;br&gt; Consequently, users who have backups disabled will also have %1 disabled. &lt;hr&gt;For more information, see the &lt;a style="%2" href="%3"&gt;%1 documentation&lt;/a&gt;.</source>
+        <translation>&lt;h3&gt;%1 Perusteet&lt;/h3&gt; %1 tarjoaa yksityisyyden hämärtämällä kolikoiden alkuperäisen osoitteen. Kaikki SPRINGBOK:it lompakossasi muodostuvat erillisistä "syötteistä", joita voit ajatella erillisinä kolikkoina.&lt;br&gt; %1 käyttää innovatiivista prosessia sekoittaakseen lompakkosi syötteet kahden muun ihmisen syötteisiin, siirtämättä kolikoita pois lompakostasi. Kolikoiden kontrolli pysyy aina sinulla.&lt;hr&gt; &lt;b&gt; %1 prosessi toimii seuraavasti:&lt;/b&gt;&lt;ol type="1"&gt; &lt;li&gt;%1 aloittaa pilkkomalla siirtotapahtumiesi syötteet pienemmiksi standardi arvoiksi. Nämä arvot ovat 0.001 SPRINGBOK, 0.01 SPRINGBOK, 0.1 SPRINGBOK, 1 SPRINGBOK ja 10 SPRINGBOK.&lt;/li&gt; &lt;li&gt;Sitten lompakkosi lähettää pyynnön verkon palvelimille, joita kutsutaan "masternode:iksi". Masternodet saavat tiedon että haluat sekoittaa pilkottuja standardi arvoja. Mitään tunnistetietoja ei lähetetä masternode:ille, ne eivät koskaan tiedä "kuka" olet.&lt;/li&gt; &lt;li&gt;Kun 2 tai enemmän käyttäjää ilmoittaa että he haluavat myös sekoittaa kolikoita, alkaa sekoitus-sessio. Masternodet sekoittavat standardi arvot ja ilmoittavat kaikille 3:lle käyttäjän lompakoille että maksavat sekoitetut arvot takaisin itselleen. Lompakkosi maksaa nuo sekoitetut arvot suoraan itselleen, mutta eri osoitteeseen (vaihto-osoite).&lt;/li&gt; &lt;li&gt;Jotta kolikoiden alkuperäinen lähde hämärretään, lompakkosi suorittaa tämän prosessin useita kertoja kaikilla standardi arvoilla. Aina kun prosessi on valmis, sitä kutsutaan "kierrokseksi". Jokainen %1 kierros tekee eksponentiaalisesti vaikeammaksi löytää kolikoiden alkuperäinen osoitte.&lt;/li&gt; &lt;li&gt;Tämä sekoitusprosessi tapahtuu taustalla ilman käyttäjän toimenpiteitä. Kun haluat myöhemmin tehdä kolikoiden siirron, on ne valmiiksi sekoitettu. Erillistä sekoitusta/odotusta ei tarvita.&lt;/li&gt; &lt;/ol&gt; &lt;hr&gt;&lt;b&gt;TÄRKEÄÄ:&lt;/b&gt; Lompakkosi sisältää vain 1000 "vaihto-osoitetta". Aina kun sekoitustapahtuma tehdään, max 9 osoitetta käytetään. Tämä tarkoittaa sitä että nuo 1000 osoitetta kestää noin 100 sekoitustapahtumaa. Kun 900 osoitetta on käytetty, lompakkosi täytyy tehdä lisää osoitteita. Se voi tehdä niitä vain jos automaattinen varmistus on käytössä.&lt;br&gt; Tästä seuraa että jos varmistus ei ole käytössä, myös %1 on pois käytöstä. &lt;hr&gt;Katso lisätietoja &lt;a style="%2" href="%3"&gt;%1 dokumentaatiosta&lt;/a&gt;.</translation>
     </message>
 </context>
 <context>
@@ -1232,8 +1232,8 @@
         <translation>Arviolta %1 GB dataa tallennetaan tähän hakemistoon.</translation>
     </message>
     <message>
-        <source>%1 will download and store a copy of the Vkax block chain.</source>
-        <translation>%1 lataa ja tallentaa kopion Vkax lohkoketjusta.</translation>
+        <source>%1 will download and store a copy of the SPRINGBOK block chain.</source>
+        <translation>%1 lataa ja tallentaa kopion SPRINGBOK lohkoketjusta.</translation>
     </message>
     <message>
         <source>The wallet will also be stored in this directory.</source>
@@ -1386,12 +1386,12 @@
         <translation>Lomake</translation>
     </message>
     <message>
-        <source>Recent transactions may not yet be visible, and therefore your wallet's balance might be incorrect. This information will be correct once your wallet has finished synchronizing with the Vkax network, as detailed below.</source>
-        <translation>Viimeisimmät siirtotapahtumat eivät välttämättä ole vielä näkyvissä, ja siksi lompakon saldo voi olla väärin. Saldo korjaantuu oikeaksi kun lompakon synkronointi Vkax verkkoon on valmis.</translation>
+        <source>Recent transactions may not yet be visible, and therefore your wallet's balance might be incorrect. This information will be correct once your wallet has finished synchronizing with the SPRINGBOK network, as detailed below.</source>
+        <translation>Viimeisimmät siirtotapahtumat eivät välttämättä ole vielä näkyvissä, ja siksi lompakon saldo voi olla väärin. Saldo korjaantuu oikeaksi kun lompakon synkronointi SPRINGBOK verkkoon on valmis.</translation>
     </message>
     <message>
-        <source>Attempting to spend Vkax that are affected by not-yet-displayed transactions will not be accepted by the network.</source>
-        <translation>Yritys käyttää Vkax:eja joihin vaikuttaa ei näkyvissä olevat siirtotapahtumat, tulevat hylätyksi Vkax verkossa.</translation>
+        <source>Attempting to spend SPRINGBOK that are affected by not-yet-displayed transactions will not be accepted by the network.</source>
+        <translation>Yritys käyttää SPRINGBOK:eja joihin vaikuttaa ei näkyvissä olevat siirtotapahtumat, tulevat hylätyksi SPRINGBOK verkossa.</translation>
     </message>
     <message>
         <source>Number of blocks left</source>
@@ -1587,8 +1587,8 @@
         <translation>Haluttu saldo</translation>
     </message>
     <message>
-        <source>Automatically open the Vkax Core client port on the router. This only works when your router supports UPnP and it is enabled.</source>
-        <translation>Avaa automaattisesti Vkax Core asiakasohjelmalle portti reitittimeen. Tämä toimii vain jos reitittimesi tukee UPnP:tä ja se on käytössä.</translation>
+        <source>Automatically open the SPRINGBOK Core client port on the router. This only works when your router supports UPnP and it is enabled.</source>
+        <translation>Avaa automaattisesti SPRINGBOK Core asiakasohjelmalle portti reitittimeen. Tämä toimii vain jos reitittimesi tukee UPnP:tä ja se on käytössä.</translation>
     </message>
     <message>
         <source>Automatically open the Bitcoin client port on the router. This only works when your router supports NAT-PMP and it is enabled. The external port could be random.</source>
@@ -1607,8 +1607,8 @@
         <translation>Salli sisää&amp;n tulevat yhteydet</translation>
     </message>
     <message>
-        <source>Connect to the Vkax network through a SOCKS5 proxy.</source>
-        <translation>Kytkeydy Vkax verkkoon käyttäen SOCKS5 proxy:a.</translation>
+        <source>Connect to the SPRINGBOK network through a SOCKS5 proxy.</source>
+        <translation>Kytkeydy SPRINGBOK verkkoon käyttäen SOCKS5 proxy:a.</translation>
     </message>
     <message>
         <source>&amp;Connect through SOCKS5 proxy (default proxy):</source>
@@ -1715,8 +1715,8 @@
         <translation>Tor</translation>
     </message>
     <message>
-        <source>Connect to the Vkax network through a separate SOCKS5 proxy for Tor hidden services.</source>
-        <translation>Kytkeydy Vkax verkkoon käyttäen erillistä SOCKS5 proxy:a Tor piilopalveluihin.</translation>
+        <source>Connect to the SPRINGBOK network through a separate SOCKS5 proxy for Tor hidden services.</source>
+        <translation>Kytkeydy SPRINGBOK verkkoon käyttäen erillistä SOCKS5 proxy:a Tor piilopalveluihin.</translation>
     </message>
     <message>
         <source>Show only a tray icon after minimizing the window.</source>
@@ -1744,9 +1744,9 @@
     </message>
     <message>
         <source>Language missing or translation incomplete? Help contributing translations here:
-https://www.transifex.com/projects/p/vkax/</source>
+https://www.transifex.com/projects/p/springbok/</source>
         <translation>Puuttuuko sopiva kieli tai käännös on kesken? Auta käännöstyössä täällä:
-https://www.transifex.com/projects/p/vkax/</translation>
+https://www.transifex.com/projects/p/springbok/</translation>
     </message>
     <message>
         <source>&amp;Unit to show amounts in:</source>
@@ -1812,8 +1812,8 @@ https://www.transifex.com/projects/p/vkax/</translation>
         <translation>Lomake</translation>
     </message>
     <message>
-        <source>The displayed information may be out of date. Your wallet automatically synchronizes with the Vkax network after a connection is established, but this process has not completed yet.</source>
-        <translation>Näytetyt tiedot eivät välttämättä ole ajan tasalla.&lt;br&gt;Lompakkosi synkronoituu automaattisesti Vkax verkkoon kun&lt;br&gt;yhteys on muodostettu, mutta tämä prosessi ei vielä ole valmis.</translation>
+        <source>The displayed information may be out of date. Your wallet automatically synchronizes with the SPRINGBOK network after a connection is established, but this process has not completed yet.</source>
+        <translation>Näytetyt tiedot eivät välttämättä ole ajan tasalla.&lt;br&gt;Lompakkosi synkronoituu automaattisesti SPRINGBOK verkkoon kun&lt;br&gt;yhteys on muodostettu, mutta tämä prosessi ei vielä ole valmis.</translation>
     </message>
     <message>
         <source>Available:</source>
@@ -1892,8 +1892,8 @@ https://www.transifex.com/projects/p/vkax/</translation>
         <translation>Määrä ja Kierrokset:</translation>
     </message>
     <message>
-        <source>0 VKAX / 0 Rounds</source>
-        <translation>0 VKAX / 0 Kierrosta</translation>
+        <source>0 SPRINGBOK / 0 Rounds</source>
+        <translation>0 SPRINGBOK / 0 Kierrosta</translation>
     </message>
     <message>
         <source>Submitted Denom:</source>
@@ -2035,7 +2035,7 @@ https://www.transifex.com/projects/p/vkax/</translation>
         <translation>Maksupyyntövirhe</translation>
     </message>
     <message>
-        <source>Cannot start vkax: click-to-pay handler</source>
+        <source>Cannot start springbok: click-to-pay handler</source>
         <translation>Ei voi käynnistää Dashia: click-to-pay handler</translation>
     </message>
     <message>
@@ -2043,8 +2043,8 @@ https://www.transifex.com/projects/p/vkax/</translation>
         <translation>URI käsittely</translation>
     </message>
     <message>
-        <source>'vkax://' is not a valid URI. Use 'vkax:' instead.</source>
-        <translation>'vkax://' ei ole validi URI. Käytä sen sijaan 'vkax:'.</translation>
+        <source>'springbok://' is not a valid URI. Use 'springbok:' instead.</source>
+        <translation>'springbok://' ei ole validi URI. Käytä sen sijaan 'springbok:'.</translation>
     </message>
     <message>
         <source>Payment request fetch URL is invalid: %1</source>
@@ -2059,8 +2059,8 @@ https://www.transifex.com/projects/p/vkax/</translation>
         <translation>Virheellinen maksuosoite %1</translation>
     </message>
     <message>
-        <source>URI cannot be parsed! This can be caused by an invalid Vkax address or malformed URI parameters.</source>
-        <translation>URI:a ei voida jäsentää! Tämä voi johtua virheellisestä Vkax osoitteesta tai virheellisestä URI:n muuttujasta. </translation>
+        <source>URI cannot be parsed! This can be caused by an invalid SPRINGBOK address or malformed URI parameters.</source>
+        <translation>URI:a ei voida jäsentää! Tämä voi johtua virheellisestä SPRINGBOK osoitteesta tai virheellisestä URI:n muuttujasta. </translation>
     </message>
     <message>
         <source>Payment request file handling</source>
@@ -2295,8 +2295,8 @@ https://www.transifex.com/projects/p/vkax/</translation>
         <translation>Määrä</translation>
     </message>
     <message>
-        <source>Enter a Vkax address (e.g. %1)</source>
-        <translation>Anna Vkax osoite (esim. %1)</translation>
+        <source>Enter a SPRINGBOK address (e.g. %1)</source>
+        <translation>Anna SPRINGBOK osoite (esim. %1)</translation>
     </message>
     <message>
         <source>Appearance Setup</source>
@@ -2881,8 +2881,8 @@ https://www.transifex.com/projects/p/vkax/</translation>
 <context>
     <name>ReceiveCoinsDialog</name>
     <message>
-        <source>An optional message to attach to the payment request, which will be displayed when the request is opened. Note: The message will not be sent with the payment over the Vkax network.</source>
-        <translation>Valinnainen viesti liitettäväksi maksupyyntöön, joka näytetään kun pyyntö on avattu.&lt;br&gt;Huomio: Viestiä ei lähetetä maksun mukana Vkax verkkoon.</translation>
+        <source>An optional message to attach to the payment request, which will be displayed when the request is opened. Note: The message will not be sent with the payment over the SPRINGBOK network.</source>
+        <translation>Valinnainen viesti liitettäväksi maksupyyntöön, joka näytetään kun pyyntö on avattu.&lt;br&gt;Huomio: Viestiä ei lähetetä maksun mukana SPRINGBOK verkkoon.</translation>
     </message>
     <message>
         <source>&amp;Message:</source>
@@ -2893,8 +2893,8 @@ https://www.transifex.com/projects/p/vkax/</translation>
         <translation>Valinnainen nimi liitetään uuteen vastaanottavaan osoitteeseen.</translation>
     </message>
     <message>
-        <source>An optional message to attach to the payment request, which will be displayed when the request is opened.&lt;br&gt;Note: The message will not be sent with the payment over the Vkax network.</source>
-        <translation>Valinnainen viesti liitettäväksi maksupyyntöön, joka näytetään kun pyyntö on avattu.&lt;br&gt;Huomio: Viestiä ei lähetetä maksun mukana Vkax verkkoon.</translation>
+        <source>An optional message to attach to the payment request, which will be displayed when the request is opened.&lt;br&gt;Note: The message will not be sent with the payment over the SPRINGBOK network.</source>
+        <translation>Valinnainen viesti liitettäväksi maksupyyntöön, joka näytetään kun pyyntö on avattu.&lt;br&gt;Huomio: Viestiä ei lähetetä maksun mukana SPRINGBOK verkkoon.</translation>
     </message>
     <message>
         <source>Use this form to request payments. All fields are &lt;b&gt;optional&lt;/b&gt;.</source>
@@ -3130,7 +3130,7 @@ https://www.transifex.com/projects/p/vkax/</translation>
         <translation>Jos mukautettu siirtomaksu on asetettu 1000 duff ja siirtotapahtuma on vain 250 tavua,&lt;br /&gt;tällöin "per kilotavu" maksaa vain 250 duffs siirtomaksun, kun taas "vähintään" maksaa 1000 duffs.&lt;br /&gt;Siirtotapahtumat jotka ovat isompia kuin kilotavu, molemmat maksaa "per kilotavu".</translation>
     </message>
     <message>
-        <source>Paying only the minimum fee is just fine as long as there is less transaction volume than space in the blocks.&lt;br /&gt;But be aware that this can end up in a never confirming transaction once there is more demand for vkax transactions than the network can process.</source>
+        <source>Paying only the minimum fee is just fine as long as there is less transaction volume than space in the blocks.&lt;br /&gt;But be aware that this can end up in a never confirming transaction once there is more demand for springbok transactions than the network can process.</source>
         <translation>Minimi siirtomaksun maksaminen on ok niin kauan kun siirtotapahtumien määrä on pienempi kuin tila lohkoissa.&lt;br /&gt;Mutta ota huomioon että tämä voi johtaa siirtotapahtumaan jota ei vahvisteta koskaan, jos siirtotapahtumia on enemmän kuin verkko voi käsitellä.</translation>
     </message>
     <message>
@@ -3346,8 +3346,8 @@ https://www.transifex.com/projects/p/vkax/</translation>
         <translation><numerusform>Arvioitu vahvistuksen aloitus %n lohkon kuluessa.</numerusform><numerusform>Arvioitu vahvistuksen aloitus %n lohkon kuluessa.</numerusform></translation>
     </message>
     <message>
-        <source>Warning: Invalid Vkax address</source>
-        <translation>Varoitus: Virheellinen Vkax osoite</translation>
+        <source>Warning: Invalid SPRINGBOK address</source>
+        <translation>Varoitus: Virheellinen SPRINGBOK osoite</translation>
     </message>
     <message>
         <source>Warning: Unknown change address</source>
@@ -3373,8 +3373,8 @@ https://www.transifex.com/projects/p/vkax/</translation>
         <translation>Maksun &amp;saaja:</translation>
     </message>
     <message>
-        <source>The Vkax address to send the payment to</source>
-        <translation>Vkax osoite johon maksu lähetetään</translation>
+        <source>The SPRINGBOK address to send the payment to</source>
+        <translation>SPRINGBOK osoite johon maksu lähetetään</translation>
     </message>
     <message>
         <source>Choose previously used address</source>
@@ -3413,7 +3413,7 @@ https://www.transifex.com/projects/p/vkax/</translation>
         <translation>Valitun yksikön lähetettävä määrä</translation>
     </message>
     <message>
-        <source>The fee will be deducted from the amount being sent. The recipient will receive a lower amount of Vkax than you enter in the amount field. If multiple recipients are selected, the fee is split equally.</source>
+        <source>The fee will be deducted from the amount being sent. The recipient will receive a lower amount of SPRINGBOK than you enter in the amount field. If multiple recipients are selected, the fee is split equally.</source>
         <translation>Siirtomaksu vähennetään lähetettävästä määrästä. Vastaanottaja saa pienemmän määrän kuin mitä laitoit määrä kenttään. Jos useampia vastaanottajia on valittu, siirtomaksu jaetaan tasan.</translation>
     </message>
     <message>
@@ -3429,8 +3429,8 @@ https://www.transifex.com/projects/p/vkax/</translation>
         <translation>Viesti:</translation>
     </message>
     <message>
-        <source>A message that was attached to the vkax: URI which will be stored with the transaction for your reference. Note: This message will not be sent over the Vkax network.</source>
-        <translation>Viesti joka liitettiin Vkax: URI joka tallenetaan siirtotapahtuman kanssa viitteeksi sinulle. Huomio: Tätä viestiä ei lähetetä Vkax verkkoon.</translation>
+        <source>A message that was attached to the springbok: URI which will be stored with the transaction for your reference. Note: This message will not be sent over the SPRINGBOK network.</source>
+        <translation>Viesti joka liitettiin SPRINGBOK: URI joka tallenetaan siirtotapahtuman kanssa viitteeksi sinulle. Huomio: Tätä viestiä ei lähetetä SPRINGBOK verkkoon.</translation>
     </message>
     <message>
         <source>This is an unauthenticated payment request.</source>
@@ -3482,12 +3482,12 @@ https://www.transifex.com/projects/p/vkax/</translation>
         <translation>&amp;Allekirjoita viesti</translation>
     </message>
     <message>
-        <source>You can sign messages/agreements with your addresses to prove you can receive Vkax sent to them. Be careful not to sign anything vague or random, as phishing attacks may try to trick you into signing your identity over to them. Only sign fully-detailed statements you agree to.</source>
+        <source>You can sign messages/agreements with your addresses to prove you can receive SPRINGBOK sent to them. Be careful not to sign anything vague or random, as phishing attacks may try to trick you into signing your identity over to them. Only sign fully-detailed statements you agree to.</source>
         <translation>Voit allekirjoittaa viestit/sopimukset omilla osoitteillasi todistaaksesi että omistat ne. Ole huolellinen että et allekirjoita mitään epämääräistä, satunnaista, phishing hyökkääjä voi huijata sinua allekirjoittamaan henkilöllisyytesi omasta puolestaan. Allekirjoita vain yksityiskohtaisesti täytetty selvitys johon sitoudut.</translation>
     </message>
     <message>
-        <source>The Vkax address to sign the message with</source>
-        <translation>Vkax osoite jolla viesti allekirjoitetaan</translation>
+        <source>The SPRINGBOK address to sign the message with</source>
+        <translation>SPRINGBOK osoite jolla viesti allekirjoitetaan</translation>
     </message>
     <message>
         <source>Choose previously used address</source>
@@ -3518,8 +3518,8 @@ https://www.transifex.com/projects/p/vkax/</translation>
         <translation>Kopioi tämän hetkinen allekirjoitus leikepöydälle</translation>
     </message>
     <message>
-        <source>Sign the message to prove you own this Vkax address</source>
-        <translation>Allekirjoita viesti todistaaksesi että omistat tämän Vkax osoitteen</translation>
+        <source>Sign the message to prove you own this SPRINGBOK address</source>
+        <translation>Allekirjoita viesti todistaaksesi että omistat tämän SPRINGBOK osoitteen</translation>
     </message>
     <message>
         <source>Sign &amp;Message</source>
@@ -3542,8 +3542,8 @@ https://www.transifex.com/projects/p/vkax/</translation>
         <translation>Anna allekirjoittava osoite, viesti (varmista että kopioit rivinvaihdot, välilyönnit, tabulaattorit, jne täsmälleen oikein) ja allekirjoitus alla oleviin kenttiin varmistaaksesi allekirjoituksen aitouden. Varo lukemasta enempää allekirjoitukseen kuin kuin mitä itse viestissä on, välttääksesi man-in-the-middle hyökkäyksen. Huom. tämä todistaa vain että allekirjoittava osapuoli vastaanottaa osoitteella, se ei voi todistaa lähettäjää.</translation>
     </message>
     <message>
-        <source>The Vkax address the message was signed with</source>
-        <translation>Vkax osoite jolla viesti on allekirjoitettu</translation>
+        <source>The SPRINGBOK address the message was signed with</source>
+        <translation>SPRINGBOK osoite jolla viesti on allekirjoitettu</translation>
     </message>
     <message>
         <source>The signed message to verify</source>
@@ -3554,8 +3554,8 @@ https://www.transifex.com/projects/p/vkax/</translation>
         <translation>Annettu allekirjoitus milloin viesti on vahvistettu</translation>
     </message>
     <message>
-        <source>Verify the message to ensure it was signed with the specified Vkax address</source>
-        <translation>Tarkista että viesti on allekirjoitettu määritetyllä Vkax osoitteella</translation>
+        <source>Verify the message to ensure it was signed with the specified SPRINGBOK address</source>
+        <translation>Tarkista että viesti on allekirjoitettu määritetyllä SPRINGBOK osoitteella</translation>
     </message>
     <message>
         <source>Verify &amp;Message</source>
@@ -4252,7 +4252,7 @@ https://www.transifex.com/projects/p/vkax/</translation>
     </message>
 </context>
 <context>
-    <name>vkax-core</name>
+    <name>springbok-core</name>
     <message>
         <source>Error: Listening for incoming connections failed (listen returned error %s)</source>
         <translation>Virhe: Sisääntulevien yhteyksien kuuntelu epäonnistui (kuuntelu palautti virheen %s)</translation>
@@ -4271,7 +4271,7 @@ https://www.transifex.com/projects/p/vkax/</translation>
     </message>
     <message>
         <source>Warning: The network does not appear to fully agree! Some miners appear to be experiencing issues.</source>
-        <translation>Varoitus: Vkax verkossa on ristiriitoja! Louhijat näyttävät kokevan virhetilanteita.</translation>
+        <translation>Varoitus: SPRINGBOK verkossa on ristiriitoja! Louhijat näyttävät kokevan virhetilanteita.</translation>
     </message>
     <message>
         <source>Warning: We do not appear to fully agree with our peers! You may need to upgrade, or other nodes may need to upgrade.</source>
@@ -5065,8 +5065,8 @@ Vähennä uakommenttien määrää tai kokoa.</translation>
         <translation>Viimeisin jono on luotu liian äskettäin.</translation>
     </message>
     <message>
-        <source>%s corrupt. Try using the wallet tool vkax-wallet to salvage or restoring a backup.</source>
-        <translation> %s vioittunut. Yritä käyttää lompakkotyökalua vkax-wallet pelastaaksesi tai palauttaaksesi varmuuskopion.</translation>
+        <source>%s corrupt. Try using the wallet tool springbok-wallet to salvage or restoring a backup.</source>
+        <translation> %s vioittunut. Yritä käyttää lompakkotyökalua springbok-wallet pelastaaksesi tai palauttaaksesi varmuuskopion.</translation>
     </message>
     <message>
         <source>Can't generate a change-address key. No keys in the internal keypool and can't generate any keys.</source>

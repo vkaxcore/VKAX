@@ -123,7 +123,7 @@ class MempoolAcceptanceTest(BitcoinTestFramework):
         tx.deserialize(BytesIO(hex_str_to_bytes(raw_tx_0_reject)))
         txid_0_reject = tx.rehash()
         self.check_mempool_result(
-            # No RBF in VKAX
+            # No RBF in SPRINGBOK
             result_expected=[{'txid': txid_0_reject, 'allowed': False, 'reject-reason': '18: txn-mempool-conflict'}],
             rawtxs=[raw_tx_0_reject],
         )

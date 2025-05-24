@@ -44,12 +44,12 @@ static bool WalletAppInit(int argc, char* argv[])
         return false;
     }
     if (argc < 2 || HelpRequested(gArgs)) {
-        std::string usage = strprintf("%s vkax-wallet version", PACKAGE_NAME) + " " + FormatFullVersion() + "\n\n" +
-                                      "wallet-tool is an offline tool for creating and interacting with Vkax Core wallet files.\n" +
+        std::string usage = strprintf("%s springbok-wallet version", PACKAGE_NAME) + " " + FormatFullVersion() + "\n\n" +
+                                      "wallet-tool is an offline tool for creating and interacting with SPRINGBOK Core wallet files.\n" +
                                       "By default wallet-tool will act on wallets in the default mainnet wallet directory in the datadir.\n" +
                                       "To change the target wallet, use the -datadir, -wallet and -testnet/-regtest arguments.\n\n" +
                                       "Usage:\n" +
-                                     "  vkax-wallet [options] <command>\n\n" +
+                                     "  springbok-wallet [options] <command>\n\n" +
                                      gArgs.GetHelpMessage();
 
         tfm::format(std::cout, "%s", usage);
@@ -96,7 +96,7 @@ int main(int argc, char* argv[])
     }
 
     if (method.empty()) {
-        tfm::format(std::cerr, "No method provided. Run `vkax-wallet -help` for valid methods.\n");
+        tfm::format(std::cerr, "No method provided. Run `springbok-wallet -help` for valid methods.\n");
         return EXIT_FAILURE;
     }
 

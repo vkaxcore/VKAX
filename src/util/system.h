@@ -48,7 +48,7 @@
 #define DBG( x )
 #endif
 
-//Vkax only features
+//SPRINGBOK only features
 
 extern bool fMasternodeMode;
 extern bool fDisableGovernance;

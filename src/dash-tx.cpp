@@ -104,9 +104,9 @@ static int AppInitRawTx(int argc, char* argv[])
 
     if (argc < 2 || HelpRequested(gArgs)) {
         // First part of help message is specific to this utility
-        std::string strUsage = PACKAGE_NAME " vkax-tx utility version " + FormatFullVersion() + "\n\n" +
-            "Usage:  vkax-tx [options] <hex-tx> [commands]  Update hex-encoded vkax transaction\n" +
-            "or:     vkax-tx [options] -create [commands]   Create hex-encoded vkax transaction\n" +
+        std::string strUsage = PACKAGE_NAME " springbok-tx utility version " + FormatFullVersion() + "\n\n" +
+            "Usage:  springbok-tx [options] <hex-tx> [commands]  Update hex-encoded springbok transaction\n" +
+            "or:     springbok-tx [options] -create [commands]   Create hex-encoded springbok transaction\n" +
             "\n";
         strUsage += gArgs.GetHelpMessage();
 
@@ -748,7 +748,7 @@ static int CommandLineRawTx(int argc, char* argv[])
             if (argc < 2)
                 throw std::runtime_error("too few parameters");
 
-            // param: hex-encoded vkax transaction
+            // param: hex-encoded springbok transaction
             std::string strHexTx(argv[1]);
             if (strHexTx == "-")                 // "-" implies standard input
                 strHexTx = readStdin();

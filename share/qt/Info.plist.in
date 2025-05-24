@@ -26,15 +26,15 @@
   <string>????</string>
 
   <key>CFBundleExecutable</key>
-  <string>Vkax-Qt</string>
+  <string>SPRINGBOK-Qt</string>
   <key>CFBundleName</key>
-  <string>Vkax-Qt</string>
+  <string>SPRINGBOK-Qt</string>
 
   <key>LSHasLocalizedDisplayName</key>
   <true/>
 
   <key>CFBundleIdentifier</key>
-  <string>org.dash.Vkax-Qt</string>
+  <string>org.dash.SPRINGBOK-Qt</string>
 
   <key>CFBundleURLTypes</key>
   <array>
@@ -42,10 +42,10 @@
       <key>CFBundleTypeRole</key>
       <string>Editor</string>
       <key>CFBundleURLName</key>
-      <string>org.dash.VkaxPayment</string>
+      <string>org.dash.SPRINGBOKPayment</string>
       <key>CFBundleURLSchemes</key>
       <array>
-        <string>vkax</string>
+        <string>springbok</string>
       </array>
     </dict>
   </array>
@@ -56,7 +56,7 @@
       <key>UTTypeIdentifier</key>
       <string>org.dash.paymentrequest</string>
       <key>UTTypeDescription</key>
-      <string>Vkax payment request</string>
+      <string>SPRINGBOK payment request</string>
       <key>UTTypeConformsTo</key>
       <array>
         <string>public.data</string>

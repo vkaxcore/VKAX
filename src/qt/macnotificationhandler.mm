@@ -13,7 +13,7 @@
 - (NSString *)__bundleIdentifier
 {
     if (self == [NSBundle mainBundle]) {
-        return @"org.dash.Vkax-Qt";
+        return @"org.dash.SPRINGBOK-Qt";
     } else {
         return [self __bundleIdentifier];
     }

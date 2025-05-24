@@ -23,7 +23,7 @@ public:
     bool ParameterInteraction() const override {return true;}
     void Construct(InitInterfaces& interfaces) const override {LogPrintf("No wallet support compiled in!\n");}
 
-    // Vkax Specific WalletInitInterface InitCoinJoinSettings
+    // SPRINGBOK Specific WalletInitInterface InitCoinJoinSettings
     void AutoLockMasternodeCollaterals() const override {}
     void InitCoinJoinSettings() const override {}
     bool InitAutoBackup() const override {return true;}

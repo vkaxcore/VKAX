@@ -110,23 +110,23 @@ TESTS =
 BENCHMARKS =
 
 if BUILD_BITCOIND
-  bin_PROGRAMS += vkaxd
+  bin_PROGRAMS += springbokd
 endif
 
 if BUILD_BITCOIN_CLI
-  bin_PROGRAMS += vkax-cli
+  bin_PROGRAMS += springbok-cli
 endif
 if BUILD_BITCOIN_TX
-  bin_PROGRAMS += vkax-tx
+  bin_PROGRAMS += springbok-tx
 endif
 if ENABLE_WALLET
 if BUILD_BITCOIN_WALLET
-  bin_PROGRAMS += vkax-wallet
+  bin_PROGRAMS += springbok-wallet
 endif
 endif
 
 .PHONY: FORCE check-symbols check-security
-# vkax core #
+# springbok core #
 BITCOIN_CORE_H = \
   addrdb.h \
   addressindex.h \
@@ -351,7 +351,7 @@ obj/build.h: FORCE
 	  "$(abs_top_srcdir)"
 libdash_util_a-clientversion.$(OBJEXT): obj/build.h
 
-# server: shared between vkaxd and vkax-qt
+# server: shared between springbokd and springbok-qt
 # Contains code accessing mempool and chain state that is meant to be separated
 # from wallet and gui code (see node/README.md). Shared code should go in
 # libdash_common or libdash_util libraries, instead.
@@ -475,7 +475,7 @@ libdash_zmq_a_SOURCES = \
 endif
 
 
-# wallet: shared between vkaxd and vkax-qt, but only linked
+# wallet: shared between springbokd and springbok-qt, but only linked
 # when wallet enabled
 libdash_wallet_a_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES)
 libdash_wallet_a_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
@@ -667,7 +667,7 @@ libdash_consensus_a_SOURCES = \
   util/strencodings.h \
   version.h
 
-# common: shared between vkaxd, and vkax-qt and non-server tools
+# common: shared between springbokd, and springbok-qt and non-server tools
 libdash_common_a_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES)
 libdash_common_a_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
 libdash_common_a_SOURCES = \
@@ -755,7 +755,7 @@ AM_LDFLAGS += -Wl,--wrap=exp -Wl,--wrap=exp2 -Wl,--wrap=fcntl
 AM_LDFLAGS += -Wl,--wrap=log -Wl,--wrap=log2 -Wl,--wrap=pow
 endif
 
-# cli: shared between vkax-cli and vkax-qt
+# cli: shared between springbok-cli and springbok-qt
 libdash_cli_a_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES)
 libdash_cli_a_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
 libdash_cli_a_SOURCES = \
@@ -767,19 +767,19 @@ libdash_cli_a_SOURCES = \
 nodist_libdash_util_a_SOURCES = $(srcdir)/obj/build.h
 #
 
-# vkaxd binary #
-vkaxd_SOURCES = dashd.cpp
-vkaxd_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES)
-vkaxd_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
-vkaxd_LDFLAGS = $(LDFLAGS_WRAP_EXCEPTIONS) $(RELDFLAGS) $(AM_LDFLAGS) $(LIBTOOL_APP_LDFLAGS) $(PTHREAD_FLAGS)
+# springbokd binary #
+springbokd_SOURCES = dashd.cpp
+springbokd_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES)
+springbokd_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
+springbokd_LDFLAGS = $(LDFLAGS_WRAP_EXCEPTIONS) $(RELDFLAGS) $(AM_LDFLAGS) $(LIBTOOL_APP_LDFLAGS) $(PTHREAD_FLAGS)
 
 if TARGET_WINDOWS
-vkaxd_SOURCES += dashd-res.rc
+springbokd_SOURCES += dashd-res.rc
 endif
 
 # Libraries below may be listed more than once to resolve circular dependencies (see
 # https://eli.thegreenplace.net/2013/07/09/library-order-in-static-linking#circular-dependency)
-vkaxd_LDADD = \
+springbokd_LDADD = \
   $(LIBBITCOIN_SERVER) \
   $(LIBBITCOIN_WALLET) \
   $(LIBBITCOIN_SERVER) \
@@ -794,37 +794,37 @@ vkaxd_LDADD = \
   $(LIBMEMENV) \
   $(LIBSECP256K1)
 
-vkaxd_LDADD += $(BACKTRACE_LIB) $(BOOST_LIBS) $(BDB_LIBS) $(SSL_LIBS) $(CRYPTO_LIBS) $(MINIUPNPC_LIBS) $(NATPMP_LIBS) $(EVENT_PTHREADS_LIBS) $(EVENT_LIBS) $(ZMQ_LIBS) $(BLS_LIBS) $(GMP_LIBS)
+springbokd_LDADD += $(BACKTRACE_LIB) $(BOOST_LIBS) $(BDB_LIBS) $(SSL_LIBS) $(CRYPTO_LIBS) $(MINIUPNPC_LIBS) $(NATPMP_LIBS) $(EVENT_PTHREADS_LIBS) $(EVENT_LIBS) $(ZMQ_LIBS) $(BLS_LIBS) $(GMP_LIBS)
 
-# vkax-cli binary #
-vkax_cli_SOURCES = dash-cli.cpp
-vkax_cli_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES) $(EVENT_CFLAGS)
-vkax_cli_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
-vkax_cli_LDFLAGS = $(LDFLAGS_WRAP_EXCEPTIONS) $(RELDFLAGS) $(AM_LDFLAGS) $(LIBTOOL_APP_LDFLAGS) $(PTHREAD_FLAGS)
+# springbok-cli binary #
+springbok_cli_SOURCES = dash-cli.cpp
+springbok_cli_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES) $(EVENT_CFLAGS)
+springbok_cli_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
+springbok_cli_LDFLAGS = $(LDFLAGS_WRAP_EXCEPTIONS) $(RELDFLAGS) $(AM_LDFLAGS) $(LIBTOOL_APP_LDFLAGS) $(PTHREAD_FLAGS)
 
 if TARGET_WINDOWS
-vkax_cli_SOURCES += dash-cli-res.rc
+springbok_cli_SOURCES += dash-cli-res.rc
 endif
 
-vkax_cli_LDADD = \
+springbok_cli_LDADD = \
   $(LIBBITCOIN_CLI) \
   $(LIBUNIVALUE) \
   $(LIBBITCOIN_UTIL) \
   $(LIBBITCOIN_CRYPTO)
-vkax_cli_LDADD += $(BACKTRACE_LIB) $(BOOST_LIBS) $(SSL_LIBS) $(CRYPTO_LIBS) $(EVENT_LIBS) $(BLS_LIBS) $(GMP_LIBS)
+springbok_cli_LDADD += $(BACKTRACE_LIB) $(BOOST_LIBS) $(SSL_LIBS) $(CRYPTO_LIBS) $(EVENT_LIBS) $(BLS_LIBS) $(GMP_LIBS)
 #
 
-# vkax-tx binary #
-vkax_tx_SOURCES = dash-tx.cpp
-vkax_tx_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES)
-vkax_tx_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
-vkax_tx_LDFLAGS = $(LDFLAGS_WRAP_EXCEPTIONS) $(RELDFLAGS) $(AM_LDFLAGS) $(LIBTOOL_APP_LDFLAGS) $(PTHREAD_FLAGS)
+# springbok-tx binary #
+springbok_tx_SOURCES = dash-tx.cpp
+springbok_tx_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES)
+springbok_tx_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
+springbok_tx_LDFLAGS = $(LDFLAGS_WRAP_EXCEPTIONS) $(RELDFLAGS) $(AM_LDFLAGS) $(LIBTOOL_APP_LDFLAGS) $(PTHREAD_FLAGS)
 
 if TARGET_WINDOWS
-vkax_tx_SOURCES += dash-tx-res.rc
+springbok_tx_SOURCES += dash-tx-res.rc
 endif
 
-vkax_tx_LDADD = \
+springbok_tx_LDADD = \
   $(LIBUNIVALUE) \
   $(LIBBITCOIN_COMMON) \
   $(LIBBITCOIN_UTIL) \
@@ -832,22 +832,22 @@ vkax_tx_LDADD = \
   $(LIBBITCOIN_CRYPTO) \
   $(LIBSECP256K1)
 
-vkax_tx_LDADD += $(BACKTRACE_LIB) $(BOOST_LIBS) $(CRYPTO_LIBS) $(BLS_LIBS) $(GMP_LIBS)
+springbok_tx_LDADD += $(BACKTRACE_LIB) $(BOOST_LIBS) $(CRYPTO_LIBS) $(BLS_LIBS) $(GMP_LIBS)
 #
 
-# vkax-wallet binary #
-vkax_wallet_SOURCES = dash-wallet.cpp
-vkax_wallet_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES)
-vkax_wallet_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
-vkax_wallet_LDFLAGS = $(LDFLAGS_WRAP_EXCEPTIONS) $(RELDFLAGS) $(AM_LDFLAGS) $(LIBTOOL_APP_LDFLAGS)
+# springbok-wallet binary #
+springbok_wallet_SOURCES = dash-wallet.cpp
+springbok_wallet_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES)
+springbok_wallet_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
+springbok_wallet_LDFLAGS = $(LDFLAGS_WRAP_EXCEPTIONS) $(RELDFLAGS) $(AM_LDFLAGS) $(LIBTOOL_APP_LDFLAGS)
 
 if TARGET_WINDOWS
-vkax_wallet_SOURCES += dash-wallet-res.rc
+springbok_wallet_SOURCES += dash-wallet-res.rc
 endif
 
 # Libraries below may be listed more than once to resolve circular dependencies (see
 # https://eli.thegreenplace.net/2013/07/09/library-order-in-static-linking#circular-dependency)
-vkax_wallet_LDADD = \
+springbok_wallet_LDADD = \
   $(LIBBITCOIN_WALLET_TOOL) \
   $(LIBBITCOIN_SERVER) \
   $(LIBBITCOIN_WALLET) \
@@ -863,7 +863,7 @@ vkax_wallet_LDADD = \
   $(LIBSECP256K1) \
   $(LIBUNIVALUE)
 
-vkax_wallet_LDADD += $(BACKTRACE_LIB) $(BOOST_LIBS) $(BDB_LIBS) $(CRYPTO_LIBS) $(EVENT_PTHREADS_LIBS) $(EVENT_LIBS) $(MINIUPNPC_LIBS) $(NATPMP_LIBS) $(ZMQ_LIBS) $(BLS_LIBS) $(GMP_LIBS)
+springbok_wallet_LDADD += $(BACKTRACE_LIB) $(BOOST_LIBS) $(BDB_LIBS) $(CRYPTO_LIBS) $(EVENT_PTHREADS_LIBS) $(EVENT_LIBS) $(MINIUPNPC_LIBS) $(NATPMP_LIBS) $(ZMQ_LIBS) $(BLS_LIBS) $(GMP_LIBS)
 #
 
 # dashconsensus library #
