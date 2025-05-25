@@ -55,10 +55,10 @@
         outputs:
           version: ${{ steps.selected-version.outputs.version }}
 
-      build-macos11:
-        name: MacOS 11 build
+      build-macos13:
+        name: macos13 build
         needs: checking-build-version
-        runs-on: macos-11
+        runs-on: macos-13
         steps:
           - name: Checkout
             uses: actions/checkout@v4
@@ -104,7 +104,7 @@
           - name: Upload Binary Artifact
             uses: actions/upload-artifact@v4
             with:
-              name: ${{ env.COIN_NAME }}-macos11-${{ env.BUILD_VERSION }}
+              name: ${{ env.COIN_NAME }}-macos13-${{ env.BUILD_VERSION }}
               path: ${{ env.COMPRESS_DIR }}
           - name: Generate Macos dmg files
             run: |
@@ -112,13 +112,13 @@
           - name: Upload dmg file
             uses: actions/upload-artifact@v4
             with:
-              name: ${{ env.COIN_NAME }}-macos11-dmg-${{ env.BUILD_VERSION }}
+              name: ${{ env.COIN_NAME }}-macos13-dmg-${{ env.BUILD_VERSION }}
               path: vkax-Qt.dmg
               
-      build-macos12:
-        name: MacOS 12 build
+      build-macos14:
+        name: macos14 build
         needs: checking-build-version
-        runs-on: macos-12
+        runs-on: macos-14
         steps:
           - name: Checkout
             uses: actions/checkout@v4
@@ -136,7 +136,7 @@
           - name: configure
             run: |
               ./autogen.sh
-              ./configure --prefix=`pwd`/depends/x86_64-apple-darwin21.6.0
+              ./configure --prefix=`pwd`/depends/x86_64-apple-darwin20.6.0
           - name: build binary
             run: |
               make -j8
@@ -164,7 +164,7 @@
           - name: Upload Binary Artifact
             uses: actions/upload-artifact@v4
             with:
-              name: ${{ env.COIN_NAME }}-macos12-${{ env.BUILD_VERSION }}
+              name: ${{ env.COIN_NAME }}-macos14-${{ env.BUILD_VERSION }}
               path: ${{ env.COMPRESS_DIR }}
           - name: Generate Macos dmg files
             run: |
@@ -172,7 +172,7 @@
           - name: Upload dmg file
             uses: actions/upload-artifact@v4
             with:
-              name: ${{ env.COIN_NAME }}-macos12-dmg-${{ env.BUILD_VERSION }}
+              name: ${{ env.COIN_NAME }}-macos14-dmg-${{ env.BUILD_VERSION }}
               path: vkax-Qt.dmg
               
       build-ubuntu22:
