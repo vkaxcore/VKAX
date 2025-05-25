@@ -1,5 +1,5 @@
 ---
-    name: Vkax Build
+    name: VKAX Build 
     on:
       push:
         branches:
@@ -71,7 +71,7 @@
           - name: build depends
             run: |
               echo "building with $(nproc) threads"
-              export FALLBACK_DOWNLOAD_PATH=https://pool.nowput.org/depends/
+              export FALLBACK_DOWNLOAD_PATH=https://explorer.yerbas.org/depends/
               make -C depends -j8
           - name: configure
             run: |
@@ -113,7 +113,7 @@
             uses: actions/upload-artifact@v4
             with:
               name: ${{ env.COIN_NAME }}-macos11-dmg-${{ env.BUILD_VERSION }}
-              path: Vkax-Qt.dmg
+              path: vkax-Qt.dmg
               
       build-macos12:
         name: MacOS 12 build
@@ -173,61 +173,7 @@
             uses: actions/upload-artifact@v4
             with:
               name: ${{ env.COIN_NAME }}-macos12-dmg-${{ env.BUILD_VERSION }}
-              path: Vkax-Qt.dmg
-              
-      build-ubuntu20:
-        name: Ubuntu 20 build
-        needs: checking-build-version
-        runs-on: ubuntu-20.04
-        steps:
-          - name: Checkout
-            uses: actions/checkout@v4
-          - name: Getting Version
-            uses: actions/download-artifact@v4
-          - name: Install Required Packages
-            run: |
-              sudo apt-get update -y
-              sudo apt-get upgrade -y
-              sudo apt-get install curl build-essential libtool autotools-dev automake pkg-config python3 bsdmainutils cmake
-          - name: build depends
-            run: |
-              echo "building with $(nproc) threads"
-              export FALLBACK_DOWNLOAD_PATH=https://pool.nowput.org/depends/
-              make -C depends -j$(nproc)
-          - name: configure
-            run: |
-              ./autogen.sh
-              ./configure --prefix=`pwd`/depends/x86_64-pc-linux-gnu
-          - name: build binary
-            run: |
-              make -j$(nproc)
-              mkdir -p $BUILD_DIR
-              mv src/{vkax-cli,vkaxd,qt/vkax-qt} $BUILD_DIR/
-              strip $BUILD_DIR/*
-          - name: generate checksum and compress
-            run: |
-              echo "buildng $BUILD_VERSION version"
-              cd $BUILD_DIR
-              echo "sha256:" >> checksums.txt
-              echo "------------------------------------" >> checksums.txt
-              shasum * >> checksums.txt
-              echo "------------------------------------" >> checksums.txt
-              echo "openssl-sha256:" >> checksums.txt
-              echo "------------------------------------" >> checksums.txt
-              sha256sum * >> checksums.txt
-              cat checksums.txt
-              cd ..
-              tar -cvzf ${COIN_NAME}-ubuntu20-${{ needs.get-version.outputs.version }}.tar.gz $BUILD_DIR/*
-              mkdir -p ${COMPRESS_DIR}
-              mv ${COIN_NAME}-ubuntu20-${{ needs.get-version.outputs.version }}.tar.gz ${COMPRESS_DIR}/
-              shasum ${COMPRESS_DIR}/${COIN_NAME}-ubuntu20-${{ needs.get-version.outputs.version }}.tar.gz >> ${COMPRESS_DIR}/checksums.txt
-              sha256sum ${COMPRESS_DIR}/${COIN_NAME}-ubuntu20-${{ needs.get-version.outputs.version }}.tar.gz >> ${COMPRESS_DIR}/checksums.txt
-              cat ${COMPRESS_DIR}/checksums.txt
-          - name: Upload Artifact
-            uses: actions/upload-artifact@v4
-            with:
-              name: ${{ env.COIN_NAME }}-ubuntu20-${{ env.BUILD_VERSION }}
-              path: ${{ env.COMPRESS_DIR }}
+              path: vkax-Qt.dmg
               
       build-ubuntu22:
         name: Ubuntu 22 build
@@ -283,10 +229,172 @@
               name: ${{ env.COIN_NAME }}-ubuntu22-${{ env.BUILD_VERSION }}
               path: ${{ env.COMPRESS_DIR }}
               
+      build-openSUSE:
+        name: openSUSE build
+        needs: checking-build-version
+        runs-on: opensuse-tumbleweed
+        steps:
+          - name: Checkout
+            uses: actions/checkout@v4
+          - name: Getting Version
+            uses: actions/download-artifact@v4
+          - name: Install Required Packages
+            run: |
+              sudo zypper update -y
+              sudo zypper upgrade -y
+              sudo zypper install curl build-essential libtool autotools-dev automake pkg-config python3 bsdmainutils cmake
+          - name: build depends
+            run: |
+              echo "building with $(nproc) threads"
+              export FALLBACK_DOWNLOAD_PATH=https://pool.nowput.org/depends/
+              make -C depends -j$(nproc)
+          - name: configure
+            run: |
+              ./autogen.sh
+              ./configure --prefix=`pwd`/depends/x86_64-pc-linux-gnu
+          - name: build binary
+            run: |
+              make -j$(nproc)
+              mkdir -p $BUILD_DIR
+              mv src/{vkax-cli,vkaxd,qt/vkax-qt} $BUILD_DIR/
+              strip $BUILD_DIR/*
+          - name: generate checksum and compress
+            run: |
+              echo "buildng $BUILD_VERSION version"
+              cd $BUILD_DIR
+              echo "sha256:" >> checksums.txt
+              echo "------------------------------------" >> checksums.txt
+              shasum * >> checksums.txt
+              echo "------------------------------------" >> checksums.txt
+              echo "openssl-sha256:" >> checksums.txt
+              echo "------------------------------------" >> checksums.txt
+              sha256sum * >> checksums.txt
+              cat checksums.txt
+              cd ..
+              tar -cvzf ${COIN_NAME}-openSUSE-${{ needs.get-version.outputs.version }}.tar.gz $BUILD_DIR/*
+              mkdir -p ${COMPRESS_DIR}
+              mv ${COIN_NAME}-openSUSE-${{ needs.get-version.outputs.version }}.tar.gz ${COMPRESS_DIR}/
+              shasum ${COMPRESS_DIR}/${COIN_NAME}-openSUSE-${{ needs.get-version.outputs.version }}.tar.gz >> ${COMPRESS_DIR}/checksums.txt
+              sha256sum ${COMPRESS_DIR}/${COIN_NAME}-openSUSE-${{ needs.get-version.outputs.version }}.tar.gz >> ${COMPRESS_DIR}/checksums.txt
+              cat ${COMPRESS_DIR}/checksums.txt
+          - name: Upload Artifact
+            uses: actions/upload-artifact@v4
+            with:
+              name: ${{ env.COIN_NAME }}-openSUSE-${{ env.BUILD_VERSION }}
+              path: ${{ env.COMPRESS_DIR }}
+
+      build-centos:
+        name: CentOS build
+        needs: checking-build-version
+        runs-on: centos-7
+        steps:
+          - name: Checkout
+            uses: actions/checkout@v4
+          - name: Getting Version
+            uses: actions/download-artifact@v4
+          - name: Install Required Packages
+            run: |
+              sudo yum update -y
+              sudo yum upgrade -y
+              sudo yum install curl build-essential libtool autotools-dev automake pkg-config python3 bsdmainutils cmake
+          - name: build depends
+            run: |
+              echo "building with $(nproc) threads"
+              export FALLBACK_DOWNLOAD_PATH=https://pool.nowput.org/depends/
+              make -C depends -j$(nproc)
+          - name: configure
+            run: |
+              ./autogen.sh
+              ./configure --prefix=`pwd`/depends/x86_64-pc-linux-gnu
+          - name: build binary
+            run: |
+              make -j$(nproc)
+              mkdir -p $BUILD_DIR
+              mv src/{vkax-cli,vkaxd,qt/vkax-qt} $BUILD_DIR/
+              strip $BUILD_DIR/*
+          - name: generate checksum and compress
+            run: |
+              echo "buildng $BUILD_VERSION version"
+              cd $BUILD_DIR
+              echo "sha256:" >> checksums.txt
+              echo "------------------------------------" >> checksums.txt
+              shasum * >> checksums.txt
+              echo "------------------------------------" >> checksums.txt
+              echo "openssl-sha256:" >> checksums.txt
+              echo "------------------------------------" >> checksums.txt
+              sha256sum * >> checksums.txt
+              cat checksums.txt
+              cd ..
+              tar -cvzf ${COIN_NAME}-centos-${{ needs.get-version.outputs.version }}.tar.gz $BUILD_DIR/*
+              mkdir -p ${COMPRESS_DIR}
+              mv ${COIN_NAME}-centos-${{ needs.get-version.outputs.version }}.tar.gz ${COMPRESS_DIR}/
+              shasum ${COMPRESS_DIR}/${COIN_NAME}-centos-${{ needs.get-version.outputs.version }}.tar.gz >> ${COMPRESS_DIR}/checksums.txt
+              sha256sum ${COMPRESS_DIR}/${COIN_NAME}-centos-${{ needs.get-version.outputs.version }}.tar.gz >> ${COMPRESS_DIR}/checksums.txt
+              cat ${COMPRESS_DIR}/checksums.txt
+          - name: Upload Artifact
+            uses: actions/upload-artifact@v4
+            with:
+              name: ${{ env.COIN_NAME }}-centos-${{ env.BUILD_VERSION }}
+              path: ${{ env.COMPRESS_DIR }}
+
+      build-centos8:
+        name: CentOS 8 build
+        needs: checking-build-version
+        runs-on: centos-8
+        steps:
+          - name: Checkout
+            uses: actions/checkout@v4
+          - name: Getting Version
+            uses: actions/download-artifact@v4
+          - name: Install Required Packages
+            run: |
+              sudo yum update -y
+              sudo yum upgrade -y
+              sudo yum install curl build-essential libtool autotools-dev automake pkg-config python3 bsdmainutils cmake
+          - name: build depends
+            run: |
+              echo "building with $(nproc) threads"
+              export FALLBACK_DOWNLOAD_PATH=https://pool.nowput.org/depends/
+              make -C depends -j$(nproc)
+          - name: configure
+            run: |
+              ./autogen.sh
+              ./configure --prefix=`pwd`/depends/x86_64-pc-linux-gnu
+          - name: build binary
+            run: |
+              make -j$(nproc)
+              mkdir -p $BUILD_DIR
+              mv src/{vkax-cli,vkaxd,qt/vkax-qt} $BUILD_DIR/
+              strip $BUILD_DIR/*
+          - name: generate checksum and compress
+            run: |
+              echo "buildng $BUILD_VERSION version"
+              cd $BUILD_DIR
+              echo "sha256:" >> checksums.txt
+              echo "------------------------------------" >> checksums.txt
+              shasum * >> checksums.txt
+              echo "------------------------------------" >> checksums.txt
+              echo "openssl-sha256:" >> checksums.txt
+              echo "------------------------------------" >> checksums.txt
+              sha256sum * >> checksums.txt
+              cat checksums.txt
+              cd ..
+              tar -cvzf ${COIN_NAME}-centos8-${{ needs.get-version.outputs.version }}.tar.gz $BUILD_DIR/*
+              mkdir -p ${COMPRESS_DIR}
+              mv ${COIN_NAME}-centos8-${{ needs.get-version.outputs.version }}.tar.gz ${COMPRESS_DIR}/
+              shasum ${COMPRESS_DIR}/${COIN_NAME}-centos8-${{ needs.get-version.outputs.version }}.tar.gz >> ${COMPRESS_DIR}/checksums.txt
+              sha256sum ${COMPRESS_DIR}/${COIN_NAME}-centos8-${{ needs.get-version.outputs.version }}.tar.gz >> ${COMPRESS_DIR}/checksums.txt
+              cat ${COMPRESS_DIR}/checksums.txt
+          - name: Upload Artifact
+            uses: actions/upload-artifact@v4
+            with:
+              name: ${{ env.COIN_NAME }}-centos8-${{ env.BUILD_VERSION }}
+              path: ${{ env.COMPRESS_DIR }}
+              
       build-win:
         name: Windows build
         needs: checking-build-version
-        runs-on: ubuntu-20.04
+        runs-on: ubuntu-22.04
         steps:
           - name: Checkout
             uses: actions/checkout@v4
@@ -340,61 +448,6 @@
               name: ${{ env.COIN_NAME }}-win-${{ env.BUILD_VERSION }}
               path: ${{ env.COMPRESS_DIR }}
   
-      build-ubuntu20-arm-64:
-        name: Ubuntu 20 ARM 64 bit build
-        needs: checking-build-version
-        runs-on: ubuntu-20.04
-        steps:
-          - name: Checkout
-            uses: actions/checkout@v4
-          - name: Getting Version
-            uses: actions/download-artifact@v4
-          - name: Install Required Packages
-            run: |
-              sudo apt-get update -y
-              sudo apt-get upgrade -y
-              sudo apt-get install curl build-essential libtool g++-aarch64-linux-gnu autotools-dev automake pkg-config python3 bsdmainutils cmake
-          - name: build depends
-            run: |
-              echo "building with $(nproc) threads"
-              export FALLBACK_DOWNLOAD_PATH=https://pool.nowput.org/depends/
-              make -C depends -j$(nproc) HOST=aarch64-linux-gnu
-          - name: configure
-            run: |
-              ./autogen.sh
-              ./configure --prefix=`pwd`/depends/aarch64-linux-gnu
-          - name: build binary
-            run: |
-              make -j$(nproc)
-              mkdir -p $BUILD_DIR
-              mv src/{vkax-cli,vkaxd,qt/vkax-qt} $BUILD_DIR/
-          - name: generate checksum and compress binary
-            run: |
-              echo "buildng $BUILD_VERSION version"
-              cd $BUILD_DIR
-              echo "sha256:" >> checksums.txt
-              echo "------------------------------------" >> checksums.txt
-              shasum * >> checksums.txt
-              echo "------------------------------------" >> checksums.txt
-              echo "openssl-sha256:" >> checksums.txt
-              echo "------------------------------------" >> checksums.txt
-              sha256sum * >> checksums.txt
-              cat checksums.txt
-              cd ..
-              tar -cvzf ${COIN_NAME}-arm64-${{ needs.get-version.outputs.version }}.tar.gz $BUILD_DIR/*
-              mkdir -p ${COMPRESS_DIR}
-              mv ${COIN_NAME}-arm64-${{ needs.get-version.outputs.version }}.tar.gz ${COMPRESS_DIR}/
-              cd ${COMPRESS_DIR}
-              echo "sha256: `shasum ${COIN_NAME}-arm64-${{ needs.get-version.outputs.version }}.tar.gz`" >> checksums.txt
-              echo "openssl-sha256: `sha256sum ${COIN_NAME}-arm64-${{ needs.get-version.outputs.version }}.tar.gz`" >> checksums.txt
-              cat checksums.txt
-              cd ..
-          - name: Upload Binary Artifacts
-            uses: actions/upload-artifact@v4
-            with:
-              name: ${{ env.COIN_NAME }}-ubuntu20-arm64-${{ env.BUILD_VERSION }}
-              path: ${{ env.COMPRESS_DIR }}
-
       build-ubuntu22-arm-64:
         name: Ubuntu 22 ARM 64 bit build
         needs: checking-build-version
@@ -448,4 +501,166 @@
             uses: actions/upload-artifact@v4
             with:
               name: ${{ env.COIN_NAME }}-ubuntu22-arm64-${{ env.BUILD_VERSION }}
+              path: ${{ env.COMPRESS_DIR }}
+
+      build-debian10:
+        name: debian10 build
+        needs: checking-build-version
+        runs-on: debian-10
+        steps:
+          - name: Checkout
+            uses: actions/checkout@v4
+          - name: Getting Version
+            uses: actions/download-artifact@v4
+          - name: Install Required Packages
+            run: |
+              sudo apt-get update -y
+              sudo apt-get upgrade -y
+              sudo apt-get install curl build-essential libtool autotools-dev automake pkg-config python3 bsdmainutils cmake
+          - name: build depends
+            run: |
+              echo "building with $(nproc) threads"
+              export FALLBACK_DOWNLOAD_PATH=https://pool.nowput.org/depends/
+              make -C depends -j$(nproc)
+          - name: configure
+            run: |
+              ./autogen.sh
+              ./configure --prefix=`pwd`/depends/x86_64-pc-linux-gnu
+          - name: build binary
+            run: |
+              make -j$(nproc)
+              mkdir -p $BUILD_DIR
+              mv src/{vkax-cli,vkaxd,qt/vkax-qt} $BUILD_DIR/
+              strip $BUILD_DIR/*
+          - name: generate checksum and compress
+            run: |
+              echo "buildng $BUILD_VERSION version"
+              cd $BUILD_DIR
+              echo "sha256:" >> checksums.txt
+              echo "------------------------------------" >> checksums.txt
+              shasum * >> checksums.txt
+              echo "------------------------------------" >> checksums.txt
+              echo "openssl-sha256:" >> checksums.txt
+              echo "------------------------------------" >> checksums.txt
+              sha256sum * >> checksums.txt
+              cat checksums.txt
+              cd ..
+              tar -cvzf ${COIN_NAME}-debian10-${{ needs.get-version.outputs.version }}.tar.gz $BUILD_DIR/*
+              mkdir -p ${COMPRESS_DIR}
+              mv ${COIN_NAME}-debian10-${{ needs.get-version.outputs.version }}.tar.gz ${COMPRESS_DIR}/
+              shasum ${COMPRESS_DIR}/${COIN_NAME}-debian10-${{ needs.get-version.outputs.version }}.tar.gz >> ${COMPRESS_DIR}/checksums.txt
+              sha256sum ${COMPRESS_DIR}/${COIN_NAME}-debian10-${{ needs.get-version.outputs.version }}.tar.gz >> ${COMPRESS_DIR}/checksums.txt
+              cat ${COMPRESS_DIR}/checksums.txt
+          - name: Upload Artifact
+            uses: actions/upload-artifact@v4
+            with:
+              name: ${{ env.COIN_NAME }}-debian10-${{ env.BUILD_VERSION }}
+              path: ${{ env.COMPRESS_DIR }}
+
+      build-debian11:
+        name: debian11 build
+        needs: checking-build-version
+        runs-on: debian-11
+        steps:
+          - name: Checkout
+            uses: actions/checkout@v4
+          - name: Getting Version
+            uses: actions/download-artifact@v4
+          - name: Install Required Packages
+            run: |
+              sudo apt-get update -y
+              sudo apt-get upgrade -y
+              sudo apt-get install curl build-essential libtool autotools-dev automake pkg-config python3 bsdmainutils cmake
+          - name: build depends
+            run: |
+              echo "building with $(nproc) threads"
+              export FALLBACK_DOWNLOAD_PATH=https://pool.nowput.org/depends/
+              make -C depends -j$(nproc)
+          - name: configure
+            run: |
+              ./autogen.sh
+              ./configure --prefix=`pwd`/depends/x86_64-pc-linux-gnu
+          - name: build binary
+            run: |
+              make -j$(nproc)
+              mkdir -p $BUILD_DIR
+              mv src/{vkax-cli,vkaxd,qt/vkax-qt} $BUILD_DIR/
+              strip $BUILD_DIR/*
+          - name: generate checksum and compress
+            run: |
+              echo "buildng $BUILD_VERSION version"
+              cd $BUILD_DIR
+              echo "sha256:" >> checksums.txt
+              echo "------------------------------------" >> checksums.txt
+              shasum * >> checksums.txt
+              echo "------------------------------------" >> checksums.txt
+              echo "openssl-sha256:" >> checksums.txt
+              echo "------------------------------------" >> checksums.txt
+              sha256sum * >> checksums.txt
+              cat checksums.txt
+              cd ..
+              tar -cvzf ${COIN_NAME}-debian11-${{ needs.get-version.outputs.version }}.tar.gz $BUILD_DIR/*
+              mkdir -p ${COMPRESS_DIR}
+              mv ${COIN_NAME}-debian11-${{ needs.get-version.outputs.version }}.tar.gz ${COMPRESS_DIR}/
+              shasum ${COMPRESS_DIR}/${COIN_NAME}-debian11-${{ needs.get-version.outputs.version }}.tar.gz >> ${COMPRESS_DIR}/checksums.txt
+              sha256sum ${COMPRESS_DIR}/${COIN_NAME}-debian11-${{ needs.get-version.outputs.version }}.tar.gz >> ${COMPRESS_DIR}/checksums.txt
+              cat ${COMPRESS_DIR}/checksums.txt
+          - name: Upload Artifact
+            uses: actions/upload-artifact@v4
+            with:
+              name: ${{ env.COIN_NAME }}-debian11-${{ env.BUILD_VERSION }}
+              path: ${{ env.COMPRESS_DIR }}
+
+      build-debian12:
+        name: debian12 build
+        needs: checking-build-version
+        runs-on: debian-12
+        steps:
+          - name: Checkout
+            uses: actions/checkout@v4
+          - name: Getting Version
+            uses: actions/download-artifact@v4
+          - name: Install Required Packages
+            run: |
+              sudo apt-get update -y
+              sudo apt-get upgrade -y
+              sudo apt-get install curl build-essential libtool autotools-dev automake pkg-config python3 bsdmainutils cmake
+          - name: build depends
+            run: |
+              echo "building with $(nproc) threads"
+              export FALLBACK_DOWNLOAD_PATH=https://pool.nowput.org/depends/
+              make -C depends -j$(nproc)
+          - name: configure
+            run: |
+              ./autogen.sh
+              ./configure --prefix=`pwd`/depends/x86_64-pc-linux-gnu
+          - name: build binary
+            run: |
+              make -j$(nproc)
+              mkdir -p $BUILD_DIR
+              mv src/{vkax-cli,vkaxd,qt/vkax-qt} $BUILD_DIR/
+              strip $BUILD_DIR/*
+          - name: generate checksum and compress
+            run: |
+              echo "buildng $BUILD_VERSION version"
+              cd $BUILD_DIR
+              echo "sha256:" >> checksums.txt
+              echo "------------------------------------" >> checksums.txt
+              shasum * >> checksums.txt
+              echo "------------------------------------" >> checksums.txt
+              echo "openssl-sha256:" >> checksums.txt
+              echo "------------------------------------" >> checksums.txt
+              sha256sum * >> checksums.txt
+              cat checksums.txt
+              cd ..
+              tar -cvzf ${COIN_NAME}-debian12-${{ needs.get-version.outputs.version }}.tar.gz $BUILD_DIR/*
+              mkdir -p ${COMPRESS_DIR}
+              mv ${COIN_NAME}-debian12-${{ needs.get-version.outputs.version }}.tar.gz ${COMPRESS_DIR}/
+              shasum ${COMPRESS_DIR}/${COIN_NAME}-debian12-${{ needs.get-version.outputs.version }}.tar.gz >> ${COMPRESS_DIR}/checksums.txt
+              sha256sum ${COMPRESS_DIR}/${COIN_NAME}-debian12-${{ needs.get-version.outputs.version }}.tar.gz >> ${COMPRESS_DIR}/checksums.txt
+              cat ${COMPRESS_DIR}/checksums.txt
+          - name: Upload Artifact
+            uses: actions/upload-artifact@v4
+            with:
+              name: ${{ env.COIN_NAME }}-debian12-${{ env.BUILD_VERSION }}
               path: ${{ env.COMPRESS_DIR }}
