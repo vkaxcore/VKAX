@@ -228,6 +228,66 @@
             with:
               name: ${{ env.COIN_NAME }}-ubuntu22-${{ env.BUILD_VERSION }}
               path: ${{ env.COMPRESS_DIR }}
+
+                    build-macos14:
+        name: macos14 arm64 build
+        needs: checking-build-version
+        runs-on: macos-14-xlarge
+        steps:
+          - name: Checkout
+            uses: actions/checkout@v4
+          - name: Getting Version
+            uses: actions/download-artifact@v4
+          - name: Install Required Packages
+            run: |
+              brew install automake libtool pkg-config miniupnpc librsvg libnatpmp zeromq python
+              pip3 install ds_store mac_alias setuptools
+          - name: build depends
+            run: |
+              echo "building with $(nproc) threads"
+              export FALLBACK_DOWNLOAD_PATH=https://explorer.yerbas.org/depends/
+              make -C depends -j8
+          - name: configure
+            run: |
+              ./autogen.sh
+              ./configure --prefix=`pwd`/depends/x86_64-apple-darwin20.6.0
+          - name: build binary
+            run: |
+              make -j8
+              mkdir -p $BUILD_DIR
+              mv src/{vkax-cli,vkaxd,qt/vkax-qt} $BUILD_DIR/
+              strip $BUILD_DIR/*
+          - name: generate checksum and compress
+            run: |
+              echo "buildng $BUILD_VERSION version"
+              cd $BUILD_DIR
+              shasum vkax-cli >> checksums.txt
+              openssl sha256 vkax-cli >> checksums.txt
+              shasum vkaxd >> checksums.txt
+              openssl sha256 vkaxd >> checksums.txt
+              shasum vkax-qt >> checksums.txt
+              openssl sha256 vkax-qt >> checksums.txt
+              cat checksums.txt
+              cd ..
+              tar -cvzf ${COIN_NAME}-macos-${{ needs.get-version.outputs.version }}.tar.gz $BUILD_DIR/*
+              mkdir -p ${COMPRESS_DIR}
+              mv ${COIN_NAME}-macos-${{ needs.get-version.outputs.version }}.tar.gz ${COMPRESS_DIR}/
+              shasum ${COMPRESS_DIR}/${COIN_NAME}-macos-${{ needs.get-version.outputs.version }}.tar.gz >> ${COMPRESS_DIR}/checksums.txt
+              openssl sha256 ${COMPRESS_DIR}/${COIN_NAME}-macos-${{ needs.get-version.outputs.version }}.tar.gz >> ${COMPRESS_DIR}/checksums.txt
+              cat ${COMPRESS_DIR}/checksums.txt
+          - name: Upload Binary Artifact
+            uses: actions/upload-artifact@v4
+            with:
+              name: ${{ env.COIN_NAME }}-macos14-${{ env.BUILD_VERSION }}
+              path: ${{ env.COMPRESS_DIR }}
+          - name: Generate Macos dmg files
+            run: |
+              make deploy
+          - name: Upload dmg file
+            uses: actions/upload-artifact@v4
+            with:
+              name: ${{ env.COIN_NAME }}-macos14arm64-dmg-${{ env.BUILD_VERSION }}
+              path: vkax-Qt.dmg
               
       build-openSUSE:
         name: openSUSE build
