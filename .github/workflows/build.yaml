@@ -229,7 +229,7 @@
               name: ${{ env.COIN_NAME }}-ubuntu22-${{ env.BUILD_VERSION }}
               path: ${{ env.COMPRESS_DIR }}
 
-      build-macos14:
+      build-macos14-arm-64:
         name: macos14 arm64 build
         needs: checking-build-version
         runs-on: macos-14-xlarge
