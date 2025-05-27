@@ -10,7 +10,7 @@
 <br/>
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="https://github.com/vkaxcore/VKAX/blob/master/vkaxlarge.png?raw=true">
+  <source media="https://github.com/vkaxcore/VKAX/blob/master/vkaxlarge.png?raw=true">
 </picture>
 
 <br/>
