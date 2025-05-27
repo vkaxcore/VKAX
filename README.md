@@ -9,15 +9,15 @@
 <br/>
 <br/>
 
-
-
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://github.com/vkaxcore/VKAX/blob/master/vkaxlarge.png?raw=true">
-  <source media="(prefers-color-scheme: light)" srcset="https://github.com/vkaxcore/VKAX/blob/master/vkaxlarge.png?raw=true">
-  <img alt="Shows a black logo in light color mode and a white one in dark color mode." src="https://github.com/vkaxcore/vkaxweb/blob/main/logonew.png">
 </picture>
 
 <br/>
+<br/>
+
+<br/>
+
 <br/>
 
 > [!NOTE]
