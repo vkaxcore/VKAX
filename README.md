@@ -10,7 +10,7 @@
 <br/>
 
 <picture>
-  <source media="https://github.com/vkaxcore/VKAX/blob/master/vkaxlarge.png?raw=true">
+  <img src="https://github.com/vkaxcore/VKAX/raw/master/vkaxlarge.png" alt="VKAX Crypto Currency Coin Image">
 </picture>
 
 <br/>
