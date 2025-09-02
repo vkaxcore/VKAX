@@ -1,10 +1,11 @@
-name: VKAX macOS 13 Build
+name: VKAX macOS Build (Qt Enabled)
+
 on:
   push:
     branches:
       - main
-      - v100.11.5*
       - develop
+      - v100.11.5*
   pull_request:
     branches:
       - develop
@@ -13,81 +14,111 @@ env:
   COIN_NAME: vkax
   BUILD_DIR: vkax-build
   COMPRESS_DIR: vkax-compress
+  BDB_INCLUDE_DIR: /usr/local/opt/berkeley-db@4/include
+  BDB_LIB_DIR: /usr/local/opt/berkeley-db@4/lib
+  BOOST_VERSION: 1_81_0
+  QT_PATH: /usr/local/opt/qt@5
 
 jobs:
-  build-macos13:
-    name: macOS 13 Intel build
-    runs-on: macos-13
+  checking-build-version:
+    name: Get Version
+    runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+      - name: Read versions
+        id: versions
+        uses: christian-draeger/read-properties@1.1.1
+        with:
+          path: build.properties
+          properties: 'release-version snapshot-version'
+      - name: Choose version
+        id: selected-version
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]] || [[ "$GITHUB_REF" == *develop ]]; then
+            version=${{ steps.versions.outputs.snapshot-version }}
+          else
+            version=${{ steps.versions.outputs.release-version }}
+          fi
+          echo "version=$version" >> $GITHUB_OUTPUT
+          echo "BUILD_VERSION=$version" > version.txt
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: version
+          path: version.txt
+    outputs:
+      version: ${{ steps.selected-version.outputs.version }}
+
+  build-macos:
+    name: macOS 13 Intel/ARM Build (Qt)
+    needs: checking-build-version
+    runs-on: macos-13
+    strategy:
+      matrix:
+        arch: [x86_64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download version artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: version
 
       - name: Install Required Packages
         run: |
-          brew update
-          brew install automake libtool pkg-config miniupnpc librsvg libnatpmp zeromq python qt@5 berkeley-db@4
+          brew install automake libtool pkg-config miniupnpc librsvg libnatpmp zeromq python berkeley-db@4 qt@5
           pip3 install ds_store mac_alias setuptools
-
-      - name: Set Environment Variables for Qt5 and BDB
-        run: |
-          export PATH="/usr/local/opt/qt@5/bin:$PATH"
-          export PKG_CONFIG_PATH="/usr/local/opt/qt@5/lib/pkgconfig:/usr/local/opt/berkeley-db@4/lib/pkgconfig"
-          export CPPFLAGS="-I/usr/local/opt/qt@5/include -I/usr/local/opt/berkeley-db@4/include"
-          export LDFLAGS="-L/usr/local/opt/qt@5/lib -L/usr/local/opt/berkeley-db@4/lib"
+          export BDB_INCLUDE_DIR=$(brew --prefix berkeley-db@4)/include
+          export BDB_LIB_DIR=$(brew --prefix berkeley-db@4)/lib
+          export QT_PATH=$(brew --prefix qt@5)
+          export PATH=$QT_PATH/bin:$PATH
+          export PKG_CONFIG_PATH=$QT_PATH/lib/pkgconfig:$PKG_CONFIG_PATH
 
       - name: Build depends
         run: |
-          echo "building depends with $(sysctl -n hw.ncpu) threads"
+          echo "Building depends with $(sysctl -n hw.ncpu) threads"
           export FALLBACK_DOWNLOAD_PATH=https://explorer.yerbas.org/depends/
-          make -C depends -j8
+          export BOOST_VERSION=${{ env.BOOST_VERSION }}
+          make -C depends -j$(sysctl -n hw.ncpu)
 
-      - name: Configure
+      - name: Configure Vkax
         run: |
           ./autogen.sh
-          ./configure --prefix=`pwd`/depends/x86_64-apple-darwin20.6.0
+          ./configure --prefix=$(pwd)/depends/x86_64-apple-darwin20.6.0 \
+                      --with-boost=$(pwd)/depends/boost \
+                      --with-incompatible-bdb \
+                      CXXFLAGS="-I$BDB_INCLUDE_DIR -I$QT_PATH/include" \
+                      LDFLAGS="-L$BDB_LIB_DIR -L$QT_PATH/lib" \
+                      QT_SELECT=5
 
-      - name: Patch Boost Build Warnings
+      - name: Build binary
         run: |
-          echo "Patching Boost to ignore enum-constexpr warnings..."
-          export CXXFLAGS="-Wno-enum-constexpr-conversion"
-
-      - name: Build Binary
-        run: |
-          make -j8
+          make -j$(sysctl -n hw.ncpu)
           mkdir -p $BUILD_DIR
           mv src/{vkax-cli,vkaxd,qt/vkax-qt} $BUILD_DIR/
           strip $BUILD_DIR/*
 
-      - name: Generate Checksum and Compress
+      - name: Generate checksums and compress
         run: |
+          mkdir -p $COMPRESS_DIR
           cd $BUILD_DIR
-          shasum vkax-cli >> checksums.txt
-          openssl sha256 vkax-cli >> checksums.txt
-          shasum vkaxd >> checksums.txt
-          openssl sha256 vkaxd >> checksums.txt
-          shasum vkax-qt >> checksums.txt
-          openssl sha256 vkax-qt >> checksums.txt
-          cat checksums.txt
+          shasum vkax-cli vkaxd vkax-qt >> checksums.txt
+          openssl sha256 vkax-cli vkaxd vkax-qt >> checksums.txt
           cd ..
-          tar -cvzf ${COIN_NAME}-macos-intel-${GITHUB_SHA}.tar.gz $BUILD_DIR/*
-          mkdir -p ${COMPRESS_DIR}
-          mv ${COIN_NAME}-macos-intel-${GITHUB_SHA}.tar.gz ${COMPRESS_DIR}/
-          shasum ${COMPRESS_DIR}/${COIN_NAME}-macos-intel-${GITHUB_SHA}.tar.gz >> ${COMPRESS_DIR}/checksums.txt
-          openssl sha256 ${COMPRESS_DIR}/${COIN_NAME}-macos-intel-${GITHUB_SHA}.tar.gz >> ${COMPRESS_DIR}/checksums.txt
-          cat ${COMPRESS_DIR}/checksums.txt
+          tar -cvzf ${COMPRESS_DIR}/${COIN_NAME}-macos-${{ matrix.arch }}-${{ needs.checking-build-version.outputs.version }}.tar.gz $BUILD_DIR/*
 
       - name: Upload Binary Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.COIN_NAME }}-macos-intel-${GITHUB_SHA}
+          name: ${{ env.COIN_NAME }}-macos-${{ matrix.arch }}-${{ needs.checking-build-version.outputs.version }}
           path: ${{ env.COMPRESS_DIR }}
 
-      - name: Generate macOS DMG
+      - name: Generate macOS dmg
         run: |
           make deploy
 
-      - name: Upload DMG File
+      - name: Upload dmg
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.COIN_NAME }}-macos-intel-dmg-${GITHUB_SHA}
+          name: ${{ env.COIN_NAME }}-macos-${{ matrix.arch }}-dmg-${{ needs.checking-build-version.outputs.version }}
           path: vkax-Qt.dmg
