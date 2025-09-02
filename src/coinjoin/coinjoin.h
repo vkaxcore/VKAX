@@ -451,8 +451,8 @@ public:
 
     /// If the collateral is valid given by a client
     static bool IsCollateralValid(const CTransaction& txCollateral);
-    static constexpr CAmount GetCollateralAmount() { return GetSmallestDenomination() / 10000; }
-    static constexpr CAmount GetMaxCollateralAmount() { return GetCollateralAmount() * 20; }
+    static constexpr CAmount GetCollateralAmount() { return GetSmallestDenomination() / 1; }  /// the smallest coin join denomination will be 1
+    static constexpr CAmount GetMaxCollateralAmount() { return GetCollateralAmount() * 10000 + 10000; }
 
     static constexpr bool IsCollateralAmount(CAmount nInputAmount)
     {
