@@ -3,7 +3,7 @@ on:
   push:
     branches:
       - main
-      - v100.11.5*
+      - v100.11.2*
       - develop
   pull_request:
     branches:
@@ -20,7 +20,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Triggered By
-        run: echo "checking out $GITHUB_REF triggered by $GITHUB_EVENT_NAME"
+        run: |
+          echo "checking out $GITHUB_REF triggered by $GITHUB_EVENT_NAME"
 
       - name: Checkout
         uses: actions/checkout@v4
@@ -63,26 +64,22 @@ jobs:
         uses: actions/checkout@v4
       - name: Getting Version
         uses: actions/download-artifact@v4
-
       - name: Install Required Packages
         run: |
-          brew update
           brew install automake libtool pkg-config miniupnpc librsvg libnatpmp zeromq python boost
           pip3 install ds_store mac_alias setuptools
-
-      - name: Configure build
+      - name: configure
         run: |
           ./autogen.sh
-          ./configure --prefix=/usr/local/opt/boost
-
-      - name: Build binary
+          ./configure --prefix=`pwd`/depends/x86_64-apple-darwin20.6.0 \
+                      --with-boost=/usr/local/opt/boost
+      - name: build binary
         run: |
           make -j$(sysctl -n hw.ncpu)
           mkdir -p $BUILD_DIR
           mv src/{vkax-cli,vkaxd,qt/vkax-qt} $BUILD_DIR/
           strip $BUILD_DIR/*
-
-      - name: Generate checksum and compress
+      - name: generate checksum and compress
         run: |
           echo "building $BUILD_VERSION version"
           cd $BUILD_DIR
@@ -100,16 +97,14 @@ jobs:
           shasum ${COMPRESS_DIR}/${COIN_NAME}-macos-intel-${{ needs.checking-build-version.outputs.version }}.tar.gz >> ${COMPRESS_DIR}/checksums.txt
           openssl sha256 ${COMPRESS_DIR}/${COIN_NAME}-macos-intel-${{ needs.checking-build-version.outputs.version }}.tar.gz >> ${COMPRESS_DIR}/checksums.txt
           cat ${COMPRESS_DIR}/checksums.txt
-
       - name: Upload Binary Artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.COIN_NAME }}-macos-intel-${{ env.BUILD_VERSION }}
           path: ${{ env.COMPRESS_DIR }}
-
       - name: Generate macOS dmg files
-        run: make deploy
-
+        run: |
+          make deploy
       - name: Upload dmg file
         uses: actions/upload-artifact@v4
         with:
@@ -125,26 +120,22 @@ jobs:
         uses: actions/checkout@v4
       - name: Getting Version
         uses: actions/download-artifact@v4
-
       - name: Install Required Packages
         run: |
-          brew update
           brew install automake libtool pkg-config miniupnpc librsvg libnatpmp zeromq python boost
           pip3 install ds_store mac_alias setuptools
-
-      - name: Configure build
+      - name: configure
         run: |
           ./autogen.sh
-          ./configure --prefix=/usr/local/opt/boost
-
-      - name: Build binary
+          ./configure --prefix=`pwd`/depends/x86_64-apple-darwin20.6.0 \
+                      --with-boost=/opt/homebrew/opt/boost
+      - name: build binary
         run: |
           make -j$(sysctl -n hw.ncpu)
           mkdir -p $BUILD_DIR
           mv src/{vkax-cli,vkaxd,qt/vkax-qt} $BUILD_DIR/
           strip $BUILD_DIR/*
-
-      - name: Generate checksum and compress
+      - name: generate checksum and compress
         run: |
           echo "building $BUILD_VERSION version"
           cd $BUILD_DIR
@@ -162,16 +153,14 @@ jobs:
           shasum ${COMPRESS_DIR}/${COIN_NAME}-macos-arm64-${{ needs.checking-build-version.outputs.version }}.tar.gz >> ${COMPRESS_DIR}/checksums.txt
           openssl sha256 ${COMPRESS_DIR}/${COIN_NAME}-macos-arm64-${{ needs.checking-build-version.outputs.version }}.tar.gz >> ${COMPRESS_DIR}/checksums.txt
           cat ${COMPRESS_DIR}/checksums.txt
-
       - name: Upload Binary Artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.COIN_NAME }}-macos-arm64-${{ env.BUILD_VERSION }}
           path: ${{ env.COMPRESS_DIR }}
-
       - name: Generate macOS dmg files
-        run: make deploy
-
+        run: |
+          make deploy
       - name: Upload dmg file
         uses: actions/upload-artifact@v4
         with:
