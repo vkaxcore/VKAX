@@ -292,10 +292,10 @@ public:
         // release ASAP to avoid it where possible.
 
         vSeeds.emplace_back("explore.vkax.net");
-        vSeeds.emplace_back("dnsseed-02.vkax.org");
-        vSeeds.emplace_back("dnsseed-03.vkax.org");
-        vSeeds.emplace_back("dnsseed-04.vkax.org");
-        vSeeds.emplace_back("dnsseed-05.vkax.org");
+        vSeeds.emplace_back("losangeles.vkax.net");
+        vSeeds.emplace_back("ashburn.vkax.net");
+        vSeeds.emplace_back("seattle.vkax.net");
+        vSeeds.emplace_back("buffalo.vkax.net");
 
 
         // Vkax addresses start with 'X'
