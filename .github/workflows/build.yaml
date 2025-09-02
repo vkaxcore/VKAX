@@ -1,223 +1,126 @@
----
-    name: VKAX Build 
-    on:
-      push:
-        branches:
-          - main
-          - v100.11.5*
-          - develop
-      pull_request:
-        branches:
-          - develop
-    env:
-      COIN_NAME: vkax
-      BUILD_DIR: vkax-build
-      COMPRESS_DIR: vkax-compress
-      TEST_LOG_ARTIFACT_DIR: test-logs
-    jobs:
-      checking-build-version:
-        name: Get Version
-        runs-on: ubuntu-latest
-        steps:
-          - name: Triggered By
-            run: |
-              echo "checking out $GITHUB_REF triggered by $GITHUB_EVENT_NAME"
-    
-          - name: Checkout
-            uses: actions/checkout@v4
-    
-          - name: Read versions
-            id: versions
-            uses: christian-draeger/read-properties@1.1.1
-            with:
-              path: build.properties
-              properties: 'release-version snapshot-version'
-    
-          - name: Choose version
-            id: selected-version
-            shell: bash
-            run: |
-              if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]] || [[ "$GITHUB_REF" == *develop ]] || [[ "$GITHUB_REF" == *v100.11.5* ]]; then
-                  version=${{ steps.versions.outputs.snapshot-version }}
-              elif [[ "$GITHUB_EVENT_NAME" != "pull_request" ]] && [[ "$GITHUB_REF" == "refs/heads/main" ]]; then
-                  version=${{ steps.versions.outputs.release-version }}
-              fi
-              echo "version is: [$version]"
-              echo "version=$version" >> $GITHUB_OUTPUT
-              echo "BUILD_VERSION=$version" > version.txt
-    
-          - name: Upload Artifacts
-            uses: actions/upload-artifact@v4
-            with:
-              name: version
-              path: version.txt
-    
-        outputs:
-          version: ${{ steps.selected-version.outputs.version }}
-              
-      build-ubuntu22:
-        name: Ubuntu 22 build
-        needs: checking-build-version
-        runs-on: ubuntu-22.04
-        steps:
-          - name: Checkout
-            uses: actions/checkout@v4
-          - name: Getting Version
-            uses: actions/download-artifact@v4
-          - name: Install Required Packages
-            run: |
-              sudo apt-get update -y
-              sudo apt-get upgrade -y
-              sudo apt-get install curl build-essential libtool autotools-dev automake pkg-config python3 bsdmainutils cmake
-          - name: build depends
-            run: |
-              echo "building with $(nproc) threads"
-              export FALLBACK_DOWNLOAD_PATH=https://explorer.yerbas.org/depends/
-              make -C depends -j$(nproc)
-          - name: configure
-            run: |
-              ./autogen.sh
-              ./configure --prefix=`pwd`/depends/x86_64-pc-linux-gnu
-          - name: build binary
-            run: |
-              make -j$(nproc)
-              mkdir -p $BUILD_DIR
-              mv src/{vkax-cli,vkaxd,qt/vkax-qt} $BUILD_DIR/
-              strip $BUILD_DIR/*
-          - name: generate checksum and compress
-            run: |
-              echo "buildng $BUILD_VERSION version"
-              cd $BUILD_DIR
-              echo "sha256:" >> checksums.txt
-              echo "------------------------------------" >> checksums.txt
-              shasum * >> checksums.txt
-              echo "------------------------------------" >> checksums.txt
-              echo "openssl-sha256:" >> checksums.txt
-              echo "------------------------------------" >> checksums.txt
-              sha256sum * >> checksums.txt
-              cat checksums.txt
-              cd ..
-              tar -cvzf ${COIN_NAME}-ubuntu22-${{ needs.get-version.outputs.version }}.tar.gz $BUILD_DIR/*
-              mkdir -p ${COMPRESS_DIR}
-              mv ${COIN_NAME}-ubuntu22-${{ needs.get-version.outputs.version }}.tar.gz ${COMPRESS_DIR}/
-              shasum ${COMPRESS_DIR}/${COIN_NAME}-ubuntu22-${{ needs.get-version.outputs.version }}.tar.gz >> ${COMPRESS_DIR}/checksums.txt
-              sha256sum ${COMPRESS_DIR}/${COIN_NAME}-ubuntu22-${{ needs.get-version.outputs.version }}.tar.gz >> ${COMPRESS_DIR}/checksums.txt
-              cat ${COMPRESS_DIR}/checksums.txt
-          - name: Upload Artifact
-            uses: actions/upload-artifact@v4
-            with:
-              name: ${{ env.COIN_NAME }}-ubuntu22-${{ env.BUILD_VERSION }}
-              path: ${{ env.COMPRESS_DIR }}
+name: VKAX macOS Build (Qt Enabled)
 
-              
-      build-win:
-        name: Windows build
-        needs: checking-build-version
-        runs-on: ubuntu-22.04
-        steps:
-          - name: Checkout
-            uses: actions/checkout@v4
-          - name: Getting Version
-            uses: actions/download-artifact@v4
-          - name: Install Required Packages
-            run: |
-              sudo apt-get update -y
-              sudo apt-get upgrade -y
-              sudo apt-get install curl build-essential libtool autotools-dev automake pkg-config python3 bsdmainutils cmake
-              sudo apt-get install -y g++-mingw-w64-x86-64 gcc-mingw-w64-x86-64
-              sudo update-alternatives --set x86_64-w64-mingw32-gcc /usr/bin/x86_64-w64-mingw32-gcc-posix
-              sudo update-alternatives --set x86_64-w64-mingw32-g++ /usr/bin/x86_64-w64-mingw32-g++-posix
-          - name: build depends
-            run: |
-              echo "building with $(nproc) threads"
-              export FALLBACK_DOWNLOAD_PATH=https://explorer.yerbas.org/depends/
-              make -C depends -j$(nproc) HOST=x86_64-w64-mingw32
-          - name: configure
-            run: |
-              ./autogen.sh
-              ./configure --prefix=`pwd`/depends/x86_64-w64-mingw32
-          - name: build binary
-            run: |
-              make -j$(nproc)
-              mkdir -p $BUILD_DIR
-              mv src/{vkax-cli.exe,vkaxd.exe,qt/vkax-qt.exe} $BUILD_DIR/
-              strip $BUILD_DIR/*
-          - name: generate checksum and compress
-            run: |
-              echo "buildng $BUILD_VERSION version"
-              cd $BUILD_DIR
-              echo "sha256:" >> checksums.txt
-              echo "------------------------------------" >> checksums.txt
-              shasum * >> checksums.txt
-              echo "------------------------------------" >> checksums.txt
-              echo "openssl-sha256:" >> checksums.txt
-              echo "------------------------------------" >> checksums.txt
-              sha256sum * >> checksums.txt
-              cat checksums.txt
-              cd ..
-              zip -r ${COIN_NAME}-win-${{ needs.get-version.outputs.version }}.zip $BUILD_DIR/
-              mkdir -p ${COMPRESS_DIR}
-              mv ${COIN_NAME}-win-${{ needs.get-version.outputs.version }}.zip ${COMPRESS_DIR}/
-              shasum ${COMPRESS_DIR}/${COIN_NAME}-win-${{ needs.get-version.outputs.version }}.zip >> ${COMPRESS_DIR}/checksums.txt
-              sha256sum ${COMPRESS_DIR}/${COIN_NAME}-win-${{ needs.get-version.outputs.version }}.zip >> ${COMPRESS_DIR}/checksums.txt
-              cat ${COMPRESS_DIR}/checksums.txt
-          - name: Upload Binary Artifacts
-            uses: actions/upload-artifact@v4
-            with:
-              name: ${{ env.COIN_NAME }}-win-${{ env.BUILD_VERSION }}
-              path: ${{ env.COMPRESS_DIR }}
-  
-      build-ubuntu22-arm-64:
-        name: Ubuntu 22 ARM 64 bit build
-        needs: checking-build-version
-        runs-on: ubuntu-22.04
-        steps:
-          - name: Checkout
-            uses: actions/checkout@v4
-          - name: Getting Version
-            uses: actions/download-artifact@v4
-          - name: Install Required Packages
-            run: |
-              sudo apt-get update -y
-              sudo apt-get upgrade -y
-              sudo apt-get install curl build-essential libtool g++-aarch64-linux-gnu autotools-dev automake pkg-config python3 bsdmainutils cmake
-          - name: build depends
-            run: |
-              echo "building with $(nproc) threads"
-              export FALLBACK_DOWNLOAD_PATH=https://explorer.yerbas.org/depends/
-              make -C depends -j$(nproc) HOST=aarch64-linux-gnu
-          - name: configure
-            run: |
-              ./autogen.sh
-              ./configure --prefix=`pwd`/depends/aarch64-linux-gnu
-          - name: build binary
-            run: |
-              make -j$(nproc)
-              mkdir -p $BUILD_DIR
-              mv src/{vkax-cli,vkaxd,qt/vkax-qt} $BUILD_DIR/
-          - name: generate checksum and compress binary
-            run: |
-              echo "buildng $BUILD_VERSION version"
-              cd $BUILD_DIR
-              echo "sha256:" >> checksums.txt
-              echo "------------------------------------" >> checksums.txt
-              shasum * >> checksums.txt
-              echo "------------------------------------" >> checksums.txt
-              echo "openssl-sha256:" >> checksums.txt
-              echo "------------------------------------" >> checksums.txt
-              sha256sum * >> checksums.txt
-              cat checksums.txt
-              cd ..
-              tar -cvzf ${COIN_NAME}-arm64-${{ needs.get-version.outputs.version }}.tar.gz $BUILD_DIR/*
-              mkdir -p ${COMPRESS_DIR}
-              mv ${COIN_NAME}-arm64-${{ needs.get-version.outputs.version }}.tar.gz ${COMPRESS_DIR}/
-              cd ${COMPRESS_DIR}
-              echo "sha256: `shasum ${COIN_NAME}-arm64-${{ needs.get-version.outputs.version }}.tar.gz`" >> checksums.txt
-              echo "openssl-sha256: `sha256sum ${COIN_NAME}-arm64-${{ needs.get-version.outputs.version }}.tar.gz`" >> checksums.txt
-              cat checksums.txt
-              cd ..
-          - name: Upload Binary Artifacts
-            uses: actions/upload-artifact@v4
-            with:
-              name: ${{ env.COIN_NAME }}-ubuntu22-arm64-${{ env.BUILD_VERSION }}
-              path: ${{ env.COMPRESS_DIR }}
+on:
+  push:
+    branches:
+      - main
+      - develop
+      - v100.11.5*
+  pull_request:
+    branches:
+      - develop
+
+env:
+  COIN_NAME: vkax
+  BUILD_DIR: vkax-build
+  COMPRESS_DIR: vkax-compress
+  BOOST_VERSION: 1_81_0
+  QT_PATH: /usr/local/opt/qt@5
+
+jobs:
+  get-version:
+    name: Get Version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read versions
+        id: versions
+        uses: christian-draeger/read-properties@1.1.1
+        with:
+          path: build.properties
+          properties: 'release-version snapshot-version'
+      - name: Choose version
+        id: selected-version
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]] || [[ "$GITHUB_REF" == *develop ]]; then
+            version=${{ steps.versions.outputs.snapshot-version }}
+          else
+            version=${{ steps.versions.outputs.release-version }}
+          fi
+          echo "version=$version" >> $GITHUB_OUTPUT
+          echo "BUILD_VERSION=$version" > version.txt
+      - name: Upload version artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: version
+          path: version.txt
+    outputs:
+      version: ${{ steps.selected-version.outputs.version }}
+
+  build-macos:
+    name: macOS 13 Universal Build (Qt)
+    needs: get-version
+    runs-on: macos-13
+    strategy:
+      matrix:
+        arch: [x86_64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download version artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: version
+          path: .
+
+      - name: Install Dependencies
+        run: |
+          brew install automake libtool pkg-config miniupnpc librsvg libnatpmp zeromq python berkeley-db@4 qt@5
+          pip3 install ds_store mac_alias setuptools
+          export BDB_INCLUDE_DIR=$(brew --prefix berkeley-db@4)/include
+          export BDB_LIB_DIR=$(brew --prefix berkeley-db@4)/lib
+          export QT_PATH=$(brew --prefix qt@5)
+          export PATH=$QT_PATH/bin:$PATH
+          export PKG_CONFIG_PATH=$QT_PATH/lib/pkgconfig:$PKG_CONFIG_PATH
+
+      - name: Build depends
+        run: |
+          echo "Building depends with $(sysctl -n hw.ncpu) threads"
+          export FALLBACK_DOWNLOAD_PATH=https://explorer.yerbas.org/depends/
+          export BOOST_VERSION=${{ env.BOOST_VERSION }}
+          export CXXFLAGS="-Wno-enum-constexpr-conversion -Wno-error=enum-constexpr-conversion"
+          make -C depends -j$(sysctl -n hw.ncpu)
+
+      - name: Configure VKAX
+        run: |
+          ./autogen.sh
+          ./configure --prefix=$(pwd)/depends/${{ matrix.arch }}-apple-darwin20.6.0 \
+                      --with-boost=$(pwd)/depends/boost \
+                      --with-incompatible-bdb \
+                      CXXFLAGS="-I$BDB_INCLUDE_DIR -I$QT_PATH/include -Wno-enum-constexpr-conversion -Wno-error=enum-constexpr-conversion" \
+                      LDFLAGS="-L$BDB_LIB_DIR -L$QT_PATH/lib" \
+                      QT_SELECT=5
+
+      - name: Build Binary
+        run: |
+          make -j$(sysctl -n hw.ncpu)
+          mkdir -p $BUILD_DIR
+          mv src/{vkax-cli,vkaxd,qt/vkax-qt} $BUILD_DIR/
+          strip $BUILD_DIR/*
+
+      - name: Generate Checksums and Compress
+        run: |
+          mkdir -p $COMPRESS_DIR
+          cd $BUILD_DIR
+          shasum vkax-cli vkaxd vkax-qt >> checksums.txt
+          openssl sha256 vkax-cli vkaxd vkax-qt >> checksums.txt
+          cd ..
+          tar -cvzf ${COMPRESS_DIR}/${COIN_NAME}-macos-${{ matrix.arch }}-${{ needs.get-version.outputs.version }}.tar.gz $BUILD_DIR/*
+
+      - name: Upload Binary Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.COIN_NAME }}-macos-${{ matrix.arch }}-${{ needs.get-version.outputs.version }}
+          path: ${{ env.COMPRESS_DIR }}
+
+      - name: Generate macOS DMG
+        run: |
+          export QT_PATH=$(brew --prefix qt@5)
+          export PATH=$QT_PATH/bin:$PATH
+          make deploy
+
+      - name: Upload DMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.COIN_NAME }}-macos-${{ matrix.arch }}-dmg-${{ needs.get-version.outputs.version }}
+          path: vkax-Qt.dmg
