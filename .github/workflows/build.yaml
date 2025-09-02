@@ -1,19 +1,19 @@
-name: VKAX Build
-
+---
+name: VKAX Build 
 on:
   push:
     branches:
-      - v100.11.5-macbuild*
+      - main
+      - v100.11.2*
+      - develop
   pull_request:
     branches:
-      - v100.11.5-macbuild
-
+      - develop
 env:
   COIN_NAME: vkax
   BUILD_DIR: vkax-build
   COMPRESS_DIR: vkax-compress
   TEST_LOG_ARTIFACT_DIR: test-logs
-  BOOST_VERSION: 1_81_0
 
 jobs:
   checking-build-version:
@@ -21,7 +21,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Triggered By
-        run: echo "checking out $GITHUB_REF triggered by $GITHUB_EVENT_NAME"
+        run: |
+          echo "checking out $GITHUB_REF triggered by $GITHUB_EVENT_NAME"
 
       - name: Checkout
         uses: actions/checkout@v4
@@ -37,7 +38,7 @@ jobs:
         id: selected-version
         shell: bash
         run: |
-          if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]] || [[ "$GITHUB_REF" == *develop ]] || [[ "$GITHUB_REF" == *v100.11.5* ]]; then
+          if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]] || [[ "$GITHUB_REF" == *develop ]] || [[ "$GITHUB_REF" == *v100.10.3* ]]; then
               version=${{ steps.versions.outputs.snapshot-version }}
           elif [[ "$GITHUB_EVENT_NAME" != "pull_request" ]] && [[ "$GITHUB_REF" == "refs/heads/main" ]]; then
               version=${{ steps.versions.outputs.release-version }}
@@ -55,67 +56,37 @@ jobs:
     outputs:
       version: ${{ steps.selected-version.outputs.version }}
 
-  build-macos:
-    name: macOS Build (Intel + ARM)
+  build-macos13:
+    name: macOS 13 Intel build
     needs: checking-build-version
     runs-on: macos-13
-    strategy:
-      matrix:
-        arch: [x86_64, arm64]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Get Version
+      - name: Getting Version
         uses: actions/download-artifact@v4
-
       - name: Install Required Packages
         run: |
           brew install automake libtool pkg-config miniupnpc librsvg libnatpmp zeromq python
           pip3 install ds_store mac_alias setuptools
-
-      - name: Fetch and Patch Boost
+      - name: build depends
         run: |
-          cd depends/packages
-          BOOST_TAR="boost_${BOOST_VERSION}.tar.gz"
-          BOOST_URL="https://boostorg.jfrog.io/artifactory/main/release/1.81.0/source/${BOOST_TAR}"
-          curl -LO $BOOST_URL
-          tar -xf $BOOST_TAR
-          rm $BOOST_TAR
-          # Patch old Boost headers (only if using Boost <1.78)
-          find boost_${BOOST_VERSION//_/.}/ -name 'hash.hpp' -exec sed -i '' 's/std::unary_function/__unary_function/g' {} \;
-
-      - name: Build Depends
-        run: |
-          echo "Building depends for ${{ matrix.arch }}"
+          echo "building with $(nproc) threads"
           export FALLBACK_DOWNLOAD_PATH=https://explorer.yerbas.org/depends/
-          export CXXFLAGS="-std=c++14 -Wno-deprecated-builtins -Wno-deprecated-declarations"
-          export CFLAGS="-Wno-deprecated-builtins -Wno-deprecated-declarations"
-          if [ "${{ matrix.arch }}" == "x86_64" ]; then
-              DEPENDS_PREFIX=depends/x86_64-apple-darwin20.6.0
-          else
-              DEPENDS_PREFIX=depends/aarch64-apple-darwin20.6.0
-          fi
-          make -C depends -j$(sysctl -n hw.ncpu)
-
-      - name: Configure
+          make -C depends -j8
+      - name: configure
         run: |
           ./autogen.sh
-          if [ "${{ matrix.arch }}" == "x86_64" ]; then
-              ./configure --prefix=`pwd`/depends/x86_64-apple-darwin20.6.0
-          else
-              ./configure --prefix=`pwd`/depends/aarch64-apple-darwin20.6.0
-          fi
-
-      - name: Build Binary
+          ./configure --prefix=`pwd`/depends/x86_64-apple-darwin20.6.0
+      - name: build binary
         run: |
-          make -j$(sysctl -n hw.ncpu)
+          make -j8
           mkdir -p $BUILD_DIR
           mv src/{vkax-cli,vkaxd,qt/vkax-qt} $BUILD_DIR/
           strip $BUILD_DIR/*
-
-      - name: Generate checksum and compress
+      - name: generate checksum and compress
         run: |
+          echo "building $BUILD_VERSION version"
           cd $BUILD_DIR
           shasum vkax-cli >> checksums.txt
           openssl sha256 vkax-cli >> checksums.txt
@@ -125,25 +96,82 @@ jobs:
           openssl sha256 vkax-qt >> checksums.txt
           cat checksums.txt
           cd ..
-          TAR_NAME="${COIN_NAME}-macos-${{ matrix.arch }}-${{ needs.checking-build-version.outputs.version }}.tar.gz"
-          tar -cvzf $TAR_NAME $BUILD_DIR/*
+          tar -cvzf ${COIN_NAME}-macos-intel-${{ needs.checking-build-version.outputs.version }}.tar.gz $BUILD_DIR/*
           mkdir -p ${COMPRESS_DIR}
-          mv $TAR_NAME ${COMPRESS_DIR}/
-          shasum ${COMPRESS_DIR}/$TAR_NAME >> ${COMPRESS_DIR}/checksums.txt
-          openssl sha256 ${COMPRESS_DIR}/$TAR_NAME >> ${COMPRESS_DIR}/checksums.txt
+          mv ${COIN_NAME}-macos-intel-${{ needs.checking-build-version.outputs.version }}.tar.gz ${COMPRESS_DIR}/
+          shasum ${COMPRESS_DIR}/${COIN_NAME}-macos-intel-${{ needs.checking-build-version.outputs.version }}.tar.gz >> ${COMPRESS_DIR}/checksums.txt
+          openssl sha256 ${COMPRESS_DIR}/${COIN_NAME}-macos-intel-${{ needs.checking-build-version.outputs.version }}.tar.gz >> ${COMPRESS_DIR}/checksums.txt
           cat ${COMPRESS_DIR}/checksums.txt
-
       - name: Upload Binary Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.COIN_NAME }}-macos-${{ matrix.arch }}-${{ env.BUILD_VERSION }}
+          name: ${{ env.COIN_NAME }}-macos-intel-${{ env.BUILD_VERSION }}
           path: ${{ env.COMPRESS_DIR }}
-
-      - name: Generate macOS dmg
-        run: make deploy
-
+      - name: Generate macOS dmg files
+        run: |
+          make deploy
       - name: Upload dmg file
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.COIN_NAME }}-macos-${{ matrix.arch }}-dmg-${{ env.BUILD_VERSION }}
+          name: ${{ env.COIN_NAME }}-macos-intel-dmg-${{ env.BUILD_VERSION }}
+          path: vkax-Qt.dmg
+
+  build-macos13-arm64:
+    name: macOS 13 ARM64 build
+    needs: checking-build-version
+    runs-on: macos-13-xlarge
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Getting Version
+        uses: actions/download-artifact@v4
+      - name: Install Required Packages
+        run: |
+          brew install automake libtool pkg-config miniupnpc librsvg libnatpmp zeromq python
+          pip3 install ds_store mac_alias setuptools
+      - name: build depends
+        run: |
+          echo "building with $(nproc) threads"
+          export FALLBACK_DOWNLOAD_PATH=https://explorer.yerbas.org/depends/
+          make -C depends -j8
+      - name: configure
+        run: |
+          ./autogen.sh
+          ./configure --prefix=`pwd`/depends/x86_64-apple-darwin20.6.0
+      - name: build binary
+        run: |
+          make -j8
+          mkdir -p $BUILD_DIR
+          mv src/{vkax-cli,vkaxd,qt/vkax-qt} $BUILD_DIR/
+          strip $BUILD_DIR/*
+      - name: generate checksum and compress
+        run: |
+          echo "building $BUILD_VERSION version"
+          cd $BUILD_DIR
+          shasum vkax-cli >> checksums.txt
+          openssl sha256 vkax-cli >> checksums.txt
+          shasum vkaxd >> checksums.txt
+          openssl sha256 vkaxd >> checksums.txt
+          shasum vkax-qt >> checksums.txt
+          openssl sha256 vkax-qt >> checksums.txt
+          cat checksums.txt
+          cd ..
+          tar -cvzf ${COIN_NAME}-macos-arm64-${{ needs.checking-build-version.outputs.version }}.tar.gz $BUILD_DIR/*
+          mkdir -p ${COMPRESS_DIR}
+          mv ${COIN_NAME}-macos-arm64-${{ needs.checking-build-version.outputs.version }}.tar.gz ${COMPRESS_DIR}/
+          shasum ${COMPRESS_DIR}/${COIN_NAME}-macos-arm64-${{ needs.checking-build-version.outputs.version }}.tar.gz >> ${COMPRESS_DIR}/checksums.txt
+          openssl sha256 ${COMPRESS_DIR}/${COIN_NAME}-macos-arm64-${{ needs.checking-build-version.outputs.version }}.tar.gz >> ${COMPRESS_DIR}/checksums.txt
+          cat ${COMPRESS_DIR}/checksums.txt
+      - name: Upload Binary Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.COIN_NAME }}-macos-arm64-${{ env.BUILD_VERSION }}
+          path: ${{ env.COMPRESS_DIR }}
+      - name: Generate macOS dmg files
+        run: |
+          make deploy
+      - name: Upload dmg file
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.COIN_NAME }}-macos-arm64-dmg-${{ env.BUILD_VERSION }}
           path: vkax-Qt.dmg
