@@ -54,115 +54,62 @@ jobs:
     outputs:
       version: ${{ steps.selected-version.outputs.version }}
 
-  build-win-2022:
-    name: Windows 2022 build
-    needs: checking-build-version
-    runs-on: windows-2022
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Getting Version
-        uses: actions/download-artifact@v4
-      - name: Install Required Packages
-        run: |
-          choco install -y mingw
-          refreshenv
-      - name: build depends
-        run: |
-          echo "building with $NUMBER_OF_PROCESSORS threads"
-          set FALLBACK_DOWNLOAD_PATH=https://explorer.yerbas.org/depends/
-          make -C depends -j%NUMBER_OF_PROCESSORS% HOST=x86_64-w64-mingw32
-      - name: configure
-        run: |
-          ./autogen.sh
-          ./configure --prefix=%CD%/depends/x86_64-w64-mingw32
-      - name: build binary
-        run: |
-          make -j%NUMBER_OF_PROCESSORS%
-          mkdir -p %BUILD_DIR%
-          move src\vkax-cli.exe %BUILD_DIR%\
-          move src\vkaxd.exe %BUILD_DIR%\
-          move qt\vkax-qt.exe %BUILD_DIR%\
-          strip %BUILD_DIR%\*
-      - name: generate checksum and compress
-        run: |
-          echo buildng %BUILD_VERSION% version
-          cd %BUILD_DIR%
-          echo sha256: >> checksums.txt
-          echo ------------------------------------ >> checksums.txt
-          shasum * >> checksums.txt
-          echo ------------------------------------ >> checksums.txt
-          echo openssl-sha256: >> checksums.txt
-          echo ------------------------------------ >> checksums.txt
-          sha256sum * >> checksums.txt
-          type checksums.txt
-          cd ..
-          powershell Compress-Archive -Path %BUILD_DIR%\* -DestinationPath ${COIN_NAME}-win-${{ needs.checking-build-version.outputs.version }}.zip
-          mkdir -p ${COMPRESS_DIR}
-          move ${COIN_NAME}-win-${{ needs.checking-build-version.outputs.version }}.zip ${COMPRESS_DIR}\
-          shasum ${COMPRESS_DIR}/${COIN_NAME}-win-${{ needs.checking-build-version.outputs.version }}.zip >> ${COMPRESS_DIR}/checksums.txt
-          sha256sum ${COMPRESS_DIR}/${COIN_NAME}-win-${{ needs.checking-build-version.outputs.version }}.zip >> ${COMPRESS_DIR}/checksums.txt
-          type ${COMPRESS_DIR}/checksums.txt
-      - name: Upload Binary Artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ env.COIN_NAME }}-win-2022-${{ env.BUILD_VERSION }}
-          path: ${{ env.COMPRESS_DIR }}
-
-  build-win-2019:
-    name: Windows 2019 build
-    needs: checking-build-version
-    runs-on: windows-2019
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Getting Version
-        uses: actions/download-artifact@v4
-      - name: Install Required Packages
-        run: |
-          choco install -y mingw
-          refreshenv
-      - name: build depends
-        run: |
-          echo "building with $NUMBER_OF_PROCESSORS threads"
-          set FALLBACK_DOWNLOAD_PATH=https://explorer.yerbas.org/depends/
-          make -C depends -j%NUMBER_OF_PROCESSORS% HOST=x86_64-w64-mingw32
-      - name: configure
-        run: |
-          ./autogen.sh
-          ./configure --prefix=%CD%/depends/x86_64-w64-mingw32
-      - name: build binary
-        run: |
-          make -j%NUMBER_OF_PROCESSORS%
-          mkdir -p %BUILD_DIR%
-          move src\vkax-cli.exe %BUILD_DIR%\
-          move src\vkaxd.exe %BUILD_DIR%\
-          move qt\vkax-qt.exe %BUILD_DIR%\
-          strip %BUILD_DIR%\*
-      - name: generate checksum and compress
-        run: |
-          echo buildng %BUILD_VERSION% version
-          cd %BUILD_DIR%
-          echo sha256: >> checksums.txt
-          echo ------------------------------------ >> checksums.txt
-          shasum * >> checksums.txt
-          echo ------------------------------------ >> checksums.txt
-          echo openssl-sha256: >> checksums.txt
-          echo ------------------------------------ >> checksums.txt
-          sha256sum * >> checksums.txt
-          type checksums.txt
-          cd ..
-          powershell Compress-Archive -Path %BUILD_DIR%\* -DestinationPath ${COIN_NAME}-win-${{ needs.checking-build-version.outputs.version }}.zip
-          mkdir -p ${COMPRESS_DIR}
-          move ${COIN_NAME}-win-${{ needs.checking-build-version.outputs.version }}.zip ${COMPRESS_DIR}\
-          shasum ${COMPRESS_DIR}/${COIN_NAME}-win-${{ needs.checking-build-version.outputs.version }}.zip >> ${COMPRESS_DIR}/checksums.txt
-          sha256sum ${COMPRESS_DIR}/${COIN_NAME}-win-${{ needs.checking-build-version.outputs.version }}.zip >> ${COMPRESS_DIR}/checksums.txt
-          type ${COMPRESS_DIR}/checksums.txt
-      - name: Upload Binary Artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ env.COIN_NAME }}-win-2019-${{ env.BUILD_VERSION }}
-          path: ${{ env.COMPRESS_DIR }}
+      build-win-2022:
+        name: Windows build
+        needs: checking-build-version
+        runs-on: ubuntu-22.04
+        steps:
+          - name: Checkout
+            uses: actions/checkout@v4
+          - name: Getting Version
+            uses: actions/download-artifact@v4
+          - name: Install Required Packages
+            run: |
+              sudo apt-get update -y
+              sudo apt-get upgrade -y
+              sudo apt-get install curl build-essential libtool autotools-dev automake pkg-config python3 bsdmainutils cmake
+              sudo apt-get install -y g++-mingw-w64-x86-64 gcc-mingw-w64-x86-64
+              sudo update-alternatives --set x86_64-w64-mingw32-gcc /usr/bin/x86_64-w64-mingw32-gcc-posix
+              sudo update-alternatives --set x86_64-w64-mingw32-g++ /usr/bin/x86_64-w64-mingw32-g++-posix
+          - name: build depends
+            run: |
+              echo "building with $(nproc) threads"
+              export FALLBACK_DOWNLOAD_PATH=https://explorer.yerbas.org/depends/
+              make -C depends -j$(nproc) HOST=x86_64-w64-mingw32
+          - name: configure
+            run: |
+              ./autogen.sh
+              ./configure --prefix=`pwd`/depends/x86_64-w64-mingw32
+          - name: build binary
+            run: |
+              make -j$(nproc)
+              mkdir -p $BUILD_DIR
+              mv src/{vkax-cli.exe,vkaxd.exe,qt/vkax-qt.exe} $BUILD_DIR/
+              strip $BUILD_DIR/*
+          - name: generate checksum and compress
+            run: |
+              echo "buildng $BUILD_VERSION version"
+              cd $BUILD_DIR
+              echo "sha256:" >> checksums.txt
+              echo "------------------------------------" >> checksums.txt
+              shasum * >> checksums.txt
+              echo "------------------------------------" >> checksums.txt
+              echo "openssl-sha256:" >> checksums.txt
+              echo "------------------------------------" >> checksums.txt
+              sha256sum * >> checksums.txt
+              cat checksums.txt
+              cd ..
+              zip -r ${COIN_NAME}-win-${{ needs.get-version.outputs.version }}.zip $BUILD_DIR/
+              mkdir -p ${COMPRESS_DIR}
+              mv ${COIN_NAME}-win-${{ needs.get-version.outputs.version }}.zip ${COMPRESS_DIR}/
+              shasum ${COMPRESS_DIR}/${COIN_NAME}-win-${{ needs.get-version.outputs.version }}.zip >> ${COMPRESS_DIR}/checksums.txt
+              sha256sum ${COMPRESS_DIR}/${COIN_NAME}-win-${{ needs.get-version.outputs.version }}.zip >> ${COMPRESS_DIR}/checksums.txt
+              cat ${COMPRESS_DIR}/checksums.txt
+          - name: Upload Binary Artifacts
+            uses: actions/upload-artifact@v4
+            with:
+              name: ${{ env.COIN_NAME }}-win-${{ env.BUILD_VERSION }}
+              path: ${{ env.COMPRESS_DIR }}
 
   build-ubuntu22:
     name: Ubuntu 22 build
