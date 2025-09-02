@@ -4,7 +4,7 @@ on:
   push:
     branches:
       - main
-      - v100.11.2*
+      - v100.11.5*
       - develop
   pull_request:
     branches:
