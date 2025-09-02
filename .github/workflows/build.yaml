@@ -63,6 +63,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: version
+          path: .
 
       - name: Install Required Packages
         run: |
@@ -79,15 +80,16 @@ jobs:
           echo "Building depends with $(sysctl -n hw.ncpu) threads"
           export FALLBACK_DOWNLOAD_PATH=https://explorer.yerbas.org/depends/
           export BOOST_VERSION=${{ env.BOOST_VERSION }}
+          export CXXFLAGS="-Wno-enum-constexpr-conversion"
           make -C depends -j$(sysctl -n hw.ncpu)
 
       - name: Configure Vkax
         run: |
           ./autogen.sh
-          ./configure --prefix=$(pwd)/depends/x86_64-apple-darwin20.6.0 \
+          ./configure --prefix=$(pwd)/depends/${{ matrix.arch }}-apple-darwin20.6.0 \
                       --with-boost=$(pwd)/depends/boost \
                       --with-incompatible-bdb \
-                      CXXFLAGS="-I$BDB_INCLUDE_DIR -I$QT_PATH/include" \
+                      CXXFLAGS="-I$BDB_INCLUDE_DIR -I$QT_PATH/include -Wno-enum-constexpr-conversion" \
                       LDFLAGS="-L$BDB_LIB_DIR -L$QT_PATH/lib" \
                       QT_SELECT=5
 
@@ -115,6 +117,8 @@ jobs:
 
       - name: Generate macOS dmg
         run: |
+          export QT_PATH=$(brew --prefix qt@5)
+          export PATH=$QT_PATH/bin:$PATH
           make deploy
 
       - name: Upload dmg
