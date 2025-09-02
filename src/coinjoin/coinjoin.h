@@ -365,11 +365,11 @@ private:
 
     // static members
     static constexpr std::array<CAmount, 5> vecStandardDenominations{
-            (10000 * COIN) + 10000,
-            (1000 * COIN) + 1000,
-            (100 * COIN) + 100,
-            (10 * COIN) + 10,
-            (1 * COIN) + 1,
+        10000 * COIN,
+        1000  * COIN,
+        100   * COIN,
+        10    * COIN,
+        1     * COIN,
     };
 
     static std::map<uint256, CCoinJoinBroadcastTx> mapDSTX;
@@ -451,8 +451,8 @@ public:
 
     /// If the collateral is valid given by a client
     static bool IsCollateralValid(const CTransaction& txCollateral);
-    static constexpr CAmount GetCollateralAmount() { return (GetSmallestDenomination() / 1) + 1; }      // 1*COIN + 1  /// the smallest coin join denomination will be 1
-    static constexpr CAmount GetMaxCollateralAmount() { return (GetSmallestDenomination() * 10000) + 10000; }  // 10000*COIN + 10000 please work
+    static constexpr CAmount GetCollateralAmount() { return GetSmallestDenomination(); }
+    static constexpr CAmount GetMaxCollateralAmount() { return GetCollateralAmount() * 4; }
 
     static constexpr bool IsCollateralAmount(CAmount nInputAmount)
     {
