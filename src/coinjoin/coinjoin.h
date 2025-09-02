@@ -365,11 +365,11 @@ private:
 
     // static members
     static constexpr std::array<CAmount, 5> vecStandardDenominations{
-        10000 * COIN,
-        1000  * COIN,
-        100   * COIN,
-        10    * COIN,
-        1     * COIN,
+        (10000 * COIN) + 10000,
+        (1000  * COIN) + 1000,
+        (100   * COIN) + 100,
+        (10    * COIN) + 10,
+        (1     * COIN) + 1,
     };
 
     static std::map<uint256, CCoinJoinBroadcastTx> mapDSTX;
