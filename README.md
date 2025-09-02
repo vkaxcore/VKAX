@@ -1,4 +1,4 @@
-# [VKAX](https://vkaxcore.github.io/VKAX/)
+# [VKAX](https://vkaxcore.github.io/vkaxweb/)
 
 
 ## **Vero Kum Abdite Xenium**
@@ -9,15 +9,15 @@
 <br/>
 <br/>
 
-
-
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="https://github.com/vkaxcore/vkaxweb/blob/main/logonew.png?raw=true">
-  <source media="(prefers-color-scheme: light)" srcset="https://github.com/vkaxcore/vkaxweb/blob/main/logonewlight.png?raw=true">
-  <img alt="Shows a black logo in light color mode and a white one in dark color mode." src="https://github.com/vkaxcore/vkaxweb/blob/main/logonew.png">
+  <img src="https://github.com/vkaxcore/VKAX/blob/master/src/qt/res/icons/dash.png?raw=true" alt="VKAX Crypto Currency Coin Image">
 </picture>
 
 <br/>
+<br/>
+
+<br/>
+
 <br/>
 
 > [!NOTE]
