@@ -76,10 +76,11 @@ jobs:
       - name: Build depends
         run: |
           echo "Building depends with $(sysctl -n hw.ncpu) threads"
+          echo "using clang : : clang++ : <cxxflags>\"-Wno-enum-constexpr-conversion -Wno-error=enum-constexpr-conversion\" ;" > user-config.jam
           export FALLBACK_DOWNLOAD_PATH=https://explorer.yerbas.org/depends/
           export BOOST_VERSION=${{ env.BOOST_VERSION }}
           export CXXFLAGS="-Wno-enum-constexpr-conversion -Wno-error=enum-constexpr-conversion"
-          make -C depends -j$(sysctl -n hw.ncpu)
+          make -C depends -j$(sysctl -n hw.ncpu) BOOST_BUILD_PATH=$(pwd)/user-config.jam
 
       - name: Configure VKAX
         run: |
