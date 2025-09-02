@@ -290,11 +290,11 @@ public:
         // This is fine at runtime as we'll fall back to using them as a oneshot if they don't support the
         // service bits we want, but we should get them updated to support all service bits wanted by any
         // release ASAP to avoid it where possible.
-        vSeeds.emplace_back("dnsseed.vkax.org");
-        vSeeds.emplace_back("dnsseed-02.vkax.org");
-        vSeeds.emplace_back("dnsseed-03.vkax.org");
-        vSeeds.emplace_back("dnsseed-04.vkax.org");
-        vSeeds.emplace_back("dnsseed-05.vkax.org");
+        vSeeds.emplace_back("losangeles.vkax.net");
+        vSeeds.emplace_back("seattle.vkax.net");
+        vSeeds.emplace_back("buffalo.vkax.net");
+        vSeeds.emplace_back("chicago.vkax.net");
+        vSeeds.emplace_back("ashburn.vkax.net");
 
         // Vkax addresses start with 'X'
         base58Prefixes[PUBKEY_ADDRESS] = std::vector<unsigned char>(1,76);
