@@ -14,13 +14,11 @@ env:
   COIN_NAME: vkax
   BUILD_DIR: vkax-build
   COMPRESS_DIR: vkax-compress
-  BDB_INCLUDE_DIR: /usr/local/opt/berkeley-db@4/include
-  BDB_LIB_DIR: /usr/local/opt/berkeley-db@4/lib
   BOOST_VERSION: 1_81_0
   QT_PATH: /usr/local/opt/qt@5
 
 jobs:
-  checking-build-version:
+  get-version:
     name: Get Version
     runs-on: ubuntu-latest
     steps:
@@ -41,7 +39,7 @@ jobs:
           fi
           echo "version=$version" >> $GITHUB_OUTPUT
           echo "BUILD_VERSION=$version" > version.txt
-      - name: Upload Artifacts
+      - name: Upload version artifact
         uses: actions/upload-artifact@v4
         with:
           name: version
@@ -50,8 +48,8 @@ jobs:
       version: ${{ steps.selected-version.outputs.version }}
 
   build-macos:
-    name: macOS 13 Intel/ARM Build (Qt)
-    needs: checking-build-version
+    name: macOS 13 Universal Build (Qt)
+    needs: get-version
     runs-on: macos-13
     strategy:
       matrix:
@@ -65,7 +63,7 @@ jobs:
           name: version
           path: .
 
-      - name: Install Required Packages
+      - name: Install Dependencies
         run: |
           brew install automake libtool pkg-config miniupnpc librsvg libnatpmp zeromq python berkeley-db@4 qt@5
           pip3 install ds_store mac_alias setuptools
@@ -80,49 +78,49 @@ jobs:
           echo "Building depends with $(sysctl -n hw.ncpu) threads"
           export FALLBACK_DOWNLOAD_PATH=https://explorer.yerbas.org/depends/
           export BOOST_VERSION=${{ env.BOOST_VERSION }}
-          export CXXFLAGS="-Wno-enum-constexpr-conversion"
+          export CXXFLAGS="-Wno-enum-constexpr-conversion -Wno-error=enum-constexpr-conversion"
           make -C depends -j$(sysctl -n hw.ncpu)
 
-      - name: Configure Vkax
+      - name: Configure VKAX
         run: |
           ./autogen.sh
           ./configure --prefix=$(pwd)/depends/${{ matrix.arch }}-apple-darwin20.6.0 \
                       --with-boost=$(pwd)/depends/boost \
                       --with-incompatible-bdb \
-                      CXXFLAGS="-I$BDB_INCLUDE_DIR -I$QT_PATH/include -Wno-enum-constexpr-conversion" \
+                      CXXFLAGS="-I$BDB_INCLUDE_DIR -I$QT_PATH/include -Wno-enum-constexpr-conversion -Wno-error=enum-constexpr-conversion" \
                       LDFLAGS="-L$BDB_LIB_DIR -L$QT_PATH/lib" \
                       QT_SELECT=5
 
-      - name: Build binary
+      - name: Build Binary
         run: |
           make -j$(sysctl -n hw.ncpu)
           mkdir -p $BUILD_DIR
           mv src/{vkax-cli,vkaxd,qt/vkax-qt} $BUILD_DIR/
           strip $BUILD_DIR/*
 
-      - name: Generate checksums and compress
+      - name: Generate Checksums and Compress
         run: |
           mkdir -p $COMPRESS_DIR
           cd $BUILD_DIR
           shasum vkax-cli vkaxd vkax-qt >> checksums.txt
           openssl sha256 vkax-cli vkaxd vkax-qt >> checksums.txt
           cd ..
-          tar -cvzf ${COMPRESS_DIR}/${COIN_NAME}-macos-${{ matrix.arch }}-${{ needs.checking-build-version.outputs.version }}.tar.gz $BUILD_DIR/*
+          tar -cvzf ${COMPRESS_DIR}/${COIN_NAME}-macos-${{ matrix.arch }}-${{ needs.get-version.outputs.version }}.tar.gz $BUILD_DIR/*
 
       - name: Upload Binary Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.COIN_NAME }}-macos-${{ matrix.arch }}-${{ needs.checking-build-version.outputs.version }}
+          name: ${{ env.COIN_NAME }}-macos-${{ matrix.arch }}-${{ needs.get-version.outputs.version }}
           path: ${{ env.COMPRESS_DIR }}
 
-      - name: Generate macOS dmg
+      - name: Generate macOS DMG
         run: |
           export QT_PATH=$(brew --prefix qt@5)
           export PATH=$QT_PATH/bin:$PATH
           make deploy
 
-      - name: Upload dmg
+      - name: Upload DMG
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.COIN_NAME }}-macos-${{ matrix.arch }}-dmg-${{ needs.checking-build-version.outputs.version }}
+          name: ${{ env.COIN_NAME }}-macos-${{ matrix.arch }}-dmg-${{ needs.get-version.outputs.version }}
           path: vkax-Qt.dmg
