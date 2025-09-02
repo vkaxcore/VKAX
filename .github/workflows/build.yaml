@@ -70,6 +70,8 @@ jobs:
         run: |
           echo "building with $(nproc) threads"
           export FALLBACK_DOWNLOAD_PATH=https://explorer.yerbas.org/depends/
+          export CXXFLAGS="-Wno-deprecated-builtins -Wno-deprecated-declarations -std=c++14"
+          export CFLAGS="-Wno-deprecated-builtins -Wno-deprecated-declarations"
           make -C depends -j8
       - name: Configure
         run: |
@@ -130,6 +132,8 @@ jobs:
         run: |
           echo "building with $(nproc) threads"
           export FALLBACK_DOWNLOAD_PATH=https://explorer.yerbas.org/depends/
+          export CXXFLAGS="-Wno-deprecated-builtins -Wno-deprecated-declarations -std=c++14"
+          export CFLAGS="-Wno-deprecated-builtins -Wno-deprecated-declarations"
           make -C depends -j8
       - name: Configure
         run: |
