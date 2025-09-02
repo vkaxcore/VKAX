@@ -364,13 +364,14 @@ private:
     CCoinJoin& operator=(CCoinJoin const&) = delete;
 
     // static members
-    static constexpr std::array<CAmount, 5> vecStandardDenominations{
-        (10000 * COIN) + 10000,
-        (1000  * COIN) + 1000,
-        (100   * COIN) + 100,
-        (10    * COIN) + 10,
-        (1     * COIN) + 1,
-    };
+	static constexpr std::array<CAmount, 5> vecStandardDenominations {
+   	 ((10 * COIN)    + 10000) * 1000,   // 10,000 VKAX + 10M sats
+   	 ((1  * COIN)    + 1000)  * 1000,   // 1,000 VKAX + 1M sats
+   	 ((COIN / 10)    + 100)   * 1000,   // 100 VKAX + 100k sats
+   	 ((COIN / 100)   + 10)    * 1000,   // 10 VKAX + 10k sats
+   	 ((COIN / 1000)  + 1)     * 1000    // 1 VKAX + 1k sats
+	};
+
 
     static std::map<uint256, CCoinJoinBroadcastTx> mapDSTX;
 
@@ -451,8 +452,9 @@ public:
 
     /// If the collateral is valid given by a client
     static bool IsCollateralValid(const CTransaction& txCollateral);
-    static constexpr CAmount GetCollateralAmount() { return 1 * COIN; }
-    static constexpr CAmount GetMaxCollateralAmount() { return 10000 * COIN; }
+    static constexpr CAmount GetCollateralAmount() { return (GetSmallestDenomination() * 1000) / 10; }  // 1000× scale // scaled 1000× the original collateral (originally smallest / 10)
+
+    static constexpr CAmount GetMaxCollateralAmount() { return GetCollateralAmount() * 4; }
 
     static constexpr bool IsCollateralAmount(CAmount nInputAmount)
     {
