@@ -4,16 +4,18 @@ $(package)_download_path=https://github.com/dashpay/bls-signatures/archive
 $(package)_download_file=$($(package)_version).tar.gz
 $(package)_file_name=$(package)-$($(package)_download_file)
 $(package)_build_subdir=build
-$(package)_sha256_hash=94e49f3eaa29bc1f354cd569c00f4f4314d1c8ab4758527c248b67da9686135a
+$(package)_sha256_hash=276c8573104e5f18bb5b9fd3ffd49585dda5ba5f6de2de74759dda8ca5a9deac
 $(package)_dependencies=gmp cmake
+$(package)_patches=bls-dash_gcc11.patch bls-dash_dynamic_libs.patch
 $(package)_darwin_triplet=x86_64-apple-darwin19
 
-$(package)_relic_version=aecdcae7956f542fbee2392c1f0feb0a8ac41dc5
+# Correct relic version for 1.1.0
+$(package)_relic_version=3a23142be0a5510a3aa93cd6c76fc59d3fc732a5
 $(package)_relic_download_path=https://github.com/relic-toolkit/relic/archive
 $(package)_relic_download_file=$($(package)_relic_version).tar.gz
-$(package)_relic_file_name=relic-$($(package)_relic_download_file)
+$(package)_relic_file_name=relic-toolkit-$($(package)_relic_download_file)
 $(package)_relic_build_subdir=relic
-$(package)_relic_sha256_hash=f2de6ebdc9def7077f56c83c8b06f4da5bacc36b709514bd550a92a149e9fa1d
+$(package)_relic_sha256_hash=ddad83b1406985a1e4703bd03bdbab89453aa700c0c99567cf8de51c205e5dde
 
 $(package)_extra_sources=$($(package)_relic_file_name)
 
