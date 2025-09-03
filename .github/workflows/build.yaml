@@ -101,7 +101,8 @@ jobs:
                       --with-incompatible-bdb \
                       --enable-upnp-default \
                       --with-zmq \
-                      --with-gui=qt5 CFLAGS="$CFLAGS" CXXFLAGS="$CXXFLAGS"
+                      --with-gui=qt5 \
+                      CFLAGS="$CFLAGS" CXXFLAGS="$CXXFLAGS"
       - name: Build Binary
         run: |
           make -j$(nproc)
@@ -110,20 +111,10 @@ jobs:
           cp src/{vkax-cli,vkaxd,qt/vkax-qt} $TEST_DIR/ || true
           mv src/{vkax-cli,vkaxd,qt/vkax-qt} ${BUILD_DIR}_not_strip/ || true
           strip $BUILD_DIR/* || echo "strip failed — skipping"
-      - name: Generate checksum and compress
+      - name: Compress
         run: |
           mkdir -p $COMPRESS_DIR
-          for DIR in $BUILD_DIR ${BUILD_DIR}_not_strip; do
-            cd $DIR
-            sha256sum * > checksums.txt || true
-            tar -czf ../$COMPRESS_DIR/$(basename $DIR)-${{ matrix.version }}-x86_64-${{ needs.get-version.outputs.version }}.tar.gz *
-            cd ..
-          done
-      - name: Upload Artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: vkax-ubuntu-${{ matrix.version }}-x86_64-${{ needs.get-version.outputs.version }}
-          path: $COMPRESS_DIR
+          tar -czf $COMPRESS_DIR/vkax-x86_64-${{ needs.get-version.outputs.version }}.tar.gz $BUILD_DIR
 
   # ---------------- UBUNTU ARM64 ----------------
   build-ubuntu-arm:
@@ -156,7 +147,7 @@ jobs:
           key: vkax-depends-${{ matrix.version }}-arm64-${{ hashFiles('depends/*') }}
           restore-keys: |
             vkax-depends-arm64-
-      - name: Build depends (ARM64)
+      - name: Build depends
         run: |
           HOST=aarch64-linux-gnu
           export FALLBACK_DOWNLOAD_PATH=https://explorer.yerbas.org/depends/
@@ -165,7 +156,7 @@ jobs:
           export CC=aarch64-linux-gnu-gcc
           export CXX=aarch64-linux-gnu-g++
           make -C depends -j$(nproc) HOST=$HOST BLS_VERSION=${BLS_VERSION}
-      - name: Configure VKAX (ARM64)
+      - name: Configure VKAX
         run: |
           ./autogen.sh
           HOST=aarch64-linux-gnu
@@ -175,34 +166,19 @@ jobs:
                       --enable-upnp-default \
                       --with-zmq \
                       --with-gui=qt5 \
-                      CFLAGS="$CFLAGS" \
-                      CXXFLAGS="$CXXFLAGS" \
-                      CC="$CC" \
-                      CXX="$CXX"
-      - name: Build Binary (ARM64)
+                      CFLAGS="$CFLAGS" CXXFLAGS="$CXXFLAGS" CC="$CC" CXX="$CXX"
+      - name: Build Binary
         run: |
           make -j$(nproc)
-          mkdir -p $BUILD_DIR ${BUILD_DIR}_not_strip $TEST_DIR
+          mkdir -p $BUILD_DIR ${BUILD_DIR}_not_strip
           mv src/{vkax-cli,vkaxd,qt/vkax-qt} $BUILD_DIR/ || true
-          cp src/{vkax-cli,vkaxd,qt/vkax-qt} $TEST_DIR/ || true
           mv src/{vkax-cli,vkaxd,qt/vkax-qt} ${BUILD_DIR}_not_strip/ || true
-          strip $BUILD_DIR/* || echo "strip failed — skipping"
-      - name: Generate checksum and compress (ARM64)
+      - name: Compress
         run: |
           mkdir -p $COMPRESS_DIR
-          for DIR in $BUILD_DIR ${BUILD_DIR}_not_strip; do
-            cd $DIR
-            sha256sum * > checksums.txt || true
-            tar -czf ../$COMPRESS_DIR/$(basename $DIR)-${{ matrix.version }}-arm64-${{ needs.get-version.outputs.version }}.tar.gz *
-            cd ..
-          done
-      - name: Upload Artifacts (ARM64)
-        uses: actions/upload-artifact@v4
-        with:
-          name: vkax-ubuntu-${{ matrix.version }}-arm64-${{ needs.get-version.outputs.version }}
-          path: $COMPRESS_DIR
+          tar -czf $COMPRESS_DIR/vkax-arm64-${{ needs.get-version.outputs.version }}.tar.gz $BUILD_DIR
 
-  # ---------------- macOS ----------------
+  # ---------------- macOS x86_64 ----------------
   build-macos:
     name: macOS x86_64 Build
     needs: get-version
@@ -248,34 +224,3 @@ jobs:
           cd macos-dmg
           shasum -a 256 *.dmg > checksums.txt || true
           cd ..
-
-  # ---------------- WINDOWS x64 ----------------
-  build-windows:
-    name: Windows x64 Build
-    needs: get-version
-    runs-on: windows-2022
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
-        with:
-          name: version
-          path: .
-      - name: Install Dependencies
-        run: |
-          choco install mingw -y
-          choco install nsis -y
-          choco install cmake -y
-      - name: Configure VKAX
-        run: |
-          ./autogen.sh
-          ./configure --prefix=$(pwd)/depends/x86_64-w64-mingw32 \
-                      --with-incompatible-bdb \
-                      --enable-upnp-default \
-                      --with-zmq \
-                      --with-gui=qt5
-      - name: Build Binary
-        run: |
-          make -j$(nproc)
-          mkdir -p $BUILD_DIR ${BUILD_DIR}_not_strip
-          cp src/{vkax-cli.exe,vkaxd.exe,qt/vkax-qt.exe} $BUILD_DIR/ || true
-          mv src/{vkax-cli.exe,vkaxd.exe,qt/vkax-qt.exe} ${BUILD_DIR}_not_strip/ || true
