@@ -5,7 +5,7 @@ $(package)_download_file=$($(package)_version).tar.gz
 $(package)_file_name=$(package)-$($(package)_download_file)
 $(package)_build_subdir=build
 $(package)_sha256_hash=276c8573104e5f18bb5b9fd3ffd49585dda5ba5f6de2de74759dda8ca5a9deac
-$(package)_dependencies=gmp cmake
+$(package)_dependencies=gmp cmake sodium
 $(package)_patches=bls-dash_gcc11.patch bls-dash_dynamic_libs.patch
 $(package)_darwin_triplet=x86_64-apple-darwin19
 
@@ -20,61 +20,62 @@ $(package)_relic_sha256_hash=ddad83b1406985a1e4703bd03bdbab89453aa700c0c99567cf8
 $(package)_extra_sources=$($(package)_relic_file_name)
 
 define $(package)_fetch_cmds
-  $(call fetch_file,$(package),$($(package)_download_path),$($(package)_download_file),$($(package)_file_name),$($(package)_sha256_hash)) && \
-  $(call fetch_file,$(package),$($(package)_relic_download_path),$($(package)_relic_download_file),$($(package)_relic_file_name),$($(package)_relic_sha256_hash))
+	$(call fetch_file,$(package),$($(package)_download_path),$($(package)_download_file),$($(package)_file_name),$($(package)_sha256_hash)) && \
+	$(call fetch_file,$(package),$($(package)_relic_download_path),$($(package)_relic_download_file),$($(package)_relic_file_name),$($(package)_relic_sha256_hash))
 endef
 
 define $(package)_extract_cmds
-  mkdir -p $($(package)_extract_dir) && \
-  echo "$($(package)_sha256_hash)  $($(package)_source)" > $($(package)_extract_dir)/.$($(package)_file_name).hash && \
-  echo "$($(package)_relic_sha256_hash)  $($(package)_source_dir)/$($(package)_relic_file_name)" >> $($(package)_extract_dir)/.$($(package)_file_name).hash && \
-  $(build_SHA256SUM) -c $($(package)_extract_dir)/.$($(package)_file_name).hash && \
-  tar --strip-components=1 -xf $($(package)_source) -C . && \
-  cp $($(package)_source_dir)/$($(package)_relic_file_name) .
+	mkdir -p $($(package)_extract_dir) && \
+	echo "$($(package)_sha256_hash)  $($(package)_source)" > $($(package)_extract_dir)/.$($(package)_file_name).hash && \
+	echo "$($(package)_relic_sha256_hash)  $($(package)_source_dir)/$($(package)_relic_file_name)" >> $($(package)_extract_dir)/.$($(package)_file_name).hash && \
+	$(build_SHA256SUM) -c $($(package)_extract_dir)/.$($(package)_file_name).hash && \
+	tar --strip-components=1 -xf $($(package)_source) -C . && \
+	cp $($(package)_source_dir)/$($(package)_relic_file_name) .
 endef
 
 define $(package)_set_vars
-  $(package)_config_opts=-DCMAKE_INSTALL_PREFIX=$(host_prefix)
-  $(package)_config_opts+= -DCMAKE_PREFIX_PATH=$(host_prefix)
-  $(package)_config_opts+= -DSTLIB=ON -DSHLIB=OFF -DSTBIN=OFF
-  $(package)_config_opts+= -DBUILD_BLS_PYTHON_BINDINGS=0 -DBUILD_BLS_TESTS=0 -DBUILD_BLS_BENCHMARKS=0
-  $(package)_config_opts_linux=-DOPSYS=LINUX -DCMAKE_SYSTEM_NAME=Linux
-  $(package)_config_opts_darwin=-DOPSYS=MACOSX -DCMAKE_SYSTEM_NAME=Darwin
-  $(package)_config_opts_mingw32=-DOPSYS=WINDOWS -DCMAKE_SYSTEM_NAME=Windows -DCMAKE_SHARED_LIBRARY_LINK_C_FLAGS=""
-  $(package)_config_opts_i686+= -DWSIZE=32
-  $(package)_config_opts_x86_64+= -DWSIZE=64
-  $(package)_config_opts_arm+= -DWSIZE=32
-  $(package)_config_opts_armv7l+= -DWSIZE=32
-  $(package)_config_opts_debug=-DDEBUG=ON -DCMAKE_BUILD_TYPE=Debug
+	$(package)_config_opts=-DCMAKE_INSTALL_PREFIX=$(host_prefix)
+	$(package)_config_opts+= -DCMAKE_PREFIX_PATH=$(host_prefix)
+	$(package)_config_opts+= -DSTLIB=ON -DSHLIB=OFF -DSTBIN=OFF
+	$(package)_config_opts+= -DBUILD_BLS_PYTHON_BINDINGS=0 -DBUILD_BLS_TESTS=0 -DBUILD_BLS_BENCHMARKS=0
+	$(package)_config_opts_linux=-DOPSYS=LINUX -DCMAKE_SYSTEM_NAME=Linux
+	$(package)_config_opts_darwin=-DOPSYS=MACOSX -DCMAKE_SYSTEM_NAME=Darwin
+	$(package)_config_opts_mingw32=-DOPSYS=WINDOWS -DCMAKE_SYSTEM_NAME=Windows -DCMAKE_SHARED_LIBRARY_LINK_C_FLAGS=""
+	$(package)_config_opts_i686+= -DWSIZE=32
+	$(package)_config_opts_x86_64+= -DWSIZE=64
+	$(package)_config_opts_arm+= -DWSIZE=32
+	$(package)_config_opts_armv7l+= -DWSIZE=32
+	$(package)_config_opts_debug=-DDEBUG=ON -DCMAKE_BUILD_TYPE=Debug
 
-  ifneq ($(darwin_native_toolchain),)
-    $(package)_config_opts_darwin+= -DCMAKE_AR="$(host_prefix)/native/bin/$($(package)_darwin_triplet)-ar"
-    $(package)_config_opts_darwin+= -DCMAKE_LINKER="$(host_prefix)/native/bin/$($(package)_darwin_triplet)-ld"
-    $(package)_config_opts_darwin+= -DCMAKE_RANLIB="$(host_prefix)/native/bin/$($(package)_darwin_triplet)-ranlib"
-  endif
+	ifneq ($(darwin_native_toolchain),)
+		$(package)_config_opts_darwin+= -DCMAKE_AR="$(host_prefix)/native/bin/$($(package)_darwin_triplet)-ar"
+		$(package)_config_opts_darwin+= -DCMAKE_LINKER="$(host_prefix)/native/bin/$($(package)_darwin_triplet)-ld"
+		$(package)_config_opts_darwin+= -DCMAKE_RANLIB="$(host_prefix)/native/bin/$($(package)_darwin_triplet)-ranlib"
+	endif
 
-  # Disable Sodium entirely to prevent SODIUM_NAME-NOTFOUND
-  $(package)_cppflags+=-DBLSALLOC_NO_SODIUM
+	# Tell BLS-Dash to use libsodium from depends
+	$(package)_cppflags+=-DBLS_USE_SODIUM
+	$(package)_ldflags+=-L$(host_prefix)/lib -lsodium
 endef
 
 define $(package)_preprocess_cmds
-  sed -i.old "s|GIT_REPOSITORY https://github.com/Chia-Network/relic.git|URL \"../../relic-$($(package)_relic_version).tar.gz\"|" CMakeLists.txt && \
-  sed -i.old "s|RELIC_GIT_TAG \".*\"|RELIC_GIT_TAG \"\"|" CMakeLists.txt
+	sed -i.old "s|GIT_REPOSITORY https://github.com/Chia-Network/relic.git|URL \"../../relic-$($(package)_relic_version).tar.gz\"|" CMakeLists.txt && \
+	sed -i.old "s|RELIC_GIT_TAG \".*\"|RELIC_GIT_TAG \"\"|" CMakeLists.txt
 endef
 
 define $(package)_config_cmds
-  export CC="$($(package)_cc)" && \
-  export CXX="$($(package)_cxx)" && \
-  export CFLAGS="$($(package)_cflags) $($(package)_cppflags)" && \
-  export CXXFLAGS="$($(package)_cxxflags) $($(package)_cppflags)" && \
-  export LDFLAGS="$($(package)_ldflags)" && \
-  $(host_prefix)/bin/cmake ../ $($(package)_config_opts)
+	export CC="$($(package)_cc)" && \
+	export CXX="$($(package)_cxx)" && \
+	export CFLAGS="$($(package)_cflags) $($(package)_cppflags)" && \
+	export CXXFLAGS="$($(package)_cxxflags) $($(package)_cppflags)" && \
+	export LDFLAGS="$($(package)_ldflags)" && \
+	$(host_prefix)/bin/cmake ../ $($(package)_config_opts)
 endef
 
 define $(package)_build_cmds
-  $(MAKE) $($(package)_build_opts)
+	$(MAKE) $($(package)_build_opts)
 endef
 
 define $(package)_stage_cmds
-  $(MAKE) DESTDIR=$($(package)_staging_dir) install
+	$(MAKE) DESTDIR=$($(package)_staging_dir) install
 endef
