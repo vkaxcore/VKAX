@@ -99,8 +99,10 @@ jobs:
         with:
           name: install-deps
       - run: bash install-deps.sh
+      # Set CXXFLAGS to ignore deprecated warnings
+      - run: export CXXFLAGS="-Wno-deprecated-declarations"
       - run: make -C depends -j$(sysctl -n hw.ncpu)
-      - run: ./autogen.sh && ./configure --prefix=`pwd`/depends/x86_64-apple-darwin20.6.0
+      - run: ./autogen.sh && ./configure CXXFLAGS="$CXXFLAGS" --prefix=`pwd`/depends/x86_64-apple-darwin20.6.0
       - run: make -j$(sysctl -n hw.ncpu)
       - run: |
           mkdir -p $BUILD_DIR
