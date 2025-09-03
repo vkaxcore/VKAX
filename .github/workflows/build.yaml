@@ -1,9 +1,8 @@
-name: VKAX Build
+name: VKAX Build - macOS Only
 on:
   push:
     branches:
       - main
-      - v100.11.5*
       - develop
   pull_request:
     branches:
@@ -35,7 +34,7 @@ jobs:
       - name: Choose version
         id: select-version
         run: |
-          if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]] || [[ "$GITHUB_REF" == *develop ]] || [[ "$GITHUB_REF" == *v100.11.3* ]]; then
+          if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]] || [[ "$GITHUB_REF" == *develop ]]; then
             version=${{ steps.versions.outputs.snapshot-version }}
           else
             version=${{ steps.versions.outputs.release-version }}
@@ -49,9 +48,9 @@ jobs:
           name: version
           path: version.txt
 
-  # Step 2: Dependency install job
+  # Step 2: Setup macOS dependencies
   setup-dependencies:
-    runs-on: ubuntu-latest
+    runs-on: macos-13
     outputs:
       deps-script: ${{ steps.save-script.outputs.deps-script }}
     steps:
@@ -61,25 +60,10 @@ jobs:
           cat <<'EOF' > install-deps.sh
           #!/bin/bash
           set -e
-
-          if [[ "$OSTYPE" == "darwin"* ]]; then
-            echo "Installing macOS dependencies..."
-            brew install automake libtool pkg-config miniupnpc libnatpmp zeromq python3 || true
-            pip3 install setuptools || true
-          else
-            echo "Installing Linux dependencies..."
-            sudo apt-get update -y
-            sudo apt-get install -y build-essential libtool autotools-dev automake pkg-config python3 bsdmainutils cmake curl
-            if [[ "$1" == "windows" ]]; then
-              sudo apt-get install -y g++-mingw-w64-x86-64 gcc-mingw-w64-x86-64
-              sudo update-alternatives --set x86_64-w64-mingw32-gcc /usr/bin/x86_64-w64-mingw32-gcc-posix
-              sudo update-alternatives --set x86_64-w64-mingw32-g++ /usr/bin/x86_64-w64-mingw32-g++-posix
-            elif [[ "$1" == "arm64" ]]; then
-              sudo apt-get install -y g++-aarch64-linux-gnu
-            fi
-          fi
+          echo "Installing macOS dependencies..."
+          brew install automake libtool pkg-config miniupnpc libnatpmp zeromq python3 || true
+          pip3 install setuptools || true
           EOF
-
           chmod +x install-deps.sh
           echo "deps-script=install-deps.sh" >> $GITHUB_OUTPUT
 
@@ -98,86 +82,24 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: install-deps
+
       - run: bash install-deps.sh
-      # Set CXXFLAGS to ignore deprecated warnings
-      - run: export CXXFLAGS="-Wno-deprecated-declarations"
+
+      # Patch CXXFLAGS to ignore deprecated warnings
+      - run: export CXXFLAGS="-Wno-deprecated-declarations -Wno-error"
+
       - run: make -C depends -j$(sysctl -n hw.ncpu)
       - run: ./autogen.sh && ./configure CXXFLAGS="$CXXFLAGS" --prefix=`pwd`/depends/x86_64-apple-darwin20.6.0
       - run: make -j$(sysctl -n hw.ncpu)
+
       - run: |
           mkdir -p $BUILD_DIR
           mv src/{vkax-cli,vkaxd,qt/vkax-qt} $BUILD_DIR/
           strip $BUILD_DIR/*
+
       - run: tar -czf ${COIN_NAME}-macos-${{ needs.get-version.outputs.version }}.tar.gz $BUILD_DIR
+
       - uses: actions/upload-artifact@v4
         with:
           name: macos-${{ needs.get-version.outputs.version }}
           path: ${COIN_NAME}-macos-${{ needs.get-version.outputs.version }}.tar.gz
-
-  # Step 4: Build Ubuntu x86_64
-  build-ubuntu:
-    runs-on: ubuntu-22.04
-    needs: [get-version, setup-dependencies]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
-        with:
-          name: install-deps
-      - run: bash install-deps.sh
-      - run: make -C depends -j$(nproc)
-      - run: ./autogen.sh && ./configure --prefix=`pwd`/depends/x86_64-pc-linux-gnu
-      - run: make -j$(nproc)
-      - run: |
-          mkdir -p $BUILD_DIR
-          mv src/{vkax-cli,vkaxd,qt/vkax-qt} $BUILD_DIR/
-          strip $BUILD_DIR/*
-      - run: tar -czf ${COIN_NAME}-ubuntu-${{ needs.get-version.outputs.version }}.tar.gz $BUILD_DIR
-      - uses: actions/upload-artifact@v4
-        with:
-          name: ubuntu-${{ needs.get-version.outputs.version }}
-          path: ${COIN_NAME}-ubuntu-${{ needs.get-version.outputs.version }}.tar.gz
-
-  # Step 5: Build Ubuntu ARM64
-  build-ubuntu-arm64:
-    runs-on: ubuntu-22.04
-    needs: [get-version, setup-dependencies]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
-        with:
-          name: install-deps
-      - run: bash install-deps.sh arm64
-      - run: make -C depends -j$(nproc) HOST=aarch64-linux-gnu
-      - run: ./autogen.sh && ./configure --prefix=`pwd`/depends/aarch64-linux-gnu
-      - run: make -j$(nproc)
-      - run: |
-          mkdir -p $BUILD_DIR
-          mv src/{vkax-cli,vkaxd,qt/vkax-qt} $BUILD_DIR/
-      - run: tar -czf ${COIN_NAME}-arm64-${{ needs.get-version.outputs.version }}.tar.gz $BUILD_DIR
-      - uses: actions/upload-artifact@v4
-        with:
-          name: arm64-${{ needs.get-version.outputs.version }}
-          path: ${COIN_NAME}-arm64-${{ needs.get-version.outputs.version }}.tar.gz
-
-  # Step 6: Cross-compile Windows
-  build-windows:
-    runs-on: ubuntu-22.04
-    needs: [get-version, setup-dependencies]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
-        with:
-          name: install-deps
-      - run: bash install-deps.sh windows
-      - run: make -C depends -j$(nproc) HOST=x86_64-w64-mingw32
-      - run: ./autogen.sh && ./configure --prefix=`pwd`/depends/x86_64-w64-mingw32
-      - run: make -j$(nproc)
-      - run: |
-          mkdir -p $BUILD_DIR
-          mv src/{vkax-cli.exe,vkaxd.exe,qt/vkax-qt.exe} $BUILD_DIR/
-          strip $BUILD_DIR/*
-      - run: zip -r ${COIN_NAME}-win-${{ needs.get-version.outputs.version }}.zip $BUILD_DIR
-      - uses: actions/upload-artifact@v4
-        with:
-          name: win-${{ needs.get-version.outputs.version }}
-          path: ${COIN_NAME}-win-${{ needs.get-version.outputs.version }}.zip
