@@ -159,7 +159,8 @@ jobs:
       - name: Install Dependencies
         run: |
           brew install automake libtool pkg-config miniupnpc librsvg libnatpmp zeromq python qt@5
-          pip3 install ds_store mac_alias setuptools
+          python3 -m ensurepip --upgrade
+          pip3 install --upgrade pip setuptools ds_store mac_alias wheel
           export BDB_INCLUDE_DIR=$(brew --prefix berkeley-db@4)/include
           export BDB_LIB_DIR=$(brew --prefix berkeley-db@4)/lib
           export QT_PATH=$(brew --prefix qt@5)
