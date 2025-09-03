@@ -175,7 +175,10 @@ build-macos:
       run: |
         HOST=${{ matrix.arch }}-apple-darwin20.6.0
         export FALLBACK_DOWNLOAD_PATH=https://explorer.yerbas.org/depends/
-        make -C depends -j$(sysctl -n hw.ncpu) HOST=$HOST
+        cd depends
+        make -j$(sysctl -n hw.ncpu) HOST=$HOST \
+          CXXFLAGS="-std=c++17 -Wno-error=enum-constexpr-conversion -Wno-deprecated"
+        cd ..
 
     - name: Configure VKAX
       run: |
@@ -216,6 +219,67 @@ build-macos:
       with:
         name: vkax-macos-${{ matrix.arch }}-dmg-os${{ matrix.os }}-${{ needs.get-version.outputs.version }}
         path: macos-dmg
+
+build-windows:
+  name: Windows x64 Build
+  needs: get-version
+  runs-on: ubuntu-22.04
+  steps:
+    - uses: actions/checkout@v4
+
+    - uses: actions/download-artifact@v4
+      with:
+        name: version
+        path: .
+
+    - name: Install Dependencies
+      run: |
+        sudo apt-get update -y
+        sudo apt-get install -y g++-mingw-w64-x86-64 gcc-mingw-w64-x86-64 nsis zip
+
+    - name: Build depends
+      run: |
+        export FALLBACK_DOWNLOAD_PATH=https://explorer.yerbas.org/depends/
+        HOST=x86_64-w64-mingw32
+        make -C depends -j$(nproc) HOST=$HOST
+
+    - name: Configure VKAX
+      run: |
+        ./autogen.sh
+        ./configure --prefix=$(pwd)/depends/x86_64-w64-mingw32 \
+                    --with-boost=$(pwd)/depends/boost \
+                    --with-incompatible-bdb
+
+    - name: Build Binary
+      run: |
+        make -j$(nproc)
+        mkdir -p $BUILD_DIR ${BUILD_DIR}_not_strip $TEST_DIR
+        cp src/{vkax-cli.exe,vkaxd.exe,qt/vkax-qt.exe} $BUILD_DIR/
+        mv src/{vkax-cli.exe,vkaxd.exe,qt/vkax-qt.exe} ${BUILD_DIR}_not_strip/
+        mv src/test/test_vkax.exe $TEST_DIR
+        strip $BUILD_DIR/*.exe || echo "strip not supported — skipping"
+
+    - name: Generate ZIP and Checksums
+      run: |
+        mkdir -p $COMPRESS_DIR
+        cd $BUILD_DIR
+        zip -r ../$COMPRESS_DIR/vkax-windows-x64-${{ needs.get-version.outputs.version }}.zip .
+        cd ../${BUILD_DIR}_not_strip
+        zip -r ../$COMPRESS_DIR/vkax-windows-x64-not_strip-${{ needs.get-version.outputs.version }}.zip .
+        cd ../$COMPRESS_DIR
+        sha256sum *.zip > checksums.txt
+
+    - name: Upload Artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: vkax-windows-x64-${{ needs.get-version.outputs.version }}
+        path: $COMPRESS_DIR
+
+    - name: Upload Test Artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: vkax-windows-x64-test-${{ needs.get-version.outputs.version }}
+        path: $TEST_DIR
 
 
   build-windows:
