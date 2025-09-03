@@ -167,7 +167,7 @@ jobs:
 
       - name: Install Dependencies
         run: |
-          brew install automake libtool pkg-config miniupnpc librsvg libnatpmp zeromq python qt@5 libsodium-dev 
+          brew install automake libtool pkg-config miniupnpc librsvg libnatpmp zeromq python qt@5 libsodium
           pip3 install ds_store mac_alias setuptools
           export BDB_INCLUDE_DIR=$(brew --prefix berkeley-db@4)/include
           export BDB_LIB_DIR=$(brew --prefix berkeley-db@4)/lib
