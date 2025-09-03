@@ -3,7 +3,7 @@ on:
   push:
     branches:
       - main
-      - v100.11.3*
+      - v100.11.5*
       - develop
   pull_request:
     branches:
