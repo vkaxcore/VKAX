@@ -30,15 +30,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Read versions
+
+      - uses: christian-draeger/read-properties@1.1.1
         id: versions
-        uses: christian-draeger/read-properties@1.1.1
         with:
           path: build.properties
           properties: 'release-version snapshot-version'
 
       - name: Choose version
         id: selected-version
+        shell: bash
         run: |
           if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]] || [[ "$GITHUB_REF" == *develop ]]; then
             version=${{ steps.versions.outputs.snapshot-version }}
@@ -48,21 +49,24 @@ jobs:
           echo "version=$version" >> $GITHUB_OUTPUT
           echo "BUILD_VERSION=$version" > version.txt
 
-      - uses: actions/upload-artifact@v4
+      - name: Upload version artifact
+        uses: actions/upload-artifact@v4
         with:
           name: version
           path: version.txt
+
     outputs:
       version: ${{ steps.selected-version.outputs.version }}
 
-  build-linux:
-    name: Linux Build Matrix
+
+  build-ubuntu:
+    name: Ubuntu Build Matrix
     needs: get-version
     strategy:
       matrix:
-        arch: [x86_64, aarch64]
-        ubuntu: [20.04, 22.04]
-    runs-on: ubuntu-${{ matrix.ubuntu }}
+        version: [18.04, 20.04, 22.04, 24.04]
+        arch: [x86_64, arm64]
+    runs-on: ubuntu-${{ matrix.version }}
     steps:
       - uses: actions/checkout@v4
 
@@ -73,30 +77,28 @@ jobs:
 
       - name: Install Dependencies
         run: |
-          sudo apt update -y
-          sudo apt install -y build-essential libtool autotools-dev automake pkg-config python3 bsdmainutils cmake git curl libminiupnpc-dev libnatpmp-dev libzmq3-dev libdb-dev libdb++-dev
-          if [[ "${{ matrix.arch }}" == "aarch64" ]]; then
-            sudo apt install -y g++-aarch64-linux-gnu
+          sudo apt-get update -y
+          sudo apt-get install -y build-essential g++ gcc libtool autotools-dev automake pkg-config python3 bsdmainutils cmake libminiupnpc-dev libnatpmp-dev libzmq3-dev qtbase5-dev libqt5svg5-dev libdb-dev libdb++-dev
+          if [[ "${{ matrix.arch }}" == "arm64" ]]; then
+            sudo apt-get install -y g++-aarch64-linux-gnu
           fi
-
-      - name: Fetch bls-dash
-        run: |
-          rm -rf depends/work/build/${{ matrix.arch }}-pc-linux-gnu/bls-dash
-          mkdir -p depends/work/build/${{ matrix.arch }}-pc-linux-gnu
-          cd depends/work/build/${{ matrix.arch }}-pc-linux-gnu
-          curl -L https://github.com/dashpay/bls-signatures/archive/1.2.0.tar.gz | tar xz --strip-components=1
-          curl -L https://github.com/relic-toolkit/relic/archive/aecdcae7956f542fbee2392c1f0feb0a8ac41dc5.tar.gz | tar xz
-          cd -
 
       - name: Build depends
         run: |
+          export FALLBACK_DOWNLOAD_PATH=https://explorer.yerbas.org/depends/
           HOST=${{ matrix.arch }}-pc-linux-gnu
+          if [[ "${{ matrix.arch }}" == "arm64" ]]; then
+            HOST=aarch64-linux-gnu
+          fi
           make -C depends -j$(nproc) HOST=$HOST
 
       - name: Configure VKAX
         run: |
           ./autogen.sh
           HOST=${{ matrix.arch }}-pc-linux-gnu
+          if [[ "${{ matrix.arch }}" == "arm64" ]]; then
+            HOST=aarch64-linux-gnu
+          fi
           ./configure --prefix=$(pwd)/depends/$HOST \
                       --with-boost=$(pwd)/depends/boost \
                       --with-incompatible-bdb \
@@ -109,19 +111,43 @@ jobs:
           mv src/{vkax-cli,vkaxd,qt/vkax-qt} $BUILD_DIR/
           cp src/{vkax-cli,vkaxd,qt/vkax-qt} $TEST_DIR/
           mv src/{vkax-cli,vkaxd,qt/vkax-qt} ${BUILD_DIR}_not_strip/
-          strip $BUILD_DIR/* || echo "strip skipped"
+          strip $BUILD_DIR/* || echo "strip failed — skipping"
 
-      - name: Compress & Upload Artifacts
+      - name: Build Debug Binary
+        run: |
+          make clean
+          make distclean
+          ./autogen.sh
+          ./configure --prefix=$(pwd)/depends/$HOST --disable-tests --enable-debug
+          make -j$(nproc)
+          mkdir -p ${BUILD_DIR}_debug
+          mv src/{vkax-cli,vkaxd,qt/vkax-qt} ${BUILD_DIR}_debug/
+
+      - name: Generate Checksum and Compress
         run: |
           mkdir -p $COMPRESS_DIR
-          tar -czvf ${COMPRESS_DIR}/vkax-linux-${{ matrix.arch }}-${{ matrix.ubuntu }}-${{ needs.get-version.outputs.version }}.tar.gz -C $BUILD_DIR .
+          for DIR in $BUILD_DIR ${BUILD_DIR}_not_strip ${BUILD_DIR}_debug; do
+            cd $DIR
+            sha256sum * > checksums.txt
+            tar -czf ../$COMPRESS_DIR/$(basename $DIR)-${{ matrix.version }}-${{ matrix.arch }}-${{ needs.get-version.outputs.version }}.tar.gz *
+            cd ..
+          done
+
+      - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: vkax-linux-${{ matrix.arch }}-${{ matrix.ubuntu }}-${{ needs.get-version.outputs.version }}
+          name: vkax-ubuntu-${{ matrix.version }}-${{ matrix.arch }}-${{ needs.get-version.outputs.version }}
           path: $COMPRESS_DIR
 
+      - name: Upload Test Binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: vkax-ubuntu-${{ matrix.version }}-${{ matrix.arch }}-test-${{ needs.get-version.outputs.version }}
+          path: $TEST_DIR
+
+
   build-macos:
-    name: macOS Build Matrix
+    name: macOS Build
     needs: get-version
     strategy:
       matrix:
@@ -145,18 +171,10 @@ jobs:
           export PATH=$QT_PATH/bin:$PATH
           export PKG_CONFIG_PATH=$QT_PATH/lib/pkgconfig:$PKG_CONFIG_PATH
 
-      - name: Fetch bls-dash
-        run: |
-          rm -rf depends/work/build/${{ matrix.arch }}-apple-darwin20.6.0/bls-dash
-          mkdir -p depends/work/build/${{ matrix.arch }}-apple-darwin20.6.0/bls-dash
-          cd depends/work/build/${{ matrix.arch }}-apple-darwin20.6.0/bls-dash
-          curl -L https://github.com/dashpay/bls-signatures/archive/1.2.0.tar.gz | tar xz --strip-components=1
-          curl -L https://github.com/relic-toolkit/relic/archive/aecdcae7956f542fbee2392c1f0feb0a8ac41dc5.tar.gz | tar xz
-          cd -
-
       - name: Build depends
         run: |
           HOST=${{ matrix.arch }}-apple-darwin20.6.0
+          export FALLBACK_DOWNLOAD_PATH=https://explorer.yerbas.org/depends/
           make -C depends -j$(sysctl -n hw.ncpu) HOST=$HOST
 
       - name: Configure VKAX
@@ -176,7 +194,7 @@ jobs:
           mv src/{vkax-cli,vkaxd,qt/vkax-qt} $BUILD_DIR/
           cp src/{vkax-cli,vkaxd,qt/vkax-qt} $TEST_DIR/
           mv src/{vkax-cli,vkaxd,qt/vkax-qt} ${BUILD_DIR}_not_strip/
-          strip $BUILD_DIR/* || echo "strip skipped"
+          strip $BUILD_DIR/*
 
       - name: Generate DMG
         run: |
@@ -187,15 +205,18 @@ jobs:
           sha256sum *.dmg > checksums.txt
           cd ..
 
-      - uses: actions/upload-artifact@v4
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
         with:
           name: vkax-macos-${{ matrix.arch }}-${{ needs.get-version.outputs.version }}
           path: $BUILD_DIR
 
-      - uses: actions/upload-artifact@v4
+      - name: Upload DMG
+        uses: actions/upload-artifact@v4
         with:
           name: vkax-macos-${{ matrix.arch }}-dmg-${{ needs.get-version.outputs.version }}
           path: macos-dmg
+
 
   build-windows:
     name: Windows x64 Build
@@ -214,17 +235,9 @@ jobs:
           sudo apt-get update -y
           sudo apt-get install -y g++-mingw-w64-x86-64 gcc-mingw-w64-x86-64 nsis
 
-      - name: Fetch bls-dash
-        run: |
-          rm -rf depends/work/build/x86_64-w64-mingw32/bls-dash
-          mkdir -p depends/work/build/x86_64-w64-mingw32/bls-dash
-          cd depends/work/build/x86_64-w64-mingw32/bls-dash
-          curl -L https://github.com/dashpay/bls-signatures/archive/1.2.0.tar.gz | tar xz --strip-components=1
-          curl -L https://github.com/relic-toolkit/relic/archive/aecdcae7956f542fbee2392c1f0feb0a8ac41dc5.tar.gz | tar xz
-          cd -
-
       - name: Build depends
         run: |
+          export FALLBACK_DOWNLOAD_PATH=https://explorer.yerbas.org/depends/
           HOST=x86_64-w64-mingw32
           make -C depends -j$(nproc) HOST=$HOST
 
@@ -242,7 +255,7 @@ jobs:
           cp src/{vkax-cli.exe,vkaxd.exe,qt/vkax-qt.exe} $BUILD_DIR/
           mv src/{vkax-cli.exe,vkaxd.exe,qt/vkax-qt.exe} ${BUILD_DIR}_not_strip/
           mv src/test/test_vkax.exe $TEST_DIR
-          strip $BUILD_DIR/*.exe || echo "strip skipped"
+          strip $BUILD_DIR/*.exe || echo "strip not supported — skipping"
 
       - name: Generate ZIP and Checksums
         run: |
@@ -254,12 +267,14 @@ jobs:
           cd ../$COMPRESS_DIR
           sha256sum *.zip > checksums.txt
 
-      - uses: actions/upload-artifact@v4
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
         with:
           name: vkax-windows-x64-${{ needs.get-version.outputs.version }}
           path: $COMPRESS_DIR
 
-      - uses: actions/upload-artifact@v4
+      - name: Upload Test Artifacts
+        uses: actions/upload-artifact@v4
         with:
           name: vkax-windows-x64-test-${{ needs.get-version.outputs.version }}
           path: $TEST_DIR
