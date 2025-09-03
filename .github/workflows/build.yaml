@@ -1,4 +1,4 @@
-name: VKAX macOS Build (Legacy Boost Compatible)
+name: VKAX Multi-Platform Build
 
 on:
   push:
@@ -9,13 +9,20 @@ on:
   pull_request:
     branches:
       - develop
+  workflow_dispatch:
 
 env:
   COIN_NAME: vkax
   BUILD_DIR: vkax-build
   COMPRESS_DIR: vkax-compress
+  TEST_DIR: vkax-test
   BOOST_VERSION: 1_73_0
   QT_PATH: /usr/local/opt/qt@5
+
+permissions:
+  contents: read
+  checks: write
+  id-token: write
 
 jobs:
   get-version:
@@ -31,6 +38,7 @@ jobs:
           properties: 'release-version snapshot-version'
       - name: Choose version
         id: selected-version
+        shell: bash
         run: |
           if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]] || [[ "$GITHUB_REF" == *develop ]]; then
             version=${{ steps.versions.outputs.snapshot-version }}
@@ -47,44 +55,48 @@ jobs:
     outputs:
       version: ${{ steps.selected-version.outputs.version }}
 
+
   build-macos:
-    name: macOS 12 Intel/ARM Build (Boost 1.73.0)
+    name: macOS Build
     needs: get-version
-    runs-on: macos-12
     strategy:
       matrix:
         arch: [x86_64, arm64]
+        macos: [12, 13]
+    runs-on: macos-${{ matrix.macos }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download version artifact
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
           name: version
           path: .
 
       - name: Install Dependencies
         run: |
-          brew install automake libtool pkg-config miniupnpc librsvg libnatpmp zeromq python berkeley-db@4 qt@5
-          pip3 install ds_store mac_alias setuptools
+          brew update
+          brew install automake libtool pkg-config miniupnpc librsvg libnatpmp zeromq python qt@5
+          pip3 install --upgrade pip setuptools ds_store mac_alias
           export BDB_INCLUDE_DIR=$(brew --prefix berkeley-db@4)/include
           export BDB_LIB_DIR=$(brew --prefix berkeley-db@4)/lib
           export QT_PATH=$(brew --prefix qt@5)
           export PATH=$QT_PATH/bin:$PATH
           export PKG_CONFIG_PATH=$QT_PATH/lib/pkgconfig:$PKG_CONFIG_PATH
 
-      - name: Build depends
+      - name: Build depends (Boost fixes)
         run: |
-          echo "Building depends with $(sysctl -n hw.ncpu) threads"
+          export HOST=${{ matrix.arch }}-apple-darwin20.6.0
           export FALLBACK_DOWNLOAD_PATH=https://explorer.yerbas.org/depends/
-          export BOOST_VERSION=${{ env.BOOST_VERSION }}
-          export CXXFLAGS="-Wno-enum-constexpr-conversion -Wno-error=enum-constexpr-conversion"
-          make -C depends -j$(sysctl -n hw.ncpu)
+          cd depends
+          # Force clang toolset and suppress enum warnings
+          ./bootstrap.sh --with-toolset=clang cxxflags="-Wno-enum-constexpr-conversion -std=c++14" linkflags="-Wno-enum-constexpr-conversion"
+          ./b2 install toolset=clang cxxflags="-Wno-enum-constexpr-conversion -std=c++14" linkflags="-Wno-enum-constexpr-conversion" -j$(sysctl -n hw.ncpu) target-os=darwin architecture=${{ matrix.arch }} address-model=${{ matrix.arch == 'x86_64' && echo 64 || echo 32 }}
+          cd ..
 
       - name: Configure VKAX
         run: |
           ./autogen.sh
-          ./configure --prefix=$(pwd)/depends/${{ matrix.arch }}-apple-darwin20.6.0 \
+          ./configure --prefix=$(pwd)/depends/$HOST \
                       --with-boost=$(pwd)/depends/boost \
                       --with-incompatible-bdb \
                       CXXFLAGS="-I$BDB_INCLUDE_DIR -I$QT_PATH/include -Wno-enum-constexpr-conversion -Wno-error=enum-constexpr-conversion" \
@@ -94,33 +106,29 @@ jobs:
       - name: Build Binary
         run: |
           make -j$(sysctl -n hw.ncpu)
-          mkdir -p $BUILD_DIR
+          mkdir -p $BUILD_DIR ${BUILD_DIR}_not_strip $TEST_DIR
           mv src/{vkax-cli,vkaxd,qt/vkax-qt} $BUILD_DIR/
-          strip $BUILD_DIR/*
+          cp src/{vkax-cli,vkaxd,qt/vkax-qt} $TEST_DIR/
+          mv src/{vkax-cli,vkaxd,qt/vkax-qt} ${BUILD_DIR}_not_strip/
+          strip $BUILD_DIR/* || echo "strip failed — skipping"
 
-      - name: Generate Checksums and Compress
+      - name: Generate DMG
         run: |
-          mkdir -p $COMPRESS_DIR
-          cd $BUILD_DIR
-          shasum vkax-cli vkaxd vkax-qt >> checksums.txt
-          openssl sha256 vkax-cli vkaxd vkax-qt >> checksums.txt
+          make deploy
+          mkdir -p macos-dmg
+          mv vkax-Qt.dmg macos-dmg/
+          cd macos-dmg
+          sha256sum *.dmg > checksums.txt
           cd ..
-          tar -cvzf ${COMPRESS_DIR}/${COIN_NAME}-macos-${{ matrix.arch }}-${{ needs.get-version.outputs.version }}.tar.gz $BUILD_DIR/*
 
-      - name: Upload Binary Artifact
+      - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.COIN_NAME }}-macos-${{ matrix.arch }}-${{ needs.get-version.outputs.version }}
-          path: ${{ env.COMPRESS_DIR }}
-
-      - name: Generate macOS DMG
-        run: |
-          export QT_PATH=$(brew --prefix qt@5)
-          export PATH=$QT_PATH/bin:$PATH
-          make deploy
+          name: vkax-macos-${{ matrix.arch }}-macos${{ matrix.macos }}-${{ needs.get-version.outputs.version }}
+          path: $BUILD_DIR
 
       - name: Upload DMG
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.COIN_NAME }}-macos-${{ matrix.arch }}-dmg-${{ needs.get-version.outputs.version }}
-          path: vkax-Qt.dmg
+          name: vkax-macos-${{ matrix.arch }}-dmg-macos${{ matrix.macos }}-${{ needs.get-version.outputs.version }}
+          path: macos-dmg
