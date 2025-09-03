@@ -18,7 +18,6 @@ env:
   QT_PATH: /usr/local/opt/qt@5
 
 jobs:
-  # 🧠 Extract version from build.properties
   get-version:
     name: Get Version
     runs-on: ubuntu-latest
@@ -48,7 +47,6 @@ jobs:
     outputs:
       version: ${{ steps.selected-version.outputs.version }}
 
-  # 🍏 macOS 12 build — safe for Boost 1.73.0 and Clang 13
   build-macos:
     name: macOS 12 Build
     needs: get-version
@@ -63,7 +61,6 @@ jobs:
           name: version
           path: .
 
-      # 🧰 Install dependencies via Homebrew
       - name: Install Dependencies
         run: |
           brew install automake libtool pkg-config miniupnpc librsvg libnatpmp zeromq python berkeley-db@4 qt@5
@@ -74,16 +71,13 @@ jobs:
           export PATH=$QT_PATH/bin:$PATH
           export PKG_CONFIG_PATH=$QT_PATH/lib/pkgconfig:$PKG_CONFIG_PATH
 
-      # 🧱 Build depends with Clang 13 — avoids enum cast errors
       - name: Build depends
         run: |
-          echo "Building depends with $(sysctl -n hw.ncpu) threads"
           export FALLBACK_DOWNLOAD_PATH=https://explorer.yerbas.org/depends/
-          export BOOST_VERSION=${{ env.BOOST_VERSION }}
+          export BOOST_VERSION=1_73_0
           export CXXFLAGS="-Wno-enum-constexpr-conversion -Wno-error=enum-constexpr-conversion"
           make -C depends -j$(sysctl -n hw.ncpu)
 
-      # ⚙️ Configure VKAX with Qt and BDB paths
       - name: Configure VKAX
         run: |
           ./autogen.sh
@@ -94,7 +88,6 @@ jobs:
                       LDFLAGS="-L$BDB_LIB_DIR -L$QT_PATH/lib" \
                       QT_SELECT=5
 
-      # 🔨 Build and strip binaries
       - name: Build Binary
         run: |
           make -j$(sysctl -n hw.ncpu)
@@ -102,7 +95,6 @@ jobs:
           mv src/{vkax-cli,vkaxd,qt/vkax-qt} $BUILD_DIR/
           strip $BUILD_DIR/*
 
-      # 📦 Package and upload
       - name: Package & Upload
         run: |
           mkdir -p $COMPRESS_DIR
@@ -116,7 +108,6 @@ jobs:
           name: ${{ env.COIN_NAME }}-macos-${{ matrix.arch }}-${{ needs.get-version.outputs.version }}
           path: ${{ env.COMPRESS_DIR }}
 
-      # 🍎 DMG generation
       - name: Generate DMG
         run: |
           export QT_PATH=$(brew --prefix qt@5)
@@ -135,7 +126,6 @@ jobs:
         version: [18.04, 20.04, 22.04, 24.04]
         arch: [x86_64, arm64]
     runs-on: ubuntu-${{ matrix.version }}
-
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -143,21 +133,20 @@ jobs:
           name: version
           path: .
 
-      # 🧰 Install required packages — matches your original setup
       - name: Install Dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential g++ gcc libtool autotools-dev automake pkg-config python3 bsdmainutils cmake qtbase5-dev libqt5svg5-dev libdb-dev libdb++-dev libminiupnpc-dev libnatpmp-dev libzmq3-dev
           pip3 install setuptools
+          export CC=gcc
+          export CXX=g++
 
-      # 🧱 Build depends with Boost 1.73.0 and suppression flags
       - name: Build depends
         run: |
-          export BOOST_VERSION=${{ env.BOOST_VERSION }}
+          export BOOST_VERSION=1_73_0
           export CXXFLAGS="-Wno-enum-constexpr-conversion -Wno-error=enum-constexpr-conversion"
           make -C depends -j$(nproc)
 
-      # ⚙️ Configure VKAX with standard Linux paths
       - name: Configure VKAX
         run: |
           ./autogen.sh
@@ -166,7 +155,6 @@ jobs:
                       --with-incompatible-bdb \
                       CXXFLAGS="-Wno-enum-constexpr-conversion -Wno-error=enum-constexpr-conversion"
 
-      # 🔨 Build and strip binaries
       - name: Build Binary
         run: |
           make -j$(nproc)
@@ -174,7 +162,6 @@ jobs:
           mv src/{vkax-cli,vkaxd,qt/vkax-qt} $BUILD_DIR/
           strip $BUILD_DIR/* || echo "strip failed — skipping"
 
-      # 📦 Package and upload
       - name: Package & Upload
         run: |
           mkdir -p $COMPRESS_DIR
@@ -184,14 +171,13 @@ jobs:
           tar -cvzf ${COMPRESS_DIR}/${COIN_NAME}-ubuntu-${{ matrix.version }}-${{ matrix.arch }}-${{ needs.get-version.outputs.version }}.tar.gz $BUILD_DIR/*
       - uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.COIN_NAME }}-ubuntu-${{ matrix.version }}-${{ matrix.arch }}-${{ needs.get-version.outputs.version }}
-          path: ${{ env.COMPRESS_DIR }}
+          name: vkax-ubuntu-${{ matrix.version }}-${{ matrix.arch }}-${{ needs.get-version.outputs.version }}
+          path: vkax-compress
 
   build-windows:
     name: Windows x64 Build
     needs: get-version
     runs-on: windows-latest
-
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -199,22 +185,18 @@ jobs:
           name: version
           path: .
 
-      # 🧰 Install dependencies using Chocolatey
-      # Qt5, CMake, Python — matches original setup
       - name: Install Dependencies
         run: |
           choco install -y cmake python qt5
           pip install setuptools
 
-      # 🧱 Build depends — Boost 1.73.0 with suppression flags
       - name: Build depends
         shell: bash
         run: |
-          export BOOST_VERSION=${{ env.BOOST_VERSION }}
+          export BOOST_VERSION=1_73_0
           export CXXFLAGS="-Wno-enum-constexpr-conversion -Wno-error=enum-constexpr-conversion"
           make -C depends -j$(nproc)
 
-      # ⚙️ Configure VKAX with MSVC-compatible flags
       - name: Configure VKAX
         shell: bash
         run: |
@@ -224,7 +206,6 @@ jobs:
                       --with-incompatible-bdb \
                       CXXFLAGS="-Wno-enum-constexpr-conversion -Wno-error=enum-constexpr-conversion"
 
-      # 🔨 Build and collect binaries
       - name: Build Binary
         shell: bash
         run: |
@@ -234,13 +215,11 @@ jobs:
           mv src/vkaxd.exe $BUILD_DIR/
           mv src/qt/vkax-qt.exe $BUILD_DIR/
 
-      # 🧼 Strip symbols (optional — won't fail if unsupported)
       - name: Strip Binaries
         shell: bash
         run: |
           strip --strip-unneeded $BUILD_DIR/*.exe || echo "strip not supported — skipping"
 
-      # 📦 Package and upload
       - name: Package & Upload
         shell: bash
         run: |
@@ -251,5 +230,5 @@ jobs:
           tar -cvzf ${COMPRESS_DIR}/${COIN_NAME}-windows-x64-${{ needs.get-version.outputs.version }}.tar.gz $BUILD_DIR/*
       - uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.COIN_NAME }}-windows-x64-${{ needs.get-version.outputs.version }}
-          path: ${{ env.COMPRESS_DIR }}
+          name: vkax-windows-x64-${{ needs.get-version.outputs.version }}
+          path: vkax-compress
