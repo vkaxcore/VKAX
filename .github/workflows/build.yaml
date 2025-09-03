@@ -5,7 +5,7 @@ on:
     branches:
       - main
       - dev
-      - v3.*
+      - v100.11.5
   pull_request:
     branches:
       - dev
