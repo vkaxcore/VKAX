@@ -9,20 +9,28 @@ on:
   pull_request:
     branches:
       - develop
+  workflow_dispatch:
 
 env:
   COIN_NAME: vkax
   BUILD_DIR: vkax-build
   COMPRESS_DIR: vkax-compress
+  TEST_DIR: vkax-test
   BOOST_VERSION: 1_73_0
   QT_PATH: /usr/local/opt/qt@5
+
+permissions:
+  contents: read
+  checks: write
+  id-token: write
 
 jobs:
   get-version:
     name: Get Version
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
       - name: Read versions
         id: versions
         uses: christian-draeger/read-properties@1.1.1
@@ -31,6 +39,7 @@ jobs:
           properties: 'release-version snapshot-version'
       - name: Choose version
         id: selected-version
+        shell: bash
         run: |
           if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]] || [[ "$GITHUB_REF" == *develop ]]; then
             version=${{ steps.versions.outputs.snapshot-version }}
@@ -55,8 +64,11 @@ jobs:
       matrix:
         arch: [x86_64, arm64]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download Version
+        uses: actions/download-artifact@v4
         with:
           name: version
           path: .
@@ -75,13 +87,14 @@ jobs:
         run: |
           export FALLBACK_DOWNLOAD_PATH=https://explorer.yerbas.org/depends/
           export BOOST_VERSION=1_73_0
+          export HOST=${{ matrix.arch }}-apple-darwin20.6.0
           export CXXFLAGS="-Wno-enum-constexpr-conversion -Wno-error=enum-constexpr-conversion"
-          make -C depends -j$(sysctl -n hw.ncpu)
+          make -C depends -j$(sysctl -n hw.ncpu) HOST=$HOST
 
       - name: Configure VKAX
         run: |
           ./autogen.sh
-          ./configure --prefix=$(pwd)/depends/${{ matrix.arch }}-apple-darwin20.6.0 \
+          ./configure --prefix=$(pwd)/depends/$HOST \
                       --with-boost=$(pwd)/depends/boost \
                       --with-incompatible-bdb \
                       CXXFLAGS="-I$BDB_INCLUDE_DIR -I$QT_PATH/include -Wno-enum-constexpr-conversion -Wno-error=enum-constexpr-conversion" \
@@ -91,22 +104,29 @@ jobs:
       - name: Build Binary
         run: |
           make -j$(sysctl -n hw.ncpu)
-          mkdir -p $BUILD_DIR
+          mkdir -p $BUILD_DIR $TEST_DIR
           mv src/{vkax-cli,vkaxd,qt/vkax-qt} $BUILD_DIR/
+          cp src/{vkax-cli,vkaxd,qt/vkax-qt} $TEST_DIR/
           strip $BUILD_DIR/*
 
       - name: Package & Upload
         run: |
           mkdir -p $COMPRESS_DIR
           cd $BUILD_DIR
-          shasum vkax-cli vkaxd vkax-qt >> checksums.txt
-          openssl sha256 vkax-cli vkaxd vkax-qt >> checksums.txt
+          shasum * >> checksums.txt
+          openssl sha256 * >> checksums.txt
           cd ..
           tar -cvzf ${COMPRESS_DIR}/${COIN_NAME}-macos-${{ matrix.arch }}-${{ needs.get-version.outputs.version }}.tar.gz $BUILD_DIR/*
       - uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.COIN_NAME }}-macos-${{ matrix.arch }}-${{ needs.get-version.outputs.version }}
-          path: ${{ env.COMPRESS_DIR }}
+          name: vkax-macos-${{ matrix.arch }}-${{ needs.get-version.outputs.version }}
+          path: $COMPRESS_DIR
+
+      - name: Upload Test Binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: vkax-macos-${{ matrix.arch }}-test-${{ needs.get-version.outputs.version }}
+          path: $TEST_DIR
 
       - name: Generate DMG
         run: |
@@ -115,8 +135,9 @@ jobs:
           make deploy
       - uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.COIN_NAME }}-macos-${{ matrix.arch }}-dmg-${{ needs.get-version.outputs.version }}
+          name: vkax-macos-${{ matrix.arch }}-dmg-${{ needs.get-version.outputs.version }}
           path: vkax-Qt.dmg
+
 
   build-ubuntu:
     name: Ubuntu Build Matrix
@@ -127,8 +148,11 @@ jobs:
         arch: [x86_64, arm64]
     runs-on: ubuntu-${{ matrix.version }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download Version
+        uses: actions/download-artifact@v4
         with:
           name: version
           path: .
@@ -144,13 +168,15 @@ jobs:
       - name: Build depends
         run: |
           export BOOST_VERSION=1_73_0
+          export FALLBACK_DOWNLOAD_PATH=https://explorer.yerbas.org/depends/
+          export HOST=${{ matrix.arch }}-pc-linux-gnu
           export CXXFLAGS="-Wno-enum-constexpr-conversion -Wno-error=enum-constexpr-conversion"
-          make -C depends -j$(nproc)
+          make -C depends -j$(nproc) HOST=$HOST
 
       - name: Configure VKAX
         run: |
           ./autogen.sh
-          ./configure --prefix=$(pwd)/depends/${{ matrix.arch }}-linux-gnu \
+          ./configure --prefix=$(pwd)/depends/$HOST \
                       --with-boost=$(pwd)/depends/boost \
                       --with-incompatible-bdb \
                       CXXFLAGS="-Wno-enum-constexpr-conversion -Wno-error=enum-constexpr-conversion"
@@ -158,29 +184,40 @@ jobs:
       - name: Build Binary
         run: |
           make -j$(nproc)
-          mkdir -p $BUILD_DIR
+          mkdir -p $BUILD_DIR $TEST_DIR
           mv src/{vkax-cli,vkaxd,qt/vkax-qt} $BUILD_DIR/
+          cp src/{vkax-cli,vkaxd,qt/vkax-qt} $TEST_DIR/
           strip $BUILD_DIR/* || echo "strip failed — skipping"
 
       - name: Package & Upload
         run: |
           mkdir -p $COMPRESS_DIR
           cd $BUILD_DIR
-          sha256sum vkax-cli vkaxd vkax-qt > checksums.txt
+          sha256sum * > checksums.txt
           cd ..
           tar -cvzf ${COMPRESS_DIR}/${COIN_NAME}-ubuntu-${{ matrix.version }}-${{ matrix.arch }}-${{ needs.get-version.outputs.version }}.tar.gz $BUILD_DIR/*
       - uses: actions/upload-artifact@v4
         with:
           name: vkax-ubuntu-${{ matrix.version }}-${{ matrix.arch }}-${{ needs.get-version.outputs.version }}
-          path: vkax-compress
+          path: $COMPRESS_DIR
+
+      - name: Upload Test Binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: vkax-ubuntu-${{ matrix.version }}-${{ matrix.arch }}-test-${{ needs.get-version.outputs.version }}
+          path: $TEST_DIR
+
 
   build-windows:
     name: Windows x64 Build
     needs: get-version
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download Version
+        uses: actions/download-artifact@v4
         with:
           name: version
           path: .
@@ -194,14 +231,16 @@ jobs:
         shell: bash
         run: |
           export BOOST_VERSION=1_73_0
+          export FALLBACK_DOWNLOAD_PATH=https://explorer.yerbas.org/depends/
+          export HOST=x86_64-w64-mingw32
           export CXXFLAGS="-Wno-enum-constexpr-conversion -Wno-error=enum-constexpr-conversion"
-          make -C depends -j$(nproc)
+          make -C depends -j$(nproc) HOST=$HOST
 
       - name: Configure VKAX
         shell: bash
         run: |
           ./autogen.sh
-          ./configure --prefix=$(pwd)/depends/x86_64-w64-mingw32 \
+          ./configure --prefix=$(pwd)/depends/$HOST \
                       --with-boost=$(pwd)/depends/boost \
                       --with-incompatible-bdb \
                       CXXFLAGS="-Wno-enum-constexpr-conversion -Wno-error=enum-constexpr-conversion"
@@ -210,10 +249,11 @@ jobs:
         shell: bash
         run: |
           make -j$(nproc)
-          mkdir -p $BUILD_DIR
+          mkdir -p $BUILD_DIR $TEST_DIR
           mv src/vkax-cli.exe $BUILD_DIR/
           mv src/vkaxd.exe $BUILD_DIR/
           mv src/qt/vkax-qt.exe $BUILD_DIR/
+          cp $BUILD_DIR/* $TEST_DIR/
 
       - name: Strip Binaries
         shell: bash
@@ -225,10 +265,18 @@ jobs:
         run: |
           mkdir -p $COMPRESS_DIR
           cd $BUILD_DIR
-          sha256sum vkax-cli.exe vkaxd.exe vkax-qt.exe > checksums.txt
+          sha256sum * > checksums.txt
           cd ..
           tar -cvzf ${COMPRESS_DIR}/${COIN_NAME}-windows-x64-${{ needs.get-version.outputs.version }}.tar.gz $BUILD_DIR/*
       - uses: actions/upload-artifact@v4
         with:
           name: vkax-windows-x64-${{ needs.get-version.outputs.version }}
-          path: vkax-compress
+          path: $COMPRESS_DIR
+
+      - name: Upload Test Binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: vkax-windows-x64-test-${{ needs.get-version.outputs.version }}
+          path: $TEST_DIR
+
+
