@@ -4,6 +4,7 @@ on:
     branches:
       - main
       - develop
+      - v100.11.5-macbuild
   pull_request:
     branches:
       - develop
