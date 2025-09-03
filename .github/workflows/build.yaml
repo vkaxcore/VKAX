@@ -3,7 +3,7 @@ on:
   push:
     branches:
       - main
-      - v100.11.5*
+      - v100.11.3*
       - develop
   pull_request:
     branches:
@@ -49,15 +49,56 @@ jobs:
           name: version
           path: version.txt
 
-  # Step 2: Build on macOS
+  # Step 2: Dependency install job
+  setup-dependencies:
+    runs-on: ubuntu-latest
+    outputs:
+      deps-script: ${{ steps.save-script.outputs.deps-script }}
+    steps:
+      - name: Create dependency script
+        id: save-script
+        run: |
+          cat <<'EOF' > install-deps.sh
+          #!/bin/bash
+          set -e
+
+          if [[ "$OSTYPE" == "darwin"* ]]; then
+            echo "Installing macOS dependencies..."
+            brew install automake libtool pkg-config miniupnpc libnatpmp zeromq python3 || true
+            pip3 install setuptools || true
+          else
+            echo "Installing Linux dependencies..."
+            sudo apt-get update -y
+            sudo apt-get install -y build-essential libtool autotools-dev automake pkg-config python3 bsdmainutils cmake curl
+            if [[ "$1" == "windows" ]]; then
+              sudo apt-get install -y g++-mingw-w64-x86-64 gcc-mingw-w64-x86-64
+              sudo update-alternatives --set x86_64-w64-mingw32-gcc /usr/bin/x86_64-w64-mingw32-gcc-posix
+              sudo update-alternatives --set x86_64-w64-mingw32-g++ /usr/bin/x86_64-w64-mingw32-g++-posix
+            elif [[ "$1" == "arm64" ]]; then
+              sudo apt-get install -y g++-aarch64-linux-gnu
+            fi
+          fi
+          EOF
+
+          chmod +x install-deps.sh
+          echo "deps-script=install-deps.sh" >> $GITHUB_OUTPUT
+
+      - name: Upload script artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: install-deps
+          path: install-deps.sh
+
+  # Step 3: Build macOS
   build-macos:
     runs-on: macos-13
-    needs: get-version
+    needs: [get-version, setup-dependencies]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
-      - run: brew install automake libtool pkg-config miniupnpc libnatpmp zeromq python3
-      - run: pip3 install setuptools
+        with:
+          name: install-deps
+      - run: bash install-deps.sh
       - run: make -C depends -j$(sysctl -n hw.ncpu)
       - run: ./autogen.sh && ./configure --prefix=`pwd`/depends/x86_64-apple-darwin20.6.0
       - run: make -j$(sysctl -n hw.ncpu)
@@ -71,14 +112,16 @@ jobs:
           name: macos-${{ needs.get-version.outputs.version }}
           path: ${COIN_NAME}-macos-${{ needs.get-version.outputs.version }}.tar.gz
 
-  # Step 3: Build on Ubuntu x86_64
+  # Step 4: Build Ubuntu x86_64
   build-ubuntu:
     runs-on: ubuntu-22.04
-    needs: get-version
+    needs: [get-version, setup-dependencies]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
-      - run: sudo apt-get update && sudo apt-get install -y build-essential libtool autotools-dev automake pkg-config python3 bsdmainutils cmake
+        with:
+          name: install-deps
+      - run: bash install-deps.sh
       - run: make -C depends -j$(nproc)
       - run: ./autogen.sh && ./configure --prefix=`pwd`/depends/x86_64-pc-linux-gnu
       - run: make -j$(nproc)
@@ -92,14 +135,16 @@ jobs:
           name: ubuntu-${{ needs.get-version.outputs.version }}
           path: ${COIN_NAME}-ubuntu-${{ needs.get-version.outputs.version }}.tar.gz
 
-  # Step 4: Build on Ubuntu ARM64
+  # Step 5: Build Ubuntu ARM64
   build-ubuntu-arm64:
     runs-on: ubuntu-22.04
-    needs: get-version
+    needs: [get-version, setup-dependencies]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
-      - run: sudo apt-get update && sudo apt-get install -y build-essential libtool g++-aarch64-linux-gnu autotools-dev automake pkg-config python3 bsdmainutils cmake
+        with:
+          name: install-deps
+      - run: bash install-deps.sh arm64
       - run: make -C depends -j$(nproc) HOST=aarch64-linux-gnu
       - run: ./autogen.sh && ./configure --prefix=`pwd`/depends/aarch64-linux-gnu
       - run: make -j$(nproc)
@@ -112,16 +157,16 @@ jobs:
           name: arm64-${{ needs.get-version.outputs.version }}
           path: ${COIN_NAME}-arm64-${{ needs.get-version.outputs.version }}.tar.gz
 
-  # Step 5: Cross-compile Windows
+  # Step 6: Cross-compile Windows
   build-windows:
     runs-on: ubuntu-22.04
-    needs: get-version
+    needs: [get-version, setup-dependencies]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
-      - run: sudo apt-get update && sudo apt-get install -y build-essential libtool autotools-dev automake pkg-config python3 cmake g++-mingw-w64-x86-64 gcc-mingw-w64-x86-64
-      - run: sudo update-alternatives --set x86_64-w64-mingw32-gcc /usr/bin/x86_64-w64-mingw32-gcc-posix
-      - run: sudo update-alternatives --set x86_64-w64-mingw32-g++ /usr/bin/x86_64-w64-mingw32-g++-posix
+        with:
+          name: install-deps
+      - run: bash install-deps.sh windows
       - run: make -C depends -j$(nproc) HOST=x86_64-w64-mingw32
       - run: ./autogen.sh && ./configure --prefix=`pwd`/depends/x86_64-w64-mingw32
       - run: make -j$(nproc)
