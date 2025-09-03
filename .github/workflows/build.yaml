@@ -1,6 +1,8 @@
 name: VKAX Multi-Platform Build
 
-# Trigger conditions
+# -------------------------------
+# Trigger Conditions
+# -------------------------------
 on:
   push:
     branches:
@@ -12,7 +14,9 @@ on:
       - develop
   workflow_dispatch:
 
-# Global environment variables
+# -------------------------------
+# Global Environment Variables
+# -------------------------------
 env:
   COIN_NAME: vkax
   BUILD_DIR: vkax-build
@@ -21,23 +25,22 @@ env:
   BOOST_VERSION: 1_73_0
   BLS_VERSION: 1.1.0
 
-# Required GitHub permissions
+# -------------------------------
+# Required GitHub Permissions
+# -------------------------------
 permissions:
   contents: read
   checks: write
   id-token: write
 
 jobs:
-  # -------------------------------
-  # Job: Get version from build.properties
-  # -------------------------------
   get-version:
     name: Get Version
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      # Read release and snapshot versions
+      # Read release and snapshot versions from build.properties
       - uses: christian-draeger/read-properties@1.1.1
         id: versions
         with:
@@ -67,9 +70,7 @@ jobs:
     outputs:
       version: ${{ steps.selected-version.outputs.version }}
 
-  # -------------------------------
-  # Job: Build on Ubuntu x86_64
-  # -------------------------------
+
   build-ubuntu-x86:
     name: Build Ubuntu x86_64
     runs-on: ubuntu-latest
@@ -87,7 +88,7 @@ jobs:
             libssl-dev libboost-all-dev libevent-dev libzmq3-dev protobuf-compiler libprotobuf-dev \
             qt5-default qttools5-dev-tools libqrencode-dev
 
-      # Restore cached dependencies
+      # Restore cached dependencies to speed up builds
       - name: Restore depend cache
         uses: actions/cache@v3
         with:
@@ -101,7 +102,7 @@ jobs:
           make -j$(nproc)
           cd ..
 
-      # Build VKAX
+      # Build VKAX Core
       - name: Build VKAX
         run: |
           mkdir -p build
@@ -109,16 +110,14 @@ jobs:
           cmake -DCMAKE_BUILD_TYPE=Release ..
           make -j$(nproc)
 
-      # Upload build artifact
+      # Upload x86 build artifact
       - name: Upload x86 build artifact
         uses: actions/upload-artifact@v4
         with:
           name: vkax-ubuntu-x86
           path: build/src/vkaxd
 
-  # -------------------------------
-  # Job: Build on Ubuntu ARM (aarch64)
-  # -------------------------------
+
   build-ubuntu-arm:
     name: Build Ubuntu ARM
     runs-on: ubuntu-latest
@@ -143,14 +142,14 @@ jobs:
           path: depends/work
           key: ubuntu-arm-depends-${{ needs.get-version.outputs.version }}
 
-      # Build dependencies (protobuf, BLS, Boost if needed)
+      # Build dependencies for ARM (cross-compile)
       - name: Build dependencies
         run: |
           cd depends
           make -j$(nproc) HOST=aarch64-linux-gnu
           cd ..
 
-      # Build VKAX
+      # Build VKAX Core for ARM
       - name: Build VKAX
         run: |
           mkdir -p build-arm
@@ -158,17 +157,13 @@ jobs:
           cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=../depends/aarch64-toolchain.cmake ..
           make -j$(nproc)
 
-      # Upload build artifact
+      # Upload ARM build artifact
       - name: Upload ARM build artifact
         uses: actions/upload-artifact@v4
         with:
           name: vkax-ubuntu-arm
           path: build-arm/src/vkaxd
 
-
-  # -------------------------------
-  # Job: Build on macOS
-  # -------------------------------
   build-macos:
     name: Build macOS
     runs-on: macos-latest
@@ -191,7 +186,7 @@ jobs:
           echo "export PATH=/usr/local/opt/qt@5/bin:$PATH" >> $GITHUB_ENV
           echo "export PKG_CONFIG_PATH=/usr/local/opt/qt@5/lib/pkgconfig:$PKG_CONFIG_PATH" >> $GITHUB_ENV
 
-      # Restore cached dependencies
+      # Restore cached dependencies to speed up builds
       - name: Restore depend cache
         uses: actions/cache@v3
         with:
@@ -205,7 +200,7 @@ jobs:
           make -j$(sysctl -n hw.ncpu)
           cd ..
 
-      # Build VKAX
+      # Build VKAX Core
       - name: Build VKAX
         run: |
           mkdir -p build-macos
@@ -220,9 +215,7 @@ jobs:
           name: vkax-macos
           path: build-macos/src/vkaxd
 
-  # -------------------------------
-  # Job: Build on Windows
-  # -------------------------------
+
   build-windows:
     name: Build Windows
     runs-on: windows-latest
@@ -232,34 +225,34 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Setup vcpkg
+      # Setup vcpkg for dependency management
       - name: Setup vcpkg
         uses: lukka/get-vcpkg@v15
         with:
           vcpkgRoot: C:/vcpkg
           overlayTriplets: ''
 
-      # Install required libraries
+      # Install required libraries via vcpkg
       - name: Install dependencies
         run: |
           C:/vcpkg/vcpkg install boost:x64-windows protobuf:x64-windows \
             qt5:x64-windows libevent:x64-windows zeromq:x64-windows qrencode:x64-windows
 
-      # Restore cached dependencies
+      # Restore cached depends
       - name: Restore depend cache
         uses: actions/cache@v3
         with:
           path: depends/work
           key: windows-depends-${{ needs.get-version.outputs.version }}
 
-      # Build dependencies
+      # Build dependencies (if any local builds are required)
       - name: Build dependencies
         run: |
           cd depends
           mingw32-make -j%NUMBER_OF_PROCESSORS%
           cd ..
 
-      # Build VKAX
+      # Build VKAX Core
       - name: Build VKAX
         run: |
           mkdir build-windows
@@ -275,9 +268,6 @@ jobs:
           path: build-windows/src/vkaxd.exe
 
 
-  # -------------------------------
-  # Job: Package and Release
-  # -------------------------------
   package-release:
     name: Package and Release
     runs-on: ubuntu-latest
@@ -289,53 +279,59 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Download build artifacts from previous jobs
+      # Download Linux x86_64 artifact
       - name: Download Linux x86_64 artifact
         uses: actions/download-artifact@v4
         with:
           name: vkax-ubuntu-x86
           path: artifacts/linux-x86
 
+      # Download Linux ARM artifact
       - name: Download Linux ARM artifact
         uses: actions/download-artifact@v4
         with:
           name: vkax-ubuntu-arm
           path: artifacts/linux-arm
 
-      - name: Download Windows artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: vkax-windows
-          path: artifacts/windows
-
+      # Download macOS artifact
       - name: Download macOS artifact
         uses: actions/download-artifact@v4
         with:
           name: vkax-macos
           path: artifacts/macos
 
-      # Package binaries into zip files
+      # Download Windows artifact
+      - name: Download Windows artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: vkax-windows
+          path: artifacts/windows
+
+      # Package Linux x86_64
       - name: Package Linux x86_64
         run: |
           cd artifacts/linux-x86
           zip -r ../../vkax-linux-x86-${{ needs.get-version.outputs.version }}.zip *
 
+      # Package Linux ARM
       - name: Package Linux ARM
         run: |
           cd artifacts/linux-arm
           zip -r ../../vkax-linux-arm-${{ needs.get-version.outputs.version }}.zip *
 
-      - name: Package Windows
-        run: |
-          cd artifacts/windows
-          zip -r ../../vkax-windows-${{ needs.get-version.outputs.version }}.zip *
-
+      # Package macOS
       - name: Package macOS
         run: |
           cd artifacts/macos
           zip -r ../../vkax-macos-${{ needs.get-version.outputs.version }}.zip *
 
-      # Upload release artifacts
+      # Package Windows
+      - name: Package Windows
+        run: |
+          cd artifacts/windows
+          zip -r ../../vkax-windows-${{ needs.get-version.outputs.version }}.zip *
+
+      # Upload all release artifacts to GitHub Releases
       - name: Upload Release Artifacts
         uses: softprops/action-gh-release@v1
         with:
@@ -344,9 +340,8 @@ jobs:
           files: |
             vkax-linux-x86-${{ needs.get-version.outputs.version }}.zip
             vkax-linux-arm-${{ needs.get-version.outputs.version }}.zip
-            vkax-windows-${{ needs.get-version.outputs.version }}.zip
             vkax-macos-${{ needs.get-version.outputs.version }}.zip
+            vkax-windows-${{ needs.get-version.outputs.version }}.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
 
