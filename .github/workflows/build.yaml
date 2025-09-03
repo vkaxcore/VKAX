@@ -18,6 +18,7 @@ env:
   TEST_DIR: vkax-test
   BOOST_VERSION: 1_73_0
   QT_PATH: /usr/local/opt/qt@5
+  BLS_VERSION: 1.1.0
 
 permissions:
   contents: read
@@ -88,7 +89,7 @@ jobs:
           if [[ "${{ matrix.arch }}" == "arm64" ]]; then
             HOST=aarch64-linux-gnu
           fi
-          make -C depends -j$(nproc) HOST=$HOST
+          make -C depends -j$(nproc) HOST=$HOST BLS_VERSION=${BLS_VERSION}
 
       - name: Configure VKAX
         run: |
@@ -99,7 +100,10 @@ jobs:
           fi
           ./configure --prefix=$(pwd)/depends/$HOST \
                       --with-boost=$(pwd)/depends/boost \
-                      --with-incompatible-bdb
+                      --with-incompatible-bdb \
+                      --enable-upnp-default \
+                      --with-zmq \
+                      --with-gui=qt5
 
       - name: Build Binary
         run: |
@@ -115,7 +119,8 @@ jobs:
           make clean
           make distclean
           ./autogen.sh
-          ./configure --prefix=$(pwd)/depends/$HOST --disable-tests --enable-debug
+          ./configure --prefix=$(pwd)/depends/$HOST --disable-tests --enable-debug \
+                      --with-incompatible-bdb --enable-upnp-default --with-zmq --with-gui=qt5
           make -j$(nproc)
           mkdir -p ${BUILD_DIR}_debug
           mv src/{vkax-cli,vkaxd,qt/vkax-qt} ${BUILD_DIR}_debug/
@@ -148,11 +153,10 @@ jobs:
     strategy:
       matrix:
         arch: [x86_64, arm64]
-        os: [12, 13]   # macOS 12 (Monterey) and 13 (Ventura)
+        os: [12, 13]
     runs-on: macos-${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/download-artifact@v4
         with:
           name: version
@@ -176,8 +180,7 @@ jobs:
           HOST=${{ matrix.arch }}-apple-darwin20.6.0
           export FALLBACK_DOWNLOAD_PATH=https://explorer.yerbas.org/depends/
           cd depends
-          make -j$(sysctl -n hw.ncpu) HOST=$HOST \
-            CXXFLAGS="-std=c++17 -Wno-error=enum-constexpr-conversion -Wno-deprecated"
+          make -j$(sysctl -n hw.ncpu) HOST=$HOST BLS_VERSION=${BLS_VERSION}
           cd ..
 
       - name: Configure VKAX
@@ -186,7 +189,10 @@ jobs:
           ./configure --prefix=$(pwd)/depends/$HOST \
                       --with-boost=$(pwd)/depends/boost \
                       --with-incompatible-bdb \
-                      CXXFLAGS="-I$BDB_INCLUDE_DIR -I$QT_PATH/include -Wno-enum-constexpr-conversion -Wno-error=enum-constexpr-conversion" \
+                      --enable-upnp-default \
+                      --with-zmq \
+                      --with-gui=qt5 \
+                      CXXFLAGS="-I$BDB_INCLUDE_DIR -I$QT_PATH/include" \
                       LDFLAGS="-L$BDB_LIB_DIR -L$QT_PATH/lib" \
                       QT_SELECT=5
 
@@ -226,7 +232,6 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/download-artifact@v4
         with:
           name: version
@@ -241,14 +246,17 @@ jobs:
         run: |
           export FALLBACK_DOWNLOAD_PATH=https://explorer.yerbas.org/depends/
           HOST=x86_64-w64-mingw32
-          make -C depends -j$(nproc) HOST=$HOST
+          make -C depends -j$(nproc) HOST=$HOST BLS_VERSION=${BLS_VERSION}
 
       - name: Configure VKAX
         run: |
           ./autogen.sh
           ./configure --prefix=$(pwd)/depends/x86_64-w64-mingw32 \
                       --with-boost=$(pwd)/depends/boost \
-                      --with-incompatible-bdb
+                      --with-incompatible-bdb \
+                      --enable-upnp-default \
+                      --with-zmq \
+                      --with-gui=qt5
 
       - name: Build Binary
         run: |
