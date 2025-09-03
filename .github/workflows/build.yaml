@@ -142,145 +142,83 @@ jobs:
           name: vkax-ubuntu-${{ matrix.version }}-${{ matrix.arch }}-test-${{ needs.get-version.outputs.version }}
           path: $TEST_DIR
 
-build-macos:
-  name: macOS Build
-  needs: get-version
-  strategy:
-    matrix:
-      arch: [x86_64, arm64]
-      os: [12, 13]
-  runs-on: macos-${{ matrix.os }}
-  steps:
-    - uses: actions/checkout@v4
+  build-macos:
+    name: macOS Build
+    needs: get-version
+    strategy:
+      matrix:
+        arch: [x86_64, arm64]
+        os: [12, 13]   # macOS 12 (Monterey) and 13 (Ventura)
+    runs-on: macos-${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
 
-    - uses: actions/download-artifact@v4
-      with:
-        name: version
-        path: .
+      - uses: actions/download-artifact@v4
+        with:
+          name: version
+          path: .
 
-    - name: Select Xcode 14
-      run: sudo xcode-select -s /Applications/Xcode_14.3.app
+      - name: Select Xcode 14
+        run: sudo xcode-select -s /Applications/Xcode_14.3.app
 
-    - name: Install Dependencies
-      run: |
-        brew install automake libtool pkg-config miniupnpc librsvg libnatpmp zeromq python qt@5
-        pip3 install ds_store mac_alias setuptools
-        export BDB_INCLUDE_DIR=$(brew --prefix berkeley-db@4)/include
-        export BDB_LIB_DIR=$(brew --prefix berkeley-db@4)/lib
-        export QT_PATH=$(brew --prefix qt@5)
-        export PATH=$QT_PATH/bin:$PATH
-        export PKG_CONFIG_PATH=$QT_PATH/lib/pkgconfig:$PKG_CONFIG_PATH
+      - name: Install Dependencies
+        run: |
+          brew install automake libtool pkg-config miniupnpc librsvg libnatpmp zeromq python qt@5
+          pip3 install ds_store mac_alias setuptools
+          export BDB_INCLUDE_DIR=$(brew --prefix berkeley-db@4)/include
+          export BDB_LIB_DIR=$(brew --prefix berkeley-db@4)/lib
+          export QT_PATH=$(brew --prefix qt@5)
+          export PATH=$QT_PATH/bin:$PATH
+          export PKG_CONFIG_PATH=$QT_PATH/lib/pkgconfig:$PKG_CONFIG_PATH
 
-    - name: Build depends
-      run: |
-        HOST=${{ matrix.arch }}-apple-darwin20.6.0
-        export FALLBACK_DOWNLOAD_PATH=https://explorer.yerbas.org/depends/
-        cd depends
-        make -j$(sysctl -n hw.ncpu) HOST=$HOST \
-          CXXFLAGS="-std=c++17 -Wno-error=enum-constexpr-conversion -Wno-deprecated"
-        cd ..
+      - name: Build depends
+        run: |
+          HOST=${{ matrix.arch }}-apple-darwin20.6.0
+          export FALLBACK_DOWNLOAD_PATH=https://explorer.yerbas.org/depends/
+          cd depends
+          make -j$(sysctl -n hw.ncpu) HOST=$HOST \
+            CXXFLAGS="-std=c++17 -Wno-error=enum-constexpr-conversion -Wno-deprecated"
+          cd ..
 
-    - name: Configure VKAX
-      run: |
-        ./autogen.sh
-        ./configure --prefix=$(pwd)/depends/$HOST \
-                    --with-boost=$(pwd)/depends/boost \
-                    --with-incompatible-bdb \
-                    CXXFLAGS="-I$BDB_INCLUDE_DIR -I$QT_PATH/include -Wno-enum-constexpr-conversion -Wno-error=enum-constexpr-conversion" \
-                    LDFLAGS="-L$BDB_LIB_DIR -L$QT_PATH/lib" \
-                    QT_SELECT=5
+      - name: Configure VKAX
+        run: |
+          ./autogen.sh
+          ./configure --prefix=$(pwd)/depends/$HOST \
+                      --with-boost=$(pwd)/depends/boost \
+                      --with-incompatible-bdb \
+                      CXXFLAGS="-I$BDB_INCLUDE_DIR -I$QT_PATH/include -Wno-enum-constexpr-conversion -Wno-error=enum-constexpr-conversion" \
+                      LDFLAGS="-L$BDB_LIB_DIR -L$QT_PATH/lib" \
+                      QT_SELECT=5
 
-    - name: Build Binary
-      run: |
-        make -j$(sysctl -n hw.ncpu)
-        mkdir -p $BUILD_DIR ${BUILD_DIR}_not_strip $TEST_DIR
-        mv src/{vkax-cli,vkaxd,qt/vkax-qt} $BUILD_DIR/
-        cp src/{vkax-cli,vkaxd,qt/vkax-qt} $TEST_DIR/
-        mv src/{vkax-cli,vkaxd,qt/vkax-qt} ${BUILD_DIR}_not_strip/
-        strip $BUILD_DIR/* || echo "strip skipped"
+      - name: Build Binary
+        run: |
+          make -j$(sysctl -n hw.ncpu)
+          mkdir -p $BUILD_DIR ${BUILD_DIR}_not_strip $TEST_DIR
+          mv src/{vkax-cli,vkaxd,qt/vkax-qt} $BUILD_DIR/
+          cp src/{vkax-cli,vkaxd,qt/vkax-qt} $TEST_DIR/
+          mv src/{vkax-cli,vkaxd,qt/vkax-qt} ${BUILD_DIR}_not_strip/
+          strip $BUILD_DIR/* || echo "strip skipped"
 
-    - name: Generate DMG
-      run: |
-        make deploy
-        mkdir -p macos-dmg
-        mv vkax-Qt.dmg macos-dmg/
-        cd macos-dmg
-        sha256sum *.dmg > checksums.txt
-        cd ..
+      - name: Generate DMG
+        run: |
+          make deploy
+          mkdir -p macos-dmg
+          mv vkax-Qt.dmg macos-dmg/
+          cd macos-dmg
+          sha256sum *.dmg > checksums.txt
+          cd ..
 
-    - name: Upload Artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: vkax-macos-${{ matrix.arch }}-os${{ matrix.os }}-${{ needs.get-version.outputs.version }}
-        path: $BUILD_DIR
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: vkax-macos-${{ matrix.arch }}-os${{ matrix.os }}-${{ needs.get-version.outputs.version }}
+          path: $BUILD_DIR
 
-    - name: Upload DMG
-      uses: actions/upload-artifact@v4
-      with:
-        name: vkax-macos-${{ matrix.arch }}-dmg-os${{ matrix.os }}-${{ needs.get-version.outputs.version }}
-        path: macos-dmg
-
-build-windows:
-  name: Windows x64 Build
-  needs: get-version
-  runs-on: ubuntu-22.04
-  steps:
-    - uses: actions/checkout@v4
-
-    - uses: actions/download-artifact@v4
-      with:
-        name: version
-        path: .
-
-    - name: Install Dependencies
-      run: |
-        sudo apt-get update -y
-        sudo apt-get install -y g++-mingw-w64-x86-64 gcc-mingw-w64-x86-64 nsis zip
-
-    - name: Build depends
-      run: |
-        export FALLBACK_DOWNLOAD_PATH=https://explorer.yerbas.org/depends/
-        HOST=x86_64-w64-mingw32
-        make -C depends -j$(nproc) HOST=$HOST
-
-    - name: Configure VKAX
-      run: |
-        ./autogen.sh
-        ./configure --prefix=$(pwd)/depends/x86_64-w64-mingw32 \
-                    --with-boost=$(pwd)/depends/boost \
-                    --with-incompatible-bdb
-
-    - name: Build Binary
-      run: |
-        make -j$(nproc)
-        mkdir -p $BUILD_DIR ${BUILD_DIR}_not_strip $TEST_DIR
-        cp src/{vkax-cli.exe,vkaxd.exe,qt/vkax-qt.exe} $BUILD_DIR/
-        mv src/{vkax-cli.exe,vkaxd.exe,qt/vkax-qt.exe} ${BUILD_DIR}_not_strip/
-        mv src/test/test_vkax.exe $TEST_DIR
-        strip $BUILD_DIR/*.exe || echo "strip not supported — skipping"
-
-    - name: Generate ZIP and Checksums
-      run: |
-        mkdir -p $COMPRESS_DIR
-        cd $BUILD_DIR
-        zip -r ../$COMPRESS_DIR/vkax-windows-x64-${{ needs.get-version.outputs.version }}.zip .
-        cd ../${BUILD_DIR}_not_strip
-        zip -r ../$COMPRESS_DIR/vkax-windows-x64-not_strip-${{ needs.get-version.outputs.version }}.zip .
-        cd ../$COMPRESS_DIR
-        sha256sum *.zip > checksums.txt
-
-    - name: Upload Artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: vkax-windows-x64-${{ needs.get-version.outputs.version }}
-        path: $COMPRESS_DIR
-
-    - name: Upload Test Artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: vkax-windows-x64-test-${{ needs.get-version.outputs.version }}
-        path: $TEST_DIR
-
+      - name: Upload DMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: vkax-macos-${{ matrix.arch }}-dmg-os${{ matrix.os }}-${{ needs.get-version.outputs.version }}
+          path: macos-dmg
 
   build-windows:
     name: Windows x64 Build
