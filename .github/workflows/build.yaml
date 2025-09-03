@@ -58,7 +58,6 @@ jobs:
     outputs:
       version: ${{ steps.selected-version.outputs.version }}
 
-
   build-ubuntu:
     name: Ubuntu Build Matrix
     needs: get-version
