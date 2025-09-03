@@ -181,6 +181,8 @@ jobs:
       - name: Build depends
         run: |
           export FALLBACK_DOWNLOAD_PATH=https://explorer.yerbas.org/depends/
+          export CFLAGS="-O2 -fcommon -march=armv8-a -D_RELIC_64"
+          export CXXFLAGS="$CFLAGS"
           HOST=aarch64-linux-gnu
           make -C depends -j$(nproc) HOST=$HOST BLS_VERSION=${BLS_VERSION}
 
@@ -193,7 +195,9 @@ jobs:
                       --with-incompatible-bdb \
                       --enable-upnp-default \
                       --with-zmq \
-                      --with-gui=qt5
+                      --with-gui=qt5 \
+                      CFLAGS="$CFLAGS" \
+                      CXXFLAGS="$CXXFLAGS"
 
       - name: Build Binary
         run: |
