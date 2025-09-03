@@ -1,4 +1,4 @@
-name: VKAX macOS Build
+name: VKAX macOS Minimal Build
 
 on:
   push:
@@ -12,23 +12,21 @@ env:
   COMPRESS_DIR: vkax-compress
   TEST_DIR: vkax-test
   BOOST_VERSION: 1_73_0
-  QT_PATH: /usr/local/opt/qt@5
 
 jobs:
   build-macos:
     name: macOS Build
     strategy:
       matrix:
-        os: [macos-12, macos-13]
+        version: [12, 13]
         arch: [x86_64, arm64]
-    runs-on: ${{ matrix.os }}
+    runs-on: macos-${{ matrix.version }}
     steps:
       - uses: actions/checkout@v4
 
       - name: Install Dependencies
         run: |
-          brew install automake libtool pkg-config miniupnpc librsvg libnatpmp zeromq python qt@5
-          pip3 install ds_store mac_alias setuptools
+          brew install automake libtool pkg-config miniupnpc libnatpmp zeromq python qt@5
           export BDB_INCLUDE_DIR=$(brew --prefix berkeley-db@4)/include
           export BDB_LIB_DIR=$(brew --prefix berkeley-db@4)/lib
           export QT_PATH=$(brew --prefix qt@5)
@@ -38,7 +36,6 @@ jobs:
       - name: Build depends
         run: |
           HOST=${{ matrix.arch }}-apple-darwin20.6.0
-          export FALLBACK_DOWNLOAD_PATH=https://explorer.yerbas.org/depends/
           make -C depends -j$(sysctl -n hw.ncpu) HOST=$HOST
 
       - name: Configure VKAX
@@ -47,18 +44,16 @@ jobs:
           ./configure --prefix=$(pwd)/depends/$HOST \
                       --with-boost=$(pwd)/depends/boost \
                       --with-incompatible-bdb \
-                      CXXFLAGS="-I$BDB_INCLUDE_DIR -I$QT_PATH/include -Wno-enum-constexpr-conversion -Wno-error=enum-constexpr-conversion -Wno-ignored-qualifiers -Wno-unused-variable" \
+                      CXXFLAGS="-I$BDB_INCLUDE_DIR -I$QT_PATH/include" \
                       LDFLAGS="-L$BDB_LIB_DIR -L$QT_PATH/lib" \
                       QT_SELECT=5
 
       - name: Build Binary
         run: |
           make -j$(sysctl -n hw.ncpu)
-          mkdir -p $BUILD_DIR ${BUILD_DIR}_not_strip $TEST_DIR
+          mkdir -p $BUILD_DIR $TEST_DIR
           mv src/{vkax-cli,vkaxd,qt/vkax-qt} $BUILD_DIR/
           cp src/{vkax-cli,vkaxd,qt/vkax-qt} $TEST_DIR/
-          mv src/{vkax-cli,vkaxd,qt/vkax-qt} ${BUILD_DIR}_not_strip/
-          strip $BUILD_DIR/* || echo "strip failed — skipping"
 
       - name: Generate DMG
         run: |
@@ -72,11 +67,11 @@ jobs:
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: vkax-macos-${{ matrix.arch }}-${{ matrix.os }}
+          name: vkax-macos-${{ matrix.arch }}-${{ matrix.version }}
           path: $BUILD_DIR
 
       - name: Upload DMG
         uses: actions/upload-artifact@v4
         with:
-          name: vkax-macos-${{ matrix.arch }}-${{ matrix.os }}-dmg
+          name: vkax-macos-${{ matrix.arch }}-dmg-${{ matrix.version }}
           path: macos-dmg
