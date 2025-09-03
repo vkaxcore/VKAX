@@ -316,5 +316,5 @@ jobs:
       - name: Upload Test Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: vkax-windows-x64-test-${{ needs-get-version.outputs.version }}
+          name: vkax-windows-x64-test-${{ needs.get-version.outputs.version }}
           path: $TEST_DIR
