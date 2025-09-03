@@ -68,7 +68,6 @@ jobs:
     runs-on: ubuntu-${{ matrix.version }}
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/download-artifact@v4
         with:
           name: version
@@ -143,7 +142,6 @@ jobs:
           name: vkax-ubuntu-${{ matrix.version }}-${{ matrix.arch }}-test-${{ needs.get-version.outputs.version }}
           path: $TEST_DIR
 
-
   build-macos:
     name: macOS Build
     needs: get-version
@@ -153,7 +151,6 @@ jobs:
     runs-on: macos-13
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/download-artifact@v4
         with:
           name: version
@@ -161,15 +158,18 @@ jobs:
 
       - name: Install Dependencies
         run: |
-          brew install automake libtool pkg-config miniupnpc libnatpmp zeromq python qt@5
+          brew install automake libtool pkg-config miniupnpc librsvg libnatpmp zeromq python qt@5
+          pip3 install ds_store mac_alias setuptools
           export BDB_INCLUDE_DIR=$(brew --prefix berkeley-db@4)/include
           export BDB_LIB_DIR=$(brew --prefix berkeley-db@4)/lib
           export QT_PATH=$(brew --prefix qt@5)
           export PATH=$QT_PATH/bin:$PATH
+          export PKG_CONFIG_PATH=$QT_PATH/lib/pkgconfig:$PKG_CONFIG_PATH
 
       - name: Build depends
         run: |
           HOST=${{ matrix.arch }}-apple-darwin20.6.0
+          export FALLBACK_DOWNLOAD_PATH=https://explorer.yerbas.org/depends/
           make -C depends -j$(sysctl -n hw.ncpu) HOST=$HOST
 
       - name: Configure VKAX
@@ -179,14 +179,38 @@ jobs:
                       --with-boost=$(pwd)/depends/boost \
                       --with-incompatible-bdb \
                       CXXFLAGS="-I$BDB_INCLUDE_DIR -I$QT_PATH/include" \
-                      LDFLAGS="-L$BDB_LIB_DIR -L$QT_PATH/lib"
+                      LDFLAGS="-L$BDB_LIB_DIR -L$QT_PATH/lib" \
+                      QT_SELECT=5
 
       - name: Build Binary
         run: |
           make -j$(sysctl -n hw.ncpu)
-          mkdir -p $BUILD_DIR $TEST_DIR
+          mkdir -p $BUILD_DIR ${BUILD_DIR}_not_strip $TEST_DIR
           mv src/{vkax-cli,vkaxd,qt/vkax-qt} $BUILD_DIR/
           cp src/{vkax-cli,vkaxd,qt/vkax-qt} $TEST_DIR/
+          mv src/{vkax-cli,vkaxd,qt/vkax-qt} ${BUILD_DIR}_not_strip/
+          strip $BUILD_DIR/* || echo "strip failed — skipping"
+
+      - name: Generate DMG
+        run: |
+          make deploy
+          mkdir -p macos-dmg
+          mv vkax-Qt.dmg macos-dmg/
+          cd macos-dmg
+          shasum -a 256 *.dmg > checksums.txt
+          cd ..
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: vkax-macos-${{ matrix.arch }}-${{ needs.get-version.outputs.version }}
+          path: $BUILD_DIR
+
+      - name: Upload DMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: vkax-macos-${{ matrix.arch }}-dmg-${{ needs.get-version.outputs.version }}
+          path: macos-dmg
 
 
   build-windows:
@@ -204,7 +228,7 @@ jobs:
       - name: Install Dependencies
         run: |
           sudo apt-get update -y
-          sudo apt-get install -y g++-mingw-w64-x86-64 gcc-mingw-w64-x86-64 nsis
+          sudo apt-get install -y g++-mingw-w64-x86-64 gcc-mingw-w64-x86-64 nsis zip
 
       - name: Build depends
         run: |
