@@ -31,11 +31,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: christian-draeger/read-properties@1.1.1
         id: versions
         with:
           path: build.properties
           properties: 'release-version snapshot-version'
+
       - name: Choose version
         id: selected-version
         shell: bash
@@ -47,14 +49,17 @@ jobs:
           fi
           echo "version=$version" >> $GITHUB_OUTPUT
           echo "BUILD_VERSION=$version" > version.txt
+
       - name: Upload version artifact
         uses: actions/upload-artifact@v4
         with:
           name: version
           path: version.txt
+
     outputs:
       version: ${{ steps.selected-version.outputs.version }}
 
+# ----------------------------- UBUNTU x86_64 -----------------------------
   build-ubuntu-x86:
     name: Ubuntu x86_64 Build Matrix
     needs: get-version
@@ -68,17 +73,28 @@ jobs:
         with:
           name: version
           path: .
+
       - name: Install Dependencies
         run: |
           sudo apt-get update -y
           sudo apt-get install -y build-essential g++ libsodium-dev gcc libtool autotools-dev automake pkg-config python3 bsdmainutils cmake libminiupnpc-dev libnatpmp-dev libzmq3-dev qtbase5-dev libqt5svg5-dev libdb-dev libdb++-dev
+
+      - name: Cache Depends
+        uses: actions/cache@v3
+        with:
+          path: |
+            depends/build
+            depends/x86_64-pc-linux-gnu
+          key: vkax-depends-${{ matrix.version }}-x86_64-${{ hashFiles('depends/*') }}
+          restore-keys: |
+            vkax-depends-x86_64-
+
       - name: Build depends
         run: |
           export FALLBACK_DOWNLOAD_PATH=https://explorer.yerbas.org/depends/
-          export CFLAGS="-Wno-stringop-overflow -Wno-array-parameter"
-          export CXXFLAGS="-Wno-stringop-overflow -Wno-array-parameter"
           HOST=x86_64-pc-linux-gnu
           make -C depends -j$(nproc) HOST=$HOST BLS_VERSION=${BLS_VERSION}
+
       - name: Configure VKAX
         run: |
           ./autogen.sh
@@ -89,6 +105,7 @@ jobs:
                       --enable-upnp-default \
                       --with-zmq \
                       --with-gui=qt5
+
       - name: Build Binary
         run: |
           make -j$(nproc)
@@ -97,6 +114,7 @@ jobs:
           cp src/{vkax-cli,vkaxd,qt/vkax-qt} $TEST_DIR/
           mv src/{vkax-cli,vkaxd,qt/vkax-qt} ${BUILD_DIR}_not_strip/
           strip $BUILD_DIR/* || echo "strip failed — skipping"
+
       - name: Build Debug Binary
         run: |
           make clean
@@ -107,6 +125,7 @@ jobs:
           make -j$(nproc)
           mkdir -p ${BUILD_DIR}_debug
           mv src/{vkax-cli,vkaxd,qt/vkax-qt} ${BUILD_DIR}_debug/
+
       - name: Generate Checksum and Compress
         run: |
           mkdir -p $COMPRESS_DIR
@@ -116,17 +135,20 @@ jobs:
             tar -czf ../$COMPRESS_DIR/$(basename $DIR)-${{ matrix.version }}-x86_64-${{ needs.get-version.outputs.version }}.tar.gz *
             cd ..
           done
+
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: vkax-ubuntu-${{ matrix.version }}-x86_64-${{ needs.get-version.outputs.version }}
           path: $COMPRESS_DIR
+
       - name: Upload Test Binaries
         uses: actions/upload-artifact@v4
         with:
           name: vkax-ubuntu-${{ matrix.version }}-x86_64-test-${{ needs.get-version.outputs.version }}
           path: $TEST_DIR
 
+# ----------------------------- UBUNTU ARM64 -----------------------------
   build-ubuntu-arm:
     name: Ubuntu ARM64 Build Matrix
     needs: get-version
@@ -140,29 +162,39 @@ jobs:
         with:
           name: version
           path: .
+
       - name: Install Dependencies
         run: |
           sudo apt-get update -y
-          sudo apt-get install -y build-essential g++ libsodium-dev gcc-aarch64-linux-gnu g++-aarch64-linux-gnu libtool autotools-dev automake pkg-config python3 bsdmainutils cmake libminiupnpc-dev libnatpmp-dev libzmq3-dev qtbase5-dev libqt5svg5-dev libdb-dev libdb++-dev
+          sudo apt-get install -y build-essential g++ libsodium-dev gcc libtool autotools-dev automake pkg-config python3 bsdmainutils cmake libminiupnpc-dev libnatpmp-dev libzmq3-dev qtbase5-dev libqt5svg5-dev libdb-dev libdb++-dev g++-aarch64-linux-gnu
+
+      - name: Cache Depends
+        uses: actions/cache@v3
+        with:
+          path: |
+            depends/build
+            depends/aarch64-linux-gnu
+          key: vkax-depends-${{ matrix.version }}-arm64-${{ hashFiles('depends/*') }}
+          restore-keys: |
+            vkax-depends-arm64-
+
       - name: Build depends
         run: |
           export FALLBACK_DOWNLOAD_PATH=https://explorer.yerbas.org/depends/
-          export CC=aarch64-linux-gnu-gcc
-          export CXX=aarch64-linux-gnu-g++
-          export CFLAGS="-Wno-stringop-overflow -Wno-array-parameter"
-          export CXXFLAGS="-Wno-stringop-overflow -Wno-array-parameter"
           HOST=aarch64-linux-gnu
           make -C depends -j$(nproc) HOST=$HOST BLS_VERSION=${BLS_VERSION}
+
       - name: Configure VKAX
         run: |
           ./autogen.sh
+          HOST=aarch64-linux-gnu
           ./configure --prefix=$(pwd)/depends/$HOST \
-                      --host=aarch64-linux-gnu \
                       --with-boost=$(pwd)/depends/boost \
                       --with-incompatible-bdb \
                       --enable-upnp-default \
                       --with-zmq \
                       --with-gui=qt5
+
       - name: Build Binary
         run: |
           make -j$(nproc)
@@ -171,17 +203,18 @@ jobs:
           cp src/{vkax-cli,vkaxd,qt/vkax-qt} $TEST_DIR/
           mv src/{vkax-cli,vkaxd,qt/vkax-qt} ${BUILD_DIR}_not_strip/
           strip $BUILD_DIR/* || echo "strip failed — skipping"
+
       - name: Build Debug Binary
         run: |
           make clean
           make distclean
           ./autogen.sh
           ./configure --prefix=$(pwd)/depends/$HOST --disable-tests --enable-debug \
-                      --host=aarch64-linux-gnu \
                       --with-incompatible-bdb --enable-upnp-default --with-zmq --with-gui=qt5
           make -j$(nproc)
           mkdir -p ${BUILD_DIR}_debug
           mv src/{vkax-cli,vkaxd,qt/vkax-qt} ${BUILD_DIR}_debug/
+
       - name: Generate Checksum and Compress
         run: |
           mkdir -p $COMPRESS_DIR
@@ -191,17 +224,20 @@ jobs:
             tar -czf ../$COMPRESS_DIR/$(basename $DIR)-${{ matrix.version }}-arm64-${{ needs.get-version.outputs.version }}.tar.gz *
             cd ..
           done
+
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: vkax-ubuntu-${{ matrix.version }}-arm64-${{ needs.get-version.outputs.version }}
           path: $COMPRESS_DIR
+
       - name: Upload Test Binaries
         uses: actions/upload-artifact@v4
         with:
           name: vkax-ubuntu-${{ matrix.version }}-arm64-test-${{ needs.get-version.outputs.version }}
           path: $TEST_DIR
 
+# ----------------------------- MACOS x86_64 -----------------------------
   build-macos:
     name: macOS x86_64 Build
     needs: get-version
@@ -216,8 +252,10 @@ jobs:
         with:
           name: version
           path: .
+
       - name: Select Xcode 14
         run: sudo xcode-select -s /Applications/Xcode_14.3.app
+
       - name: Install Dependencies
         run: |
           brew install automake libtool pkg-config miniupnpc librsvg libnatpmp zeromq python qt@5 libsodium
@@ -227,15 +265,25 @@ jobs:
           export QT_PATH=$(brew --prefix qt@5)
           export PATH=$QT_PATH/bin:$PATH
           export PKG_CONFIG_PATH=$QT_PATH/lib/pkgconfig:$PKG_CONFIG_PATH
+
+      - name: Cache Depends
+        uses: actions/cache@v3
+        with:
+          path: |
+            depends/build
+            depends/x86_64-apple-darwin20.6.0
+          key: vkax-depends-macos-${{ matrix.os }}-${{ hashFiles('depends/*') }}
+          restore-keys: |
+            vkax-depends-macos-
+
       - name: Build depends
         run: |
           HOST=${{ matrix.arch }}-apple-darwin20.6.0
           export FALLBACK_DOWNLOAD_PATH=https://explorer.yerbas.org/depends/
           cd depends
-          export CFLAGS="-Wno-stringop-overflow -Wno-array-parameter"
-          export CXXFLAGS="-Wno-stringop-overflow -Wno-array-parameter"
           make -j$(sysctl -n hw.ncpu) HOST=$HOST BLS_VERSION=${BLS_VERSION}
           cd ..
+
       - name: Configure VKAX
         run: |
           ./autogen.sh
@@ -248,6 +296,7 @@ jobs:
                       CXXFLAGS="-I$BDB_INCLUDE_DIR -I$QT_PATH/include" \
                       LDFLAGS="-L$BDB_LIB_DIR -L$QT_PATH/lib" \
                       QT_SELECT=5
+
       - name: Build Binary
         run: |
           make -j$(sysctl -n hw.ncpu)
@@ -256,6 +305,7 @@ jobs:
           cp src/{vkax-cli,vkaxd,qt/vkax-qt} $TEST_DIR/
           mv src/{vkax-cli,vkaxd,qt/vkax-qt} ${BUILD_DIR}_not_strip/
           strip $BUILD_DIR/* || echo "strip skipped"
+
       - name: Generate DMG
         run: |
           make deploy
@@ -264,17 +314,20 @@ jobs:
           cd macos-dmg
           sha256sum *.dmg > checksums.txt
           cd ..
+
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: vkax-macos-${{ matrix.arch }}-os${{ matrix.os }}-${{ needs.get-version.outputs.version }}
           path: $BUILD_DIR
+
       - name: Upload DMG
         uses: actions/upload-artifact@v4
         with:
           name: vkax-macos-${{ matrix.arch }}-dmg-os${{ matrix.os }}-${{ needs.get-version.outputs.version }}
           path: macos-dmg
 
+# ----------------------------- WINDOWS x64 -----------------------------
   build-windows:
     name: Windows x64 Build
     needs: get-version
@@ -285,17 +338,28 @@ jobs:
         with:
           name: version
           path: .
+
       - name: Install Dependencies
         run: |
           sudo apt-get update -y
-          sudo apt-get install -y g++-mingw-w64-x86-64 gcc-mingw-w64-x86-64 nsis zip libsodium-dev
+          sudo apt-get install -y g++-mingw-w64-x86-64 gcc-mingw-w64-x86-64 nsis zip libsodium-dev 
+
+      - name: Cache Depends
+        uses: actions/cache@v3
+        with:
+          path: |
+            depends/build
+            depends/x86_64-w64-mingw32
+          key: vkax-depends-windows-${{ hashFiles('depends/*') }}
+          restore-keys: |
+            vkax-depends-windows-
+
       - name: Build depends
         run: |
           export FALLBACK_DOWNLOAD_PATH=https://explorer.yerbas.org/depends/
-          export CFLAGS="-Wno-stringop-overflow -Wno-array-parameter"
-          export CXXFLAGS="-Wno-stringop-overflow -Wno-array-parameter"
           HOST=x86_64-w64-mingw32
           make -C depends -j$(nproc) HOST=$HOST BLS_VERSION=${BLS_VERSION}
+
       - name: Configure VKAX
         run: |
           ./autogen.sh
@@ -305,6 +369,7 @@ jobs:
                       --enable-upnp-default \
                       --with-zmq \
                       --with-gui=qt5
+
       - name: Build Binary
         run: |
           make -j$(nproc)
@@ -313,6 +378,7 @@ jobs:
           mv src/{vkax-cli.exe,vkaxd.exe,qt/vkax-qt.exe} ${BUILD_DIR}_not_strip/
           mv src/test/test_vkax.exe $TEST_DIR
           strip $BUILD_DIR/*.exe || echo "strip not supported — skipping"
+
       - name: Generate ZIP and Checksums
         run: |
           mkdir -p $COMPRESS_DIR
@@ -322,11 +388,13 @@ jobs:
           zip -r ../$COMPRESS_DIR/vkax-windows-x64-not_strip-${{ needs.get-version.outputs.version }}.zip .
           cd ../$COMPRESS_DIR
           sha256sum *.zip > checksums.txt
+
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: vkax-windows-x64-${{ needs.get-version.outputs.version }}
           path: $COMPRESS_DIR
+
       - name: Upload Test Artifacts
         uses: actions/upload-artifact@v4
         with:
