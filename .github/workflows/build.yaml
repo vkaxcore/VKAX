@@ -1,14 +1,14 @@
-name: VKAX Multi-Platform Build
+name: VKAX Build
 
 on:
   push:
     branches:
       - main
-      - develop
-      - v100.11.5*
+      - dev
+      - v3.*
   pull_request:
     branches:
-      - develop
+      - dev
   workflow_dispatch:
 
 env:
@@ -16,8 +16,6 @@ env:
   BUILD_DIR: vkax-build
   COMPRESS_DIR: vkax-compress
   TEST_DIR: vkax-test
-  BOOST_VERSION: 1_73_0
-  QT_PATH: /usr/local/opt/qt@5
 
 permissions:
   contents: read
@@ -29,21 +27,19 @@ jobs:
     name: Get Version
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Read versions
         id: versions
         uses: christian-draeger/read-properties@1.1.1
         with:
           path: build.properties
-          properties: 'release-version snapshot-version'
+          properties: 'release-version candidate-version snapshot-version'
 
       - name: Choose version
         id: selected-version
-        shell: bash
         run: |
-          if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]] || [[ "$GITHUB_REF" == *develop ]]; then
+          if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]] || [[ "$GITHUB_REF" == *dev ]]; then
             version=${{ steps.versions.outputs.snapshot-version }}
           else
             version=${{ steps.versions.outputs.release-version }}
@@ -51,228 +47,175 @@ jobs:
           echo "version=$version" >> $GITHUB_OUTPUT
           echo "BUILD_VERSION=$version" > version.txt
 
-      - name: Upload version artifact
+      - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: version
           path: version.txt
+
     outputs:
       version: ${{ steps.selected-version.outputs.version }}
 
-  build-ubuntu:
-    name: Ubuntu Build Matrix
-    needs: get-version
-    strategy:
-      matrix:
-        version: [18.04, 20.04, 22.04, 24.04]
-        arch: [x86_64, arm64]
-    runs-on: ubuntu-${{ matrix.version }}
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/download-artifact@v4
-        with:
-          name: version
-          path: .
-
-      - name: Install Dependencies
-        run: |
-          sudo apt-get update -y
-          sudo apt-get install -y build-essential g++ gcc libtool autotools-dev automake pkg-config python3 bsdmainutils cmake libminiupnpc-dev libnatpmp-dev libzmq3-dev qtbase5-dev libqt5svg5-dev libdb-dev libdb++-dev
-          if [[ "${{ matrix.arch }}" == "arm64" ]]; then
-            sudo apt-get install -y g++-aarch64-linux-gnu
-          fi
-
-      - name: Build depends
-        run: |
-          export FALLBACK_DOWNLOAD_PATH=https://explorer.yerbas.org/depends/
-          HOST=${{ matrix.arch }}-pc-linux-gnu
-          if [[ "${{ matrix.arch }}" == "arm64" ]]; then
-            HOST=aarch64-linux-gnu
-          fi
-          make -C depends -j$(nproc) HOST=$HOST
-
-      - name: Configure VKAX
-        run: |
-          ./autogen.sh
-          HOST=${{ matrix.arch }}-pc-linux-gnu
-          if [[ "${{ matrix.arch }}" == "arm64" ]]; then
-            HOST=aarch64-linux-gnu
-          fi
-          ./configure --prefix=$(pwd)/depends/$HOST \
-                      --with-boost=$(pwd)/depends/boost \
-                      --with-incompatible-bdb \
-                      CXXFLAGS="-Wno-enum-constexpr-conversion -Wno-error=enum-constexpr-conversion"
-
-      - name: Build Binary
-        run: |
-          make -j$(nproc)
-          mkdir -p $BUILD_DIR ${BUILD_DIR}_not_strip $TEST_DIR
-          mv src/{vkax-cli,vkaxd,qt/vkax-qt} $BUILD_DIR/
-          cp src/{vkax-cli,vkaxd,qt/vkax-qt} $TEST_DIR/
-          mv src/{vkax-cli,vkaxd,qt/vkax-qt} ${BUILD_DIR}_not_strip/
-          strip $BUILD_DIR/* || echo "strip failed — skipping"
-
-      - name: Build Debug Binary
-        run: |
-          make clean
-          make distclean
-          ./autogen.sh
-          ./configure --prefix=$(pwd)/depends/$HOST --disable-tests --enable-debug
-          make -j$(nproc)
-          mkdir -p ${BUILD_DIR}_debug
-          mv src/{vkax-cli,vkaxd,qt/vkax-qt} ${BUILD_DIR}_debug/
-
-      - name: Generate Checksum and Compress
-        run: |
-          mkdir -p $COMPRESS_DIR
-          for DIR in $BUILD_DIR ${BUILD_DIR}_not_strip ${BUILD_DIR}_debug; do
-            cd $DIR
-            sha256sum * > checksums.txt
-            tar -czf ../$COMPRESS_DIR/$(basename $DIR)-${{ matrix.version }}-${{ matrix.arch }}-${{ needs.get-version.outputs.version }}.tar.gz *
-            cd ..
-          done
-
-      - name: Upload Artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: vkax-ubuntu-${{ matrix.version }}-${{ matrix.arch }}-${{ needs.get-version.outputs.version }}
-          path: $COMPRESS_DIR
-
-      - name: Upload Test Binaries
-        uses: actions/upload-artifact@v4
-        with:
-          name: vkax-ubuntu-${{ matrix.version }}-${{ matrix.arch }}-test-${{ needs.get-version.outputs.version }}
-          path: $TEST_DIR
-
-  build-macos:
-    name: macOS Build
-    needs: get-version
-    strategy:
-      matrix:
-        arch: [x86_64, arm64]
-    runs-on: macos-12
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/download-artifact@v4
-        with:
-          name: version
-          path: .
-
-      - name: Install Dependencies
-        run: |
-          brew install automake libtool pkg-config miniupnpc librsvg libnatpmp zeromq python qt@5
-          pip3 install ds_store mac_alias setuptools
-          export BDB_INCLUDE_DIR=$(brew --prefix berkeley-db@4)/include
-          export BDB_LIB_DIR=$(brew --prefix berkeley-db@4)/lib
-          export QT_PATH=$(brew --prefix qt@5)
-          export PATH=$QT_PATH/bin:$PATH
-          export PKG_CONFIG_PATH=$QT_PATH/lib/pkgconfig:$PKG_CONFIG_PATH
-
-      - name: Build depends
-        run: |
-          HOST=${{ matrix.arch }}-apple-darwin20.6.0
-          export FALLBACK_DOWNLOAD_PATH=https://explorer.yerbas.org/depends/
-          make -C depends -j$(sysctl -n hw.ncpu) HOST=$HOST
-
-      - name: Configure VKAX
-        run: |
-          ./autogen.sh
-          ./configure --prefix=$(pwd)/depends/$HOST \
-                      --with-boost=$(pwd)/depends/boost \
-                      --with-incompatible-bdb \
-                      CXXFLAGS="-I$BDB_INCLUDE_DIR -I$QT_PATH/include -Wno-enum-constexpr-conversion -Wno-error=enum-constexpr-conversion" \
-                      LDFLAGS="-L$BDB_LIB_DIR -L$QT_PATH/lib" \
-                      QT_SELECT=5
-
-      - name: Build Binary
-        run: |
-          make -j$(sysctl -n hw.ncpu)
-          mkdir -p $BUILD_DIR ${BUILD_DIR}_not_strip $TEST_DIR
-          mv src/{vkax-cli,vkaxd,qt/vkax-qt} $BUILD_DIR/
-          cp src/{vkax-cli,vkaxd,qt/vkax-qt} $TEST_DIR/
-          mv src/{vkax-cli,vkaxd,qt/vkax-qt} ${BUILD_DIR}_not_strip/
-          strip $BUILD_DIR/*
-
-      - name: Generate DMG
-        run: |
-          make deploy
-          mkdir -p macos-dmg
-          mv vkax-Qt.dmg macos-dmg/
-          cd macos-dmg
-          sha256sum *.dmg > checksums.txt
-          cd ..
-
-      - name: Upload Artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: vkax-macos-${{ matrix.arch }}-${{ needs.get-version.outputs.version }}
-          path: $BUILD_DIR
-
-      - name: Upload DMG
-        uses: actions/upload-artifact@v4
-        with:
-          name: vkax-macos-${{ matrix.arch }}-dmg-${{ needs.get-version.outputs.version }}
-          path: macos-dmg
-
-  build-windows:
-    name: Windows x64 Build
+  build-linux:
+    name: Linux Build
     needs: get-version
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/download-artifact@v4
-        with:
-          name: version
-          path: .
-
-      - name: Install Dependencies
+      - name: Install Packages
         run: |
-          sudo apt-get update -y
-          sudo apt-get install -y g++-mingw-w64-x86-64 gcc-mingw-w64-x86-64 nsis
+          sudo apt update -y
+          sudo apt install -y build-essential libtool autotools-dev automake pkg-config python3 bsdmainutils cmake git curl
 
-      - name: Build depends
+      - name: Fetch working bls-dash
         run: |
-          export FALLBACK_DOWNLOAD_PATH=https://explorer.yerbas.org/depends/
-          HOST=x86_64-w64-mingw32
-          make -C depends -j$(nproc) HOST=$HOST
+          rm -rf depends/work/build/x86_64-pc-linux-gnu/bls-dash
+          git clone https://github.com/dashpay/bls-signatures.git depends/work/build/x86_64-pc-linux-gnu/bls-dash
+          cd depends/work/build/x86_64-pc-linux-gnu/bls-dash
+          git checkout 58216334d30f8a6bfa84b0f879f5672f06fbbb15
+          cd -
 
-      - name: Configure VKAX
+      - name: Build Depends
+        run: make -C depends -j$(nproc) HOST=x86_64-pc-linux-gnu
+
+      - name: Configure & Build VKAX
         run: |
           ./autogen.sh
-          ./configure --prefix=$(pwd)/depends/x86_64-w64-mingw32 \
-                      --with-boost=$(pwd)/depends/boost \
-                      --with-incompatible-bdb
-
-      - name: Build Binary
-        run: |
+          ./configure --prefix=`pwd`/depends/x86_64-pc-linux-gnu
           make -j$(nproc)
-          mkdir -p $BUILD_DIR ${BUILD_DIR}_not_strip $TEST_DIR
-          cp src/{vkax-cli.exe,vkaxd.exe,qt/vkax-qt.exe} $BUILD_DIR/
-          mv src/{vkax-cli.exe,vkaxd.exe,qt/vkax-qt.exe} ${BUILD_DIR}_not_strip/
-          mv src/test/test_vkax.exe $TEST_DIR
-          strip $BUILD_DIR/*.exe || echo "strip not supported — skipping"
+          mkdir -p ${BUILD_DIR}
+          cp src/{vkax-cli,vkaxd,qt/vkax-qt} ${BUILD_DIR}/
 
-      - name: Generate ZIP and Checksums
+      - name: Compress & Upload
         run: |
-          mkdir -p $COMPRESS_DIR
-          cd $BUILD_DIR
-          zip -r ../$COMPRESS_DIR/vkax-windows-x64-${{ needs.get-version.outputs.version }}.zip .
-          cd ../${BUILD_DIR}_not_strip
-          zip -r ../$COMPRESS_DIR/vkax-windows-x64-not_strip-${{ needs.get-version.outputs.version }}.zip .
-          cd ../$COMPRESS_DIR
-          sha256sum *.zip > checksums.txt
-
-      - name: Upload Artifacts
+          mkdir -p ${COMPRESS_DIR}
+          tar -czvf ${COMPRESS_DIR}/${COIN_NAME}-linux.tar.gz -C ${BUILD_DIR} .
         uses: actions/upload-artifact@v4
         with:
-          name: vkax-windows-x64-${{ needs.get-version.outputs.version }}
-          path: $COMPRESS_DIR
+          name: ${{ env.COIN_NAME }}-linux-${{ needs.get-version.outputs.version }}
+          path: ${{ env.COMPRESS_DIR }}
 
-      - name: Upload Test Artifacts
+  build-macos:
+    name: macOS Build
+    needs: get-version
+    runs-on: macos-13
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Packages
+        run: |
+          brew install automake libtool pkg-config miniupnpc librsvg libnatpmp zeromq python
+          pip3 install ds_store mac_alias
+          pip3 install -U pip setuptools
+
+      - name: Fetch working bls-dash
+        run: |
+          rm -rf depends/work/build/x86_64-apple-darwin20.6.0/bls-dash
+          git clone https://github.com/dashpay/bls-signatures.git depends/work/build/x86_64-apple-darwin20.6.0/bls-dash
+          cd depends/work/build/x86_64-apple-darwin20.6.0/bls-dash
+          git checkout 58216334d30f8a6bfa84b0f879f5672f06fbbb15
+          cd -
+
+      - name: Build Depends
+        run: make -C depends -j8 HOST=x86_64-apple-darwin20.6.0
+
+      - name: Configure & Build VKAX
+        run: |
+          ./autogen.sh
+          ./configure --prefix=`pwd`/depends/x86_64-apple-darwin20.6.0
+          make -j8
+          mkdir -p ${BUILD_DIR}
+          cp src/{vkax-cli,vkaxd,qt/vkax-qt} ${BUILD_DIR}/
+
+      - name: Compress & Upload
+        run: |
+          mkdir -p ${COMPRESS_DIR}
+          tar -czvf ${COMPRESS_DIR}/${COIN_NAME}-macos.tar.gz -C ${BUILD_DIR} .
         uses: actions/upload-artifact@v4
         with:
-          name: vkax-windows-x64-test-${{ needs.get-version.outputs.version }}
-          path: $TEST_DIR
+          name: ${{ env.COIN_NAME }}-macos-${{ needs.get-version.outputs.version }}
+          path: ${{ env.COMPRESS_DIR }}
+
+  build-win:
+    name: Windows Build
+    needs: get-version
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Packages
+        run: |
+          sudo apt update -y
+          sudo apt install -y build-essential libtool autotools-dev automake pkg-config python3 bsdmainutils cmake
+          sudo apt install -y g++-mingw-w64-x86-64 gcc-mingw-w64-x86-64 nsis
+          sudo update-alternatives --set x86_64-w64-mingw32-gcc /usr/bin/x86_64-w64-mingw32-gcc-posix
+          sudo update-alternatives --set x86_64-w64-mingw32-g++ /usr/bin/x86_64-w64-mingw32-g++-posix
+
+      - name: Fetch working bls-dash
+        run: |
+          rm -rf depends/work/build/x86_64-w64-mingw32/bls-dash
+          git clone https://github.com/dashpay/bls-signatures.git depends/work/build/x86_64-w64-mingw32/bls-dash
+          cd depends/work/build/x86_64-w64-mingw32/bls-dash
+          git checkout 58216334d30f8a6bfa84b0f879f5672f06fbbb15
+          cd -
+
+      - name: Build Depends
+        run: make -C depends -j$(nproc) HOST=x86_64-w64-mingw32
+
+      - name: Configure & Build VKAX
+        run: |
+          ./autogen.sh
+          ./configure --prefix=`pwd`/depends/x86_64-w64-mingw32
+          make -j$(nproc)
+          mkdir -p ${BUILD_DIR}
+          cp src/{vkax-cli.exe,vkaxd.exe,qt/vkax-qt.exe} ${BUILD_DIR}/
+
+      - name: Compress & Upload
+        run: |
+          mkdir -p ${COMPRESS_DIR}
+          zip -r ${COMPRESS_DIR}/${COIN_NAME}-win.zip ${BUILD_DIR}/*
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.COIN_NAME }}-win-${{ needs.get-version.outputs.version }}
+          path: ${{ env.COMPRESS_DIR }}
+
+  build-arm64:
+    name: ARM 64-bit Build
+    needs: get-version
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Packages
+        run: |
+          sudo apt update -y
+          sudo apt install -y build-essential libtool g++-aarch64-linux-gnu autotools-dev automake pkg-config python3 bsdmainutils cmake
+
+      - name: Fetch working bls-dash
+        run: |
+          rm -rf depends/work/build/aarch64-linux-gnu/bls-dash
+          git clone https://github.com/dashpay/bls-signatures.git depends/work/build/aarch64-linux-gnu/bls-dash
+          cd depends/work/build/aarch64-linux-gnu/bls-dash
+          git checkout 58216334d30f8a6bfa84b0f879f5672f06fbbb15
+          cd -
+
+      - name: Build Depends
+        run: make -C depends -j$(nproc) HOST=aarch64-linux-gnu
+
+      - name: Configure & Build VKAX
+        run: |
+          ./autogen.sh
+          ./configure --prefix=`pwd`/depends/aarch64-linux-gnu
+          make -j$(nproc)
+          mkdir -p ${BUILD_DIR}
+          cp src/{vkax-cli,vkaxd,qt/vkax-qt} ${BUILD_DIR}/
+
+      - name: Compress & Upload
+        run: |
+          mkdir -p ${COMPRESS_DIR}
+          tar -czvf ${COMPRESS_DIR}/${COIN_NAME}-arm64.tar.gz -C ${BUILD_DIR} .
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.COIN_NAME }}-arm64-${{ needs.get-version.outputs.version }}
+          path: ${{ env.COMPRESS_DIR }}
