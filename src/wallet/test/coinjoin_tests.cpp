@@ -46,19 +46,17 @@ BOOST_AUTO_TEST_CASE(coinjoin_options_tests)
 
 BOOST_AUTO_TEST_CASE(coinjoin_collateral_tests)
 {
-    // Good collateral values
-    static_assert(CCoinJoin::IsCollateralAmount(((10 * COIN) + 10000) * 1000));
-    static_assert(CCoinJoin::IsCollateralAmount(((1  * COIN) + 1000)  * 1000));
-    static_assert(CCoinJoin::IsCollateralAmount(((COIN / 10) + 100)   * 1000));
-    static_assert(CCoinJoin::IsCollateralAmount(((COIN / 100) + 10)    * 1000));
-    static_assert(CCoinJoin::IsCollateralAmount(((COIN / 1000) + 1)    * 1000));
+    // Good collateral values (scaled 1000×)
+    static_assert(CCoinJoin::IsCollateralAmount(0.10001 * COIN));
+    static_assert(CCoinJoin::IsCollateralAmount(0.12345 * COIN));
+    static_assert(CCoinJoin::IsCollateralAmount(0.32123 * COIN));
+    static_assert(CCoinJoin::IsCollateralAmount(0.19000 * COIN));
 
-    // Bad collateral values
-    static_assert(!CCoinJoin::IsCollateralAmount(((10 * COIN) + 10001) * 1000));
-    static_assert(!CCoinJoin::IsCollateralAmount(((1  * COIN) + 1001)  * 1000));
-    static_assert(!CCoinJoin::IsCollateralAmount(((COIN / 10) + 101)   * 1000));
-    static_assert(!CCoinJoin::IsCollateralAmount(((COIN / 100) + 11)    * 1000));
-    static_assert(!CCoinJoin::IsCollateralAmount(((COIN / 1000) + 2)    * 1000));
+    // Bad collateral values (below minimum or above maximum)
+    static_assert(!CCoinJoin::IsCollateralAmount(0.09999 * COIN));
+    static_assert(!CCoinJoin::IsCollateralAmount(0.40001 * COIN));
+    static_assert(!CCoinJoin::IsCollateralAmount(1.00000 * COIN));
+    static_assert(!CCoinJoin::IsCollateralAmount(1.00001 * COIN));
 }
 
 class CTransactionBuilderTestSetup : public TestChain100Setup
