@@ -77,7 +77,7 @@ jobs:
       - name: Install Dependencies
         run: |
           sudo apt-get update -y
-          sudo apt-get install -y build-essential g++ libsodium-dev libsodium-dev:arm64 gcc libtool autotools-dev automake pkg-config python3 bsdmainutils cmake libminiupnpc-dev libnatpmp-dev libzmq3-dev qtbase5-dev libqt5svg5-dev libdb-dev libdb++-dev
+          sudo apt-get install -y build-essential g++ libsodium-dev gcc libtool autotools-dev automake pkg-config python3 bsdmainutils cmake libminiupnpc-dev libnatpmp-dev libzmq3-dev qtbase5-dev libqt5svg5-dev libdb-dev libdb++-dev
           if [[ "${{ matrix.arch }}" == "arm64" ]]; then
             sudo apt-get install -y g++-aarch64-linux-gnu
           fi
@@ -167,7 +167,7 @@ jobs:
 
       - name: Install Dependencies
         run: |
-          brew install automake libtool pkg-config miniupnpc librsvg libnatpmp zeromq python qt@5 libsodium-dev libsodium-dev:arm64
+          brew install automake libtool pkg-config miniupnpc librsvg libnatpmp zeromq python qt@5 libsodium-dev 
           pip3 install ds_store mac_alias setuptools
           export BDB_INCLUDE_DIR=$(brew --prefix berkeley-db@4)/include
           export BDB_LIB_DIR=$(brew --prefix berkeley-db@4)/lib
@@ -240,7 +240,7 @@ jobs:
       - name: Install Dependencies
         run: |
           sudo apt-get update -y
-          sudo apt-get install -y g++-mingw-w64-x86-64 gcc-mingw-w64-x86-64 nsis zip libsodium-dev libsodium-dev:arm64
+          sudo apt-get install -y g++-mingw-w64-x86-64 gcc-mingw-w64-x86-64 nsis zip libsodium-dev 
 
       - name: Build depends
         run: |
