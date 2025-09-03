@@ -1,8 +1,6 @@
 name: VKAX Multi-Platform Build
 
-# -------------------------------
 # Trigger conditions
-# -------------------------------
 on:
   push:
     branches:
@@ -14,9 +12,7 @@ on:
       - develop
   workflow_dispatch:
 
-# -------------------------------
 # Global environment variables
-# -------------------------------
 env:
   COIN_NAME: vkax
   BUILD_DIR: vkax-build
@@ -25,20 +21,13 @@ env:
   BOOST_VERSION: 1_73_0
   BLS_VERSION: 1.1.0
 
-# -------------------------------
 # Required GitHub permissions
-# -------------------------------
 permissions:
   contents: read
   checks: write
   id-token: write
 
-# -------------------------------
-# Jobs
-# -------------------------------
-
 jobs:
-
   # -------------------------------
   # Job: Get version from build.properties
   # -------------------------------
@@ -79,7 +68,7 @@ jobs:
       version: ${{ steps.selected-version.outputs.version }}
 
   # -------------------------------
-  # Job: Build Ubuntu x86_64
+  # Job: Build on Ubuntu x86_64
   # -------------------------------
   build-ubuntu-x86:
     name: Build Ubuntu x86_64
@@ -105,7 +94,7 @@ jobs:
           path: depends/work
           key: ubuntu-x86-depends-${{ needs.get-version.outputs.version }}
 
-      # Build dependencies
+      # Build dependencies (protobuf, BLS, Boost if needed)
       - name: Build dependencies
         run: |
           cd depends
@@ -128,7 +117,7 @@ jobs:
           path: build/src/vkaxd
 
   # -------------------------------
-  # Job: Build Ubuntu ARM (aarch64)
+  # Job: Build on Ubuntu ARM (aarch64)
   # -------------------------------
   build-ubuntu-arm:
     name: Build Ubuntu ARM
@@ -139,7 +128,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Install dependencies
+      # Install essential dependencies
       - name: Install dependencies
         run: |
           sudo apt-get update
@@ -154,7 +143,7 @@ jobs:
           path: depends/work
           key: ubuntu-arm-depends-${{ needs.get-version.outputs.version }}
 
-      # Build dependencies (cross-compile)
+      # Build dependencies (protobuf, BLS, Boost if needed)
       - name: Build dependencies
         run: |
           cd depends
@@ -169,15 +158,16 @@ jobs:
           cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=../depends/aarch64-toolchain.cmake ..
           make -j$(nproc)
 
-      # Upload ARM build artifact
+      # Upload build artifact
       - name: Upload ARM build artifact
         uses: actions/upload-artifact@v4
         with:
           name: vkax-ubuntu-arm
           path: build-arm/src/vkaxd
 
+
   # -------------------------------
-  # Job: Build macOS
+  # Job: Build on macOS
   # -------------------------------
   build-macos:
     name: Build macOS
@@ -208,7 +198,7 @@ jobs:
           path: depends/work
           key: macos-depends-${{ needs.get-version.outputs.version }}
 
-      # Build dependencies
+      # Build dependencies (protobuf, BLS, Boost if needed)
       - name: Build dependencies
         run: |
           cd depends
@@ -231,7 +221,7 @@ jobs:
           path: build-macos/src/vkaxd
 
   # -------------------------------
-  # Job: Build Windows
+  # Job: Build on Windows
   # -------------------------------
   build-windows:
     name: Build Windows
@@ -284,6 +274,7 @@ jobs:
           name: vkax-windows
           path: build-windows/src/vkaxd.exe
 
+
   # -------------------------------
   # Job: Package and Release
   # -------------------------------
@@ -293,23 +284,23 @@ jobs:
     needs:
       - build-ubuntu-x86
       - build-ubuntu-arm
-      - build-windows
       - build-macos
+      - build-windows
     steps:
       - uses: actions/checkout@v4
 
-      # Download artifacts
-      - name: Download Linux x86 artifact
+      # Download build artifacts from previous jobs
+      - name: Download Linux x86_64 artifact
         uses: actions/download-artifact@v4
         with:
           name: vkax-ubuntu-x86
-          path: artifacts/linux/x86
+          path: artifacts/linux-x86
 
       - name: Download Linux ARM artifact
         uses: actions/download-artifact@v4
         with:
           name: vkax-ubuntu-arm
-          path: artifacts/linux/arm
+          path: artifacts/linux-arm
 
       - name: Download Windows artifact
         uses: actions/download-artifact@v4
@@ -324,15 +315,15 @@ jobs:
           path: artifacts/macos
 
       # Package binaries into zip files
-      - name: Package Linux x86
+      - name: Package Linux x86_64
         run: |
-          cd artifacts/linux/x86
-          zip -r ../../../../vkax-linux-x86-${{ needs.get-version.outputs.version }}.zip *
+          cd artifacts/linux-x86
+          zip -r ../../vkax-linux-x86-${{ needs.get-version.outputs.version }}.zip *
 
       - name: Package Linux ARM
         run: |
-          cd artifacts/linux/arm
-          zip -r ../../../../vkax-linux-arm-${{ needs.get-version.outputs.version }}.zip *
+          cd artifacts/linux-arm
+          zip -r ../../vkax-linux-arm-${{ needs.get-version.outputs.version }}.zip *
 
       - name: Package Windows
         run: |
@@ -344,7 +335,7 @@ jobs:
           cd artifacts/macos
           zip -r ../../vkax-macos-${{ needs.get-version.outputs.version }}.zip *
 
-      # Upload release artifacts to GitHub Release
+      # Upload release artifacts
       - name: Upload Release Artifacts
         uses: softprops/action-gh-release@v1
         with:
@@ -357,3 +348,5 @@ jobs:
             vkax-macos-${{ needs.get-version.outputs.version }}.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+
