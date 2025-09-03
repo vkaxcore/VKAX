@@ -152,7 +152,86 @@ jobs:
     needs: get-version
     strategy:
       matrix:
-        arch: [x86_64, arm64]
+        arch: [x86_64]
+        os: [12, 13]
+    runs-on: macos-${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: version
+          path: .
+
+      - name: Select Xcode 14
+        run: sudo xcode-select -s /Applications/Xcode_14.3.app
+
+      - name: Install Dependencies
+        run: |
+          brew install automake libtool pkg-config miniupnpc librsvg libnatpmp zeromq python qt@5 libsodium
+          pip3 install ds_store mac_alias setuptools
+          export BDB_INCLUDE_DIR=$(brew --prefix berkeley-db@4)/include
+          export BDB_LIB_DIR=$(brew --prefix berkeley-db@4)/lib
+          export QT_PATH=$(brew --prefix qt@5)
+          export PATH=$QT_PATH/bin:$PATH
+          export PKG_CONFIG_PATH=$QT_PATH/lib/pkgconfig:$PKG_CONFIG_PATH
+
+      - name: Build depends
+        run: |
+          HOST=${{ matrix.arch }}-apple-darwin20.6.0
+          export FALLBACK_DOWNLOAD_PATH=https://explorer.yerbas.org/depends/
+          cd depends
+          make -j$(sysctl -n hw.ncpu) HOST=$HOST BLS_VERSION=${BLS_VERSION}
+          cd ..
+
+      - name: Configure VKAX
+        run: |
+          ./autogen.sh
+          ./configure --prefix=$(pwd)/depends/$HOST \
+                      --with-boost=$(pwd)/depends/boost \
+                      --with-incompatible-bdb \
+                      --enable-upnp-default \
+                      --with-zmq \
+                      --with-gui=qt5 \
+                      CXXFLAGS="-I$BDB_INCLUDE_DIR -I$QT_PATH/include" \
+                      LDFLAGS="-L$BDB_LIB_DIR -L$QT_PATH/lib" \
+                      QT_SELECT=5
+
+      - name: Build Binary
+        run: |
+          make -j$(sysctl -n hw.ncpu)
+          mkdir -p $BUILD_DIR ${BUILD_DIR}_not_strip $TEST_DIR
+          mv src/{vkax-cli,vkaxd,qt/vkax-qt} $BUILD_DIR/
+          cp src/{vkax-cli,vkaxd,qt/vkax-qt} $TEST_DIR/
+          mv src/{vkax-cli,vkaxd,qt/vkax-qt} ${BUILD_DIR}_not_strip/
+          strip $BUILD_DIR/* || echo "strip skipped"
+
+      - name: Generate DMG
+        run: |
+          make deploy
+          mkdir -p macos-dmg
+          mv vkax-Qt.dmg macos-dmg/
+          cd macos-dmg
+          sha256sum *.dmg > checksums.txt
+          cd ..
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: vkax-macos-${{ matrix.arch }}-os${{ matrix.os }}-${{ needs.get-version.outputs.version }}
+          path: $BUILD_DIR
+
+      - name: Upload DMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: vkax-macos-${{ matrix.arch }}-dmg-os${{ matrix.os }}-${{ needs.get-version.outputs.version }}
+          path: macos-dmg
+
+  build-macos-arm64:
+    name: macOS Build
+    needs: get-version
+    strategy:
+      matrix:
+        arch: [arm64]
         os: [12, 13]
     runs-on: macos-${{ matrix.os }}
     steps:
