@@ -1,4 +1,4 @@
-name: VKAX Multi-Platform Build
+name: VKAX macOS Build
 
 on:
   push:
@@ -27,15 +27,17 @@ permissions:
 jobs:
   get-version:
     name: Get Version
-    runs-on: ubuntu-latest
+    runs-on: macos-13
     steps:
       - uses: actions/checkout@v4
+
       - name: Read versions
         id: versions
         uses: christian-draeger/read-properties@1.1.1
         with:
           path: build.properties
           properties: 'release-version snapshot-version'
+
       - name: Choose version
         id: selected-version
         shell: bash
@@ -47,14 +49,15 @@ jobs:
           fi
           echo "version=$version" >> $GITHUB_OUTPUT
           echo "BUILD_VERSION=$version" > version.txt
+
       - name: Upload version artifact
         uses: actions/upload-artifact@v4
         with:
           name: version
           path: version.txt
+
     outputs:
       version: ${{ steps.selected-version.outputs.version }}
-
 
   build-macos:
     name: macOS Build
@@ -62,8 +65,8 @@ jobs:
     strategy:
       matrix:
         arch: [x86_64, arm64]
-        macos: [12, 13]
-    runs-on: macos-${{ matrix.macos }}
+        os_version: [12, 13]
+    runs-on: macos-${{ matrix.os_version }}
     steps:
       - uses: actions/checkout@v4
 
@@ -77,21 +80,28 @@ jobs:
           brew update
           brew install automake libtool pkg-config miniupnpc librsvg libnatpmp zeromq python qt@5
           pip3 install --upgrade pip setuptools ds_store mac_alias
+
           export BDB_INCLUDE_DIR=$(brew --prefix berkeley-db@4)/include
           export BDB_LIB_DIR=$(brew --prefix berkeley-db@4)/lib
           export QT_PATH=$(brew --prefix qt@5)
           export PATH=$QT_PATH/bin:$PATH
           export PKG_CONFIG_PATH=$QT_PATH/lib/pkgconfig:$PKG_CONFIG_PATH
 
-      - name: Build depends (Boost fixes)
+      - name: Set Host
+        id: host
+        shell: bash
         run: |
-          export HOST=${{ matrix.arch }}-apple-darwin20.6.0
+          if [[ "${{ matrix.arch }}" == "x86_64" ]]; then
+            echo "HOST=x86_64-apple-darwin${{ matrix.os_version }}.0.0" >> $GITHUB_ENV
+          else
+            echo "HOST=arm-apple-darwin${{ matrix.os_version }}.0.0" >> $GITHUB_ENV
+          fi
+
+      - name: Build Depends
+        run: |
           export FALLBACK_DOWNLOAD_PATH=https://explorer.yerbas.org/depends/
-          cd depends
-          # Force clang toolset and suppress enum warnings
-          ./bootstrap.sh --with-toolset=clang cxxflags="-Wno-enum-constexpr-conversion -std=c++14" linkflags="-Wno-enum-constexpr-conversion"
-          ./b2 install toolset=clang cxxflags="-Wno-enum-constexpr-conversion -std=c++14" linkflags="-Wno-enum-constexpr-conversion" -j$(sysctl -n hw.ncpu) target-os=darwin architecture=${{ matrix.arch }} address-model=${{ matrix.arch == 'x86_64' && echo 64 || echo 32 }}
-          cd ..
+          make -C depends -j$(sysctl -n hw.ncpu) HOST=$HOST
+
 
       - name: Configure VKAX
         run: |
@@ -112,23 +122,48 @@ jobs:
           mv src/{vkax-cli,vkaxd,qt/vkax-qt} ${BUILD_DIR}_not_strip/
           strip $BUILD_DIR/* || echo "strip failed — skipping"
 
-      - name: Generate DMG
+      - name: Build Debug Binary
         run: |
-          make deploy
-          mkdir -p macos-dmg
-          mv vkax-Qt.dmg macos-dmg/
-          cd macos-dmg
-          sha256sum *.dmg > checksums.txt
-          cd ..
+          make clean
+          make distclean
+          ./autogen.sh
+          ./configure --prefix=$(pwd)/depends/$HOST --disable-tests --enable-debug \
+                      CXXFLAGS="-I$BDB_INCLUDE_DIR -I$QT_PATH/include" \
+                      LDFLAGS="-L$BDB_LIB_DIR -L$QT_PATH/lib" \
+                      QT_SELECT=5
+          make -j$(sysctl -n hw.ncpu)
+          mkdir -p ${BUILD_DIR}_debug
+          mv src/{vkax-cli,vkaxd,qt/vkax-qt} ${BUILD_DIR}_debug/
 
-      - name: Upload Artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: vkax-macos-${{ matrix.arch }}-macos${{ matrix.macos }}-${{ needs.get-version.outputs.version }}
-          path: $BUILD_DIR
 
-      - name: Upload DMG
-        uses: actions/upload-artifact@v4
-        with:
-          name: vkax-macos-${{ matrix.arch }}-dmg-macos${{ matrix.macos }}-${{ needs.get-version.outputs.version }}
-          path: macos-dmg
+      - name: Configure VKAX
+        run: |
+          ./autogen.sh
+          ./configure --prefix=$(pwd)/depends/$HOST \
+                      --with-boost=$(pwd)/depends/boost \
+                      --with-incompatible-bdb \
+                      CXXFLAGS="-I$BDB_INCLUDE_DIR -I$QT_PATH/include -Wno-enum-constexpr-conversion -Wno-error=enum-constexpr-conversion" \
+                      LDFLAGS="-L$BDB_LIB_DIR -L$QT_PATH/lib" \
+                      QT_SELECT=5
+
+      - name: Build Binary
+        run: |
+          make -j$(sysctl -n hw.ncpu)
+          mkdir -p $BUILD_DIR ${BUILD_DIR}_not_strip $TEST_DIR
+          mv src/{vkax-cli,vkaxd,qt/vkax-qt} $BUILD_DIR/
+          cp src/{vkax-cli,vkaxd,qt/vkax-qt} $TEST_DIR/
+          mv src/{vkax-cli,vkaxd,qt/vkax-qt} ${BUILD_DIR}_not_strip/
+          strip $BUILD_DIR/* || echo "strip failed — skipping"
+
+      - name: Build Debug Binary
+        run: |
+          make clean
+          make distclean
+          ./autogen.sh
+          ./configure --prefix=$(pwd)/depends/$HOST --disable-tests --enable-debug \
+                      CXXFLAGS="-I$BDB_INCLUDE_DIR -I$QT_PATH/include" \
+                      LDFLAGS="-L$BDB_LIB_DIR -L$QT_PATH/lib" \
+                      QT_SELECT=5
+          make -j$(sysctl -n hw.ncpu)
+          mkdir -p ${BUILD_DIR}_debug
+          mv src/{vkax-cli,vkaxd,qt/vkax-qt} ${BUILD_DIR}_debug/
