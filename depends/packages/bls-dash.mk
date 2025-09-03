@@ -20,8 +20,8 @@ $(package)_relic_sha256_hash=ddad83b1406985a1e4703bd03bdbab89453aa700c0c99567cf8
 $(package)_extra_sources=$($(package)_relic_file_name)
 
 define $(package)_fetch_cmds
-$(call fetch_file,$(package),$($(package)_download_path),$($(package)_download_file),$($(package)_file_name),$($(package)_sha256_hash)) && \
-$(call fetch_file,$(package),$($(package)_relic_download_path),$($(package)_relic_download_file),$($(package)_relic_file_name),$($(package)_relic_sha256_hash))
+  $(call fetch_file,$(package),$($(package)_download_path),$($(package)_download_file),$($(package)_file_name),$($(package)_sha256_hash)) && \
+  $(call fetch_file,$(package),$($(package)_relic_download_path),$($(package)_relic_download_file),$($(package)_relic_file_name),$($(package)_relic_sha256_hash))
 endef
 
 define $(package)_extract_cmds
@@ -53,7 +53,8 @@ define $(package)_set_vars
     $(package)_config_opts_darwin+= -DCMAKE_RANLIB="$(host_prefix)/native/bin/$($(package)_darwin_triplet)-ranlib"
   endif
 
-  $(package)_cppflags+=-UBLSALLOC_SODIUM
+  # Disable Sodium entirely to prevent SODIUM_NAME-NOTFOUND
+  $(package)_cppflags+=-DBLSALLOC_NO_SODIUM
 endef
 
 define $(package)_preprocess_cmds
