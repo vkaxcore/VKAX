@@ -47,7 +47,7 @@ jobs:
           echo "version=$version" >> $GITHUB_OUTPUT
           echo "BUILD_VERSION=$version" > version.txt
 
-      - name: Upload Artifacts
+      - name: Upload Version Artifact
         uses: actions/upload-artifact@v4
         with:
           name: version
@@ -82,15 +82,17 @@ jobs:
       - name: Configure & Build VKAX
         run: |
           ./autogen.sh
-          ./configure --prefix=`pwd`/depends/x86_64-pc-linux-gnu
+          ./configure --prefix=$(pwd)/depends/x86_64-pc-linux-gnu
           make -j$(nproc)
           mkdir -p ${BUILD_DIR}
           cp src/{vkax-cli,vkaxd,qt/vkax-qt} ${BUILD_DIR}/
 
-      - name: Compress & Upload
+      - name: Compress Build
         run: |
           mkdir -p ${COMPRESS_DIR}
           tar -czvf ${COMPRESS_DIR}/${COIN_NAME}-linux.tar.gz -C ${BUILD_DIR} .
+
+      - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.COIN_NAME }}-linux-${{ needs.get-version.outputs.version }}
@@ -123,15 +125,17 @@ jobs:
       - name: Configure & Build VKAX
         run: |
           ./autogen.sh
-          ./configure --prefix=`pwd`/depends/x86_64-apple-darwin20.6.0
+          ./configure --prefix=$(pwd)/depends/x86_64-apple-darwin20.6.0
           make -j8
           mkdir -p ${BUILD_DIR}
           cp src/{vkax-cli,vkaxd,qt/vkax-qt} ${BUILD_DIR}/
 
-      - name: Compress & Upload
+      - name: Compress Build
         run: |
           mkdir -p ${COMPRESS_DIR}
           tar -czvf ${COMPRESS_DIR}/${COIN_NAME}-macos.tar.gz -C ${BUILD_DIR} .
+
+      - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.COIN_NAME }}-macos-${{ needs.get-version.outputs.version }}
@@ -166,56 +170,18 @@ jobs:
       - name: Configure & Build VKAX
         run: |
           ./autogen.sh
-          ./configure --prefix=`pwd`/depends/x86_64-w64-mingw32
+          ./configure --prefix=$(pwd)/depends/x86_64-w64-mingw32
           make -j$(nproc)
           mkdir -p ${BUILD_DIR}
           cp src/{vkax-cli.exe,vkaxd.exe,qt/vkax-qt.exe} ${BUILD_DIR}/
 
-      - name: Compress & Upload
+      - name: Compress Build
         run: |
           mkdir -p ${COMPRESS_DIR}
           zip -r ${COMPRESS_DIR}/${COIN_NAME}-win.zip ${BUILD_DIR}/*
+
+      - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.COIN_NAME }}-win-${{ needs.get-version.outputs.version }}
-          path: ${{ env.COMPRESS_DIR }}
-
-  build-arm64:
-    name: ARM 64-bit Build
-    needs: get-version
-    runs-on: ubuntu-22.04
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Packages
-        run: |
-          sudo apt update -y
-          sudo apt install -y build-essential libtool g++-aarch64-linux-gnu autotools-dev automake pkg-config python3 bsdmainutils cmake
-
-      - name: Fetch working bls-dash
-        run: |
-          rm -rf depends/work/build/aarch64-linux-gnu/bls-dash
-          git clone https://github.com/dashpay/bls-signatures.git depends/work/build/aarch64-linux-gnu/bls-dash
-          cd depends/work/build/aarch64-linux-gnu/bls-dash
-          git checkout 58216334d30f8a6bfa84b0f879f5672f06fbbb15
-          cd -
-
-      - name: Build Depends
-        run: make -C depends -j$(nproc) HOST=aarch64-linux-gnu
-
-      - name: Configure & Build VKAX
-        run: |
-          ./autogen.sh
-          ./configure --prefix=`pwd`/depends/aarch64-linux-gnu
-          make -j$(nproc)
-          mkdir -p ${BUILD_DIR}
-          cp src/{vkax-cli,vkaxd,qt/vkax-qt} ${BUILD_DIR}/
-
-      - name: Compress & Upload
-        run: |
-          mkdir -p ${COMPRESS_DIR}
-          tar -czvf ${COMPRESS_DIR}/${COIN_NAME}-arm64.tar.gz -C ${BUILD_DIR} .
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ env.COIN_NAME }}-arm64-${{ needs.get-version.outputs.version }}
           path: ${{ env.COMPRESS_DIR }}
