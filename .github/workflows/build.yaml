@@ -152,7 +152,9 @@ jobs:
       - name: Install Dependencies
         run: |
           sudo apt-get update -y
-          sudo apt-get install -y build-essential g++ libsodium-dev gcc libtool autotools-dev automake pkg-config python3 bsdmainutils cmake libminiupnpc-dev libnatpmp-dev libzmq3-dev qtbase5-dev libqt5svg5-dev libdb-dev libdb++-dev g++-aarch64-linux-gnu
+          sudo apt-get install -y build-essential g++ gcc libtool autotools-dev automake pkg-config python3 bsdmainutils cmake \
+                                  libsodium-dev libminiupnpc-dev libnatpmp-dev libzmq3-dev qtbase5-dev libqt5svg5-dev \
+                                  libdb-dev libdb++-dev g++-aarch64-linux-gnu
       - name: Cache Depends
         uses: actions/cache@v3
         with:
@@ -162,18 +164,19 @@ jobs:
           key: vkax-depends-${{ matrix.version }}-arm64-${{ hashFiles('depends/*') }}
           restore-keys: |
             vkax-depends-arm64-
-      - name: Build depends
+      - name: Build depends (ARM64)
         run: |
           export FALLBACK_DOWNLOAD_PATH=https://explorer.yerbas.org/depends/
+          HOST=aarch64-linux-gnu
+          # Native tools use default gcc/g++
+          make -C depends -j$(nproc) HOST=$HOST BLS_VERSION=${BLS_VERSION}
+      - name: Configure VKAX (ARM64)
+        run: |
+          ./autogen.sh
           export CFLAGS="-O2 -fcommon -march=armv8-a -D_RELIC_64"
           export CXXFLAGS="$CFLAGS"
           export CC=aarch64-linux-gnu-gcc
           export CXX=aarch64-linux-gnu-g++
-          HOST=aarch64-linux-gnu
-          make -C depends -j$(nproc) HOST=$HOST BLS_VERSION=${BLS_VERSION}
-      - name: Configure VKAX
-        run: |
-          ./autogen.sh
           HOST=aarch64-linux-gnu
           ./configure --prefix=$(pwd)/depends/$HOST \
                       --with-boost=$(pwd)/depends/boost \
@@ -185,7 +188,7 @@ jobs:
                       CXXFLAGS="$CXXFLAGS" \
                       CC="$CC" \
                       CXX="$CXX"
-      - name: Build Binary
+      - name: Build Binary (ARM64)
         run: |
           make -j$(nproc)
           mkdir -p $BUILD_DIR ${BUILD_DIR}_not_strip $TEST_DIR
@@ -193,11 +196,16 @@ jobs:
           cp src/{vkax-cli,vkaxd,qt/vkax-qt} $TEST_DIR/
           mv src/{vkax-cli,vkaxd,qt/vkax-qt} ${BUILD_DIR}_not_strip/
           strip $BUILD_DIR/* || echo "strip failed — skipping"
-      - name: Build Debug Binary
+      - name: Build Debug Binary (ARM64)
         run: |
           make clean
           make distclean
           ./autogen.sh
+          export CFLAGS="-O2 -fcommon -march=armv8-a -D_RELIC_64"
+          export CXXFLAGS="$CFLAGS"
+          export CC=aarch64-linux-gnu-gcc
+          export CXX=aarch64-linux-gnu-g++
+          HOST=aarch64-linux-gnu
           ./configure --prefix=$(pwd)/depends/$HOST --disable-tests --enable-debug \
                       --with-incompatible-bdb --enable-upnp-default --with-zmq --with-gui=qt5 \
                       CFLAGS="$CFLAGS" \
@@ -207,7 +215,7 @@ jobs:
           make -j$(nproc)
           mkdir -p ${BUILD_DIR}_debug
           mv src/{vkax-cli,vkaxd,qt/vkax-qt} ${BUILD_DIR}_debug/
-      - name: Generate Checksum and Compress
+      - name: Generate Checksum and Compress (ARM64)
         run: |
           mkdir -p $COMPRESS_DIR
           for DIR in $BUILD_DIR ${BUILD_DIR}_not_strip ${BUILD_DIR}_debug; do
@@ -216,12 +224,12 @@ jobs:
             tar -czf ../$COMPRESS_DIR/$(basename $DIR)-${{ matrix.version }}-arm64-${{ needs.get-version.outputs.version }}.tar.gz *
             cd ..
           done
-      - name: Upload Artifacts
+      - name: Upload Artifacts (ARM64)
         uses: actions/upload-artifact@v4
         with:
           name: vkax-ubuntu-${{ matrix.version }}-arm64-${{ needs.get-version.outputs.version }}
           path: $COMPRESS_DIR
-      - name: Upload Test Binaries
+      - name: Upload Test Binaries (ARM64)
         uses: actions/upload-artifact@v4
         with:
           name: vkax-ubuntu-${{ matrix.version }}-arm64-test-${{ needs.get-version.outputs.version }}
