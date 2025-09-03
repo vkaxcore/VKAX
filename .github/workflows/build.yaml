@@ -1,4 +1,4 @@
-name: VKAX macOS Build (Qt Enabled)
+name: VKAX macOS Build (Legacy Boost Compatible)
 
 on:
   push:
@@ -14,7 +14,7 @@ env:
   COIN_NAME: vkax
   BUILD_DIR: vkax-build
   COMPRESS_DIR: vkax-compress
-  BOOST_VERSION: 1_81_0
+  BOOST_VERSION: 1_73_0
   QT_PATH: /usr/local/opt/qt@5
 
 jobs:
@@ -48,9 +48,9 @@ jobs:
       version: ${{ steps.selected-version.outputs.version }}
 
   build-macos:
-    name: macOS 13 Universal Build (Qt)
+    name: macOS 12 Intel/ARM Build (Boost 1.73.0)
     needs: get-version
-    runs-on: macos-13
+    runs-on: macos-12
     strategy:
       matrix:
         arch: [x86_64, arm64]
@@ -76,11 +76,10 @@ jobs:
       - name: Build depends
         run: |
           echo "Building depends with $(sysctl -n hw.ncpu) threads"
-          echo "using clang : : clang++ : <cxxflags>\"-Wno-enum-constexpr-conversion -Wno-error=enum-constexpr-conversion\" ;" > user-config.jam
           export FALLBACK_DOWNLOAD_PATH=https://explorer.yerbas.org/depends/
           export BOOST_VERSION=${{ env.BOOST_VERSION }}
           export CXXFLAGS="-Wno-enum-constexpr-conversion -Wno-error=enum-constexpr-conversion"
-          make -C depends -j$(sysctl -n hw.ncpu) BOOST_BUILD_PATH=$(pwd)/user-config.jam
+          make -C depends -j$(sysctl -n hw.ncpu)
 
       - name: Configure VKAX
         run: |
