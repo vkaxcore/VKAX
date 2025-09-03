@@ -1,8 +1,5 @@
 name: VKAX Multi-Platform Build
 
-# -------------------------------
-# Trigger Conditions
-# -------------------------------
 on:
   push:
     branches:
@@ -14,9 +11,6 @@ on:
       - develop
   workflow_dispatch:
 
-# -------------------------------
-# Global Environment Variables
-# -------------------------------
 env:
   COIN_NAME: vkax
   BUILD_DIR: vkax-build
@@ -25,9 +19,6 @@ env:
   BOOST_VERSION: 1_73_0
   BLS_VERSION: 1.1.0
 
-# -------------------------------
-# Required GitHub Permissions
-# -------------------------------
 permissions:
   contents: read
   checks: write
@@ -39,15 +30,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      # Read release and snapshot versions from build.properties
       - uses: christian-draeger/read-properties@1.1.1
         id: versions
         with:
           path: build.properties
           properties: 'release-version snapshot-version'
-
-      # Select version depending on branch or PR
       - name: Choose version
         id: selected-version
         shell: bash
@@ -59,289 +46,236 @@ jobs:
           fi
           echo "version=$version" >> $GITHUB_OUTPUT
           echo "BUILD_VERSION=$version" > version.txt
-
-      # Upload version artifact for later jobs
       - name: Upload version artifact
         uses: actions/upload-artifact@v4
         with:
           name: version
           path: version.txt
-
     outputs:
       version: ${{ steps.selected-version.outputs.version }}
 
-
+  # ---------------- UBUNTU x86_64 ----------------
   build-ubuntu-x86:
-    name: Build Ubuntu x86_64
-    runs-on: ubuntu-latest
+    name: Ubuntu x86_64 Build
     needs: get-version
-    env:
-      BUILD_VERSION: ${{ needs.get-version.outputs.version }}
+    strategy:
+      matrix:
+        version: [20.04,22.04]
+    runs-on: ubuntu-${{ matrix.version }}
     steps:
       - uses: actions/checkout@v4
-
-      # Install essential dependencies
-      - name: Install dependencies
+      - uses: actions/download-artifact@v4
+        with:
+          name: version
+          path: .
+      - name: Install Dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential git pkg-config autoconf automake libtool \
-            libssl-dev libboost-all-dev libevent-dev libzmq3-dev protobuf-compiler libprotobuf-dev \
-            qt5-default qttools5-dev-tools libqrencode-dev
-
-      # Restore cached dependencies to speed up builds
-      - name: Restore depend cache
+          sudo apt-get update -y
+          sudo apt-get install -y build-essential g++-7 gcc-7 libtool autotools-dev automake pkg-config python3 bsdmainutils cmake \
+                                  libsodium-dev libminiupnpc-dev libnatpmp-dev libzmq3-dev qtbase5-dev libqt5svg5-dev \
+                                  libdb-dev libdb++-dev g++-mingw-w64-x86-64
+          sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-7 100
+          sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-7 100
+      - name: Cache Depends
         uses: actions/cache@v3
         with:
-          path: depends/work
-          key: ubuntu-x86-depends-${{ needs.get-version.outputs.version }}
-
-      # Build dependencies (protobuf, BLS, Boost if needed)
-      - name: Build dependencies
+          path: |
+            depends/build
+            depends/x86_64-pc-linux-gnu
+          key: vkax-depends-${{ matrix.version }}-x86_64-${{ hashFiles('depends/*') }}
+          restore-keys: |
+            vkax-depends-x86_64-
+      - name: Build depends
         run: |
-          cd depends
-          make -j$(nproc)
-          cd ..
-
-      # Build VKAX Core
-      - name: Build VKAX
+          HOST=x86_64-pc-linux-gnu
+          export FALLBACK_DOWNLOAD_PATH=https://explorer.yerbas.org/depends/
+          export CFLAGS="-fcommon -Wno-stringop-overflow"
+          export CXXFLAGS="$CFLAGS"
+          make -C depends -j$(nproc) HOST=$HOST BLS_VERSION=${BLS_VERSION}
+      - name: Configure VKAX
         run: |
-          mkdir -p build
-          cd build
-          cmake -DCMAKE_BUILD_TYPE=Release ..
+          ./autogen.sh
+          HOST=x86_64-pc-linux-gnu
+          ./configure --prefix=$(pwd)/depends/$HOST \
+                      --with-boost=$(pwd)/depends/boost \
+                      --with-incompatible-bdb \
+                      --enable-upnp-default \
+                      --with-zmq \
+                      --with-gui=qt5 CFLAGS="$CFLAGS" CXXFLAGS="$CXXFLAGS"
+      - name: Build Binary
+        run: |
           make -j$(nproc)
-
-      # Upload x86 build artifact
-      - name: Upload x86 build artifact
+          mkdir -p $BUILD_DIR ${BUILD_DIR}_not_strip $TEST_DIR
+          mv src/{vkax-cli,vkaxd,qt/vkax-qt} $BUILD_DIR/ || true
+          cp src/{vkax-cli,vkaxd,qt/vkax-qt} $TEST_DIR/ || true
+          mv src/{vkax-cli,vkaxd,qt/vkax-qt} ${BUILD_DIR}_not_strip/ || true
+          strip $BUILD_DIR/* || echo "strip failed — skipping"
+      - name: Generate checksum and compress
+        run: |
+          mkdir -p $COMPRESS_DIR
+          for DIR in $BUILD_DIR ${BUILD_DIR}_not_strip; do
+            cd $DIR
+            sha256sum * > checksums.txt || true
+            tar -czf ../$COMPRESS_DIR/$(basename $DIR)-${{ matrix.version }}-x86_64-${{ needs.get-version.outputs.version }}.tar.gz *
+            cd ..
+          done
+      - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: vkax-ubuntu-x86
-          path: build/src/vkaxd
+          name: vkax-ubuntu-${{ matrix.version }}-x86_64-${{ needs.get-version.outputs.version }}
+          path: $COMPRESS_DIR
 
-
+  # ---------------- UBUNTU ARM64 ----------------
   build-ubuntu-arm:
-    name: Build Ubuntu ARM
-    runs-on: ubuntu-latest
+    name: Ubuntu ARM64 Build
     needs: get-version
-    env:
-      BUILD_VERSION: ${{ needs.get-version.outputs.version }}
+    strategy:
+      matrix:
+        version: [20.04,22.04]
+    runs-on: ubuntu-${{ matrix.version }}
     steps:
       - uses: actions/checkout@v4
-
-      # Install essential dependencies
-      - name: Install dependencies
+      - uses: actions/download-artifact@v4
+        with:
+          name: version
+          path: .
+      - name: Install Dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential git pkg-config autoconf automake libtool \
-            libssl-dev libboost-all-dev libevent-dev libzmq3-dev protobuf-compiler libprotobuf-dev \
-            qt5-default qttools5-dev-tools libqrencode-dev
-
-      # Restore cached dependencies
-      - name: Restore depend cache
+          sudo apt-get update -y
+          sudo apt-get install -y build-essential g++-7 gcc-7 libtool autotools-dev automake pkg-config python3 bsdmainutils cmake \
+                                  libsodium-dev libminiupnpc-dev libnatpmp-dev libzmq3-dev qtbase5-dev libqt5svg5-dev \
+                                  libdb-dev libdb++-dev g++-aarch64-linux-gnu
+          sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-7 100
+          sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-7 100
+      - name: Cache Depends
         uses: actions/cache@v3
         with:
-          path: depends/work
-          key: ubuntu-arm-depends-${{ needs.get-version.outputs.version }}
-
-      # Build dependencies for ARM (cross-compile)
-      - name: Build dependencies
+          path: |
+            depends/build
+            depends/aarch64-linux-gnu
+          key: vkax-depends-${{ matrix.version }}-arm64-${{ hashFiles('depends/*') }}
+          restore-keys: |
+            vkax-depends-arm64-
+      - name: Build depends (ARM64)
         run: |
-          cd depends
-          make -j$(nproc) HOST=aarch64-linux-gnu
-          cd ..
-
-      # Build VKAX Core for ARM
-      - name: Build VKAX
+          HOST=aarch64-linux-gnu
+          export FALLBACK_DOWNLOAD_PATH=https://explorer.yerbas.org/depends/
+          export CFLAGS="-fcommon -Wno-stringop-overflow -march=armv8-a"
+          export CXXFLAGS="$CFLAGS"
+          export CC=aarch64-linux-gnu-gcc
+          export CXX=aarch64-linux-gnu-g++
+          make -C depends -j$(nproc) HOST=$HOST BLS_VERSION=${BLS_VERSION}
+      - name: Configure VKAX (ARM64)
         run: |
-          mkdir -p build-arm
-          cd build-arm
-          cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=../depends/aarch64-toolchain.cmake ..
+          ./autogen.sh
+          HOST=aarch64-linux-gnu
+          ./configure --prefix=$(pwd)/depends/$HOST \
+                      --with-boost=$(pwd)/depends/boost \
+                      --with-incompatible-bdb \
+                      --enable-upnp-default \
+                      --with-zmq \
+                      --with-gui=qt5 \
+                      CFLAGS="$CFLAGS" \
+                      CXXFLAGS="$CXXFLAGS" \
+                      CC="$CC" \
+                      CXX="$CXX"
+      - name: Build Binary (ARM64)
+        run: |
           make -j$(nproc)
-
-      # Upload ARM build artifact
-      - name: Upload ARM build artifact
+          mkdir -p $BUILD_DIR ${BUILD_DIR}_not_strip $TEST_DIR
+          mv src/{vkax-cli,vkaxd,qt/vkax-qt} $BUILD_DIR/ || true
+          cp src/{vkax-cli,vkaxd,qt/vkax-qt} $TEST_DIR/ || true
+          mv src/{vkax-cli,vkaxd,qt/vkax-qt} ${BUILD_DIR}_not_strip/ || true
+          strip $BUILD_DIR/* || echo "strip failed — skipping"
+      - name: Generate checksum and compress (ARM64)
+        run: |
+          mkdir -p $COMPRESS_DIR
+          for DIR in $BUILD_DIR ${BUILD_DIR}_not_strip; do
+            cd $DIR
+            sha256sum * > checksums.txt || true
+            tar -czf ../$COMPRESS_DIR/$(basename $DIR)-${{ matrix.version }}-arm64-${{ needs.get-version.outputs.version }}.tar.gz *
+            cd ..
+          done
+      - name: Upload Artifacts (ARM64)
         uses: actions/upload-artifact@v4
         with:
-          name: vkax-ubuntu-arm
-          path: build-arm/src/vkaxd
+          name: vkax-ubuntu-${{ matrix.version }}-arm64-${{ needs.get-version.outputs.version }}
+          path: $COMPRESS_DIR
 
+  # ---------------- macOS ----------------
   build-macos:
-    name: Build macOS
-    runs-on: macos-latest
+    name: macOS x86_64 Build
     needs: get-version
-    env:
-      BUILD_VERSION: ${{ needs.get-version.outputs.version }}
+    runs-on: macos-13
     steps:
       - uses: actions/checkout@v4
-
-      # Install dependencies via Homebrew
-      - name: Install dependencies
+      - uses: actions/download-artifact@v4
+        with:
+          name: version
+          path: .
+      - name: Install Dependencies
         run: |
           brew update
-          brew install autoconf automake libtool pkg-config boost protobuf \
-            qt@5 libevent zeromq qrencode
-
-      # Set Qt5 environment variables
-      - name: Set Qt5 environment
+          brew install automake libtool pkg-config miniupnpc librsvg libnatpmp zeromq python qt@5 berkeley-db@4 immer
+          export BDB_INCLUDE_DIR=$(brew --prefix berkeley-db@4)/include
+          export BDB_LIB_DIR=$(brew --prefix berkeley-db@4)/lib
+          export QT_PATH=$(brew --prefix qt@5)
+          export BOOST_ROOT=$(pwd)/depends/boost
+          export PATH=$QT_PATH/bin:$PATH
+          export PKG_CONFIG_PATH=$QT_PATH/lib/pkgconfig:$PKG_CONFIG_PATH
+      - name: Configure VKAX
         run: |
-          echo "export PATH=/usr/local/opt/qt@5/bin:$PATH" >> $GITHUB_ENV
-          echo "export PKG_CONFIG_PATH=/usr/local/opt/qt@5/lib/pkgconfig:$PKG_CONFIG_PATH" >> $GITHUB_ENV
-
-      # Restore cached dependencies to speed up builds
-      - name: Restore depend cache
-        uses: actions/cache@v3
-        with:
-          path: depends/work
-          key: macos-depends-${{ needs.get-version.outputs.version }}
-
-      # Build dependencies (protobuf, BLS, Boost if needed)
-      - name: Build dependencies
+          ./autogen.sh
+          ./configure --prefix=$(pwd)/depends/x86_64-apple-darwin20.6.0 \
+                      --with-incompatible-bdb \
+                      --enable-upnp-default \
+                      --with-zmq \
+                      --with-gui=qt5 \
+                      CXXFLAGS="-I$BDB_INCLUDE_DIR -I$QT_PATH/include" \
+                      LDFLAGS="-L$BDB_LIB_DIR -L$QT_PATH/lib" \
+                      QT_SELECT=5
+      - name: Build Binary
         run: |
-          cd depends
           make -j$(sysctl -n hw.ncpu)
+          mkdir -p $BUILD_DIR ${BUILD_DIR}_not_strip
+          mv src/{vkax-cli,vkaxd,qt/vkax-qt} $BUILD_DIR/ || true
+          mv src/{vkax-cli,vkaxd,qt/vkax-qt} ${BUILD_DIR}_not_strip/ || true
+      - name: Generate DMG
+        run: |
+          make deploy || true
+          mkdir -p macos-dmg
+          mv vkax-Qt.dmg macos-dmg/ || true
+          cd macos-dmg
+          shasum -a 256 *.dmg > checksums.txt || true
           cd ..
 
-      # Build VKAX Core
-      - name: Build VKAX
-        run: |
-          mkdir -p build-macos
-          cd build-macos
-          cmake -DCMAKE_BUILD_TYPE=Release ..
-          make -j$(sysctl -n hw.ncpu)
-
-      # Upload macOS build artifact
-      - name: Upload macOS build artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: vkax-macos
-          path: build-macos/src/vkaxd
-
-
+  # ---------------- WINDOWS x64 ----------------
   build-windows:
-    name: Build Windows
-    runs-on: windows-latest
+    name: Windows x64 Build
     needs: get-version
-    env:
-      BUILD_VERSION: ${{ needs.get-version.outputs.version }}
+    runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
-
-      # Setup vcpkg for dependency management
-      - name: Setup vcpkg
-        uses: lukka/get-vcpkg@v15
+      - uses: actions/download-artifact@v4
         with:
-          vcpkgRoot: C:/vcpkg
-          overlayTriplets: ''
-
-      # Install required libraries via vcpkg
-      - name: Install dependencies
+          name: version
+          path: .
+      - name: Install Dependencies
         run: |
-          C:/vcpkg/vcpkg install boost:x64-windows protobuf:x64-windows \
-            qt5:x64-windows libevent:x64-windows zeromq:x64-windows qrencode:x64-windows
-
-      # Restore cached depends
-      - name: Restore depend cache
-        uses: actions/cache@v3
-        with:
-          path: depends/work
-          key: windows-depends-${{ needs.get-version.outputs.version }}
-
-      # Build dependencies (if any local builds are required)
-      - name: Build dependencies
+          choco install mingw -y
+          choco install nsis -y
+          choco install cmake -y
+      - name: Configure VKAX
         run: |
-          cd depends
-          mingw32-make -j%NUMBER_OF_PROCESSORS%
-          cd ..
-
-      # Build VKAX Core
-      - name: Build VKAX
+          ./autogen.sh
+          ./configure --prefix=$(pwd)/depends/x86_64-w64-mingw32 \
+                      --with-incompatible-bdb \
+                      --enable-upnp-default \
+                      --with-zmq \
+                      --with-gui=qt5
+      - name: Build Binary
         run: |
-          mkdir build-windows
-          cd build-windows
-          cmake -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Release ..
-          mingw32-make -j%NUMBER_OF_PROCESSORS%
-
-      # Upload Windows build artifact
-      - name: Upload Windows build artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: vkax-windows
-          path: build-windows/src/vkaxd.exe
-
-
-  package-release:
-    name: Package and Release
-    runs-on: ubuntu-latest
-    needs:
-      - build-ubuntu-x86
-      - build-ubuntu-arm
-      - build-macos
-      - build-windows
-    steps:
-      - uses: actions/checkout@v4
-
-      # Download Linux x86_64 artifact
-      - name: Download Linux x86_64 artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: vkax-ubuntu-x86
-          path: artifacts/linux-x86
-
-      # Download Linux ARM artifact
-      - name: Download Linux ARM artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: vkax-ubuntu-arm
-          path: artifacts/linux-arm
-
-      # Download macOS artifact
-      - name: Download macOS artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: vkax-macos
-          path: artifacts/macos
-
-      # Download Windows artifact
-      - name: Download Windows artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: vkax-windows
-          path: artifacts/windows
-
-      # Package Linux x86_64
-      - name: Package Linux x86_64
-        run: |
-          cd artifacts/linux-x86
-          zip -r ../../vkax-linux-x86-${{ needs.get-version.outputs.version }}.zip *
-
-      # Package Linux ARM
-      - name: Package Linux ARM
-        run: |
-          cd artifacts/linux-arm
-          zip -r ../../vkax-linux-arm-${{ needs.get-version.outputs.version }}.zip *
-
-      # Package macOS
-      - name: Package macOS
-        run: |
-          cd artifacts/macos
-          zip -r ../../vkax-macos-${{ needs.get-version.outputs.version }}.zip *
-
-      # Package Windows
-      - name: Package Windows
-        run: |
-          cd artifacts/windows
-          zip -r ../../vkax-windows-${{ needs.get-version.outputs.version }}.zip *
-
-      # Upload all release artifacts to GitHub Releases
-      - name: Upload Release Artifacts
-        uses: softprops/action-gh-release@v1
-        with:
-          tag_name: ${{ needs.get-version.outputs.version }}
-          name: Vkax Core ${{ needs.get-version.outputs.version }}
-          files: |
-            vkax-linux-x86-${{ needs.get-version.outputs.version }}.zip
-            vkax-linux-arm-${{ needs.get-version.outputs.version }}.zip
-            vkax-macos-${{ needs.get-version.outputs.version }}.zip
-            vkax-windows-${{ needs.get-version.outputs.version }}.zip
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
+          make -j$(nproc)
+          mkdir -p $BUILD_DIR ${BUILD_DIR}_not_strip
+          cp src/{vkax-cli.exe,vkaxd.exe,qt/vkax-qt.exe} $BUILD_DIR/ || true
+          mv src/{vkax-cli.exe,vkaxd.exe,qt/vkax-qt.exe} ${BUILD_DIR}_not_strip/ || true
