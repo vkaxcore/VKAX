@@ -123,7 +123,7 @@ jobs:
     needs: get-version
     strategy:
       matrix:
-        version: [18.04, 20.04, 22.04, 24.04]
+        version: [18.04, 20.04, 22.04]
         arch: [x86_64, arm64]
     runs-on: ubuntu-${{ matrix.version }}
     steps:
