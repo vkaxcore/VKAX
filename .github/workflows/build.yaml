@@ -31,13 +31,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: christian-draeger/read-properties@1.1.1
         id: versions
         with:
           path: build.properties
           properties: 'release-version snapshot-version'
-
       - name: Choose version
         id: selected-version
         shell: bash
@@ -49,13 +47,11 @@ jobs:
           fi
           echo "version=$version" >> $GITHUB_OUTPUT
           echo "BUILD_VERSION=$version" > version.txt
-
       - name: Upload version artifact
         uses: actions/upload-artifact@v4
         with:
           name: version
           path: version.txt
-
     outputs:
       version: ${{ steps.selected-version.outputs.version }}
 
@@ -73,12 +69,10 @@ jobs:
         with:
           name: version
           path: .
-
       - name: Install Dependencies
         run: |
           sudo apt-get update -y
           sudo apt-get install -y build-essential g++ libsodium-dev gcc libtool autotools-dev automake pkg-config python3 bsdmainutils cmake libminiupnpc-dev libnatpmp-dev libzmq3-dev qtbase5-dev libqt5svg5-dev libdb-dev libdb++-dev
-
       - name: Cache Depends
         uses: actions/cache@v3
         with:
@@ -88,13 +82,11 @@ jobs:
           key: vkax-depends-${{ matrix.version }}-x86_64-${{ hashFiles('depends/*') }}
           restore-keys: |
             vkax-depends-x86_64-
-
       - name: Build depends
         run: |
           export FALLBACK_DOWNLOAD_PATH=https://explorer.yerbas.org/depends/
           HOST=x86_64-pc-linux-gnu
           make -C depends -j$(nproc) HOST=$HOST BLS_VERSION=${BLS_VERSION}
-
       - name: Configure VKAX
         run: |
           ./autogen.sh
@@ -105,7 +97,6 @@ jobs:
                       --enable-upnp-default \
                       --with-zmq \
                       --with-gui=qt5
-
       - name: Build Binary
         run: |
           make -j$(nproc)
@@ -114,7 +105,6 @@ jobs:
           cp src/{vkax-cli,vkaxd,qt/vkax-qt} $TEST_DIR/
           mv src/{vkax-cli,vkaxd,qt/vkax-qt} ${BUILD_DIR}_not_strip/
           strip $BUILD_DIR/* || echo "strip failed — skipping"
-
       - name: Build Debug Binary
         run: |
           make clean
@@ -125,7 +115,6 @@ jobs:
           make -j$(nproc)
           mkdir -p ${BUILD_DIR}_debug
           mv src/{vkax-cli,vkaxd,qt/vkax-qt} ${BUILD_DIR}_debug/
-
       - name: Generate Checksum and Compress
         run: |
           mkdir -p $COMPRESS_DIR
@@ -135,13 +124,11 @@ jobs:
             tar -czf ../$COMPRESS_DIR/$(basename $DIR)-${{ matrix.version }}-x86_64-${{ needs.get-version.outputs.version }}.tar.gz *
             cd ..
           done
-
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: vkax-ubuntu-${{ matrix.version }}-x86_64-${{ needs.get-version.outputs.version }}
           path: $COMPRESS_DIR
-
       - name: Upload Test Binaries
         uses: actions/upload-artifact@v4
         with:
@@ -162,12 +149,10 @@ jobs:
         with:
           name: version
           path: .
-
       - name: Install Dependencies
         run: |
           sudo apt-get update -y
           sudo apt-get install -y build-essential g++ libsodium-dev gcc libtool autotools-dev automake pkg-config python3 bsdmainutils cmake libminiupnpc-dev libnatpmp-dev libzmq3-dev qtbase5-dev libqt5svg5-dev libdb-dev libdb++-dev g++-aarch64-linux-gnu
-
       - name: Cache Depends
         uses: actions/cache@v3
         with:
@@ -177,16 +162,15 @@ jobs:
           key: vkax-depends-${{ matrix.version }}-arm64-${{ hashFiles('depends/*') }}
           restore-keys: |
             vkax-depends-arm64-
-
       - name: Build depends
         run: |
           export FALLBACK_DOWNLOAD_PATH=https://explorer.yerbas.org/depends/
           export CFLAGS="-O2 -fcommon -march=armv8-a -D_RELIC_64"
           export CXXFLAGS="$CFLAGS"
+          export CC=aarch64-linux-gnu-gcc
+          export CXX=aarch64-linux-gnu-g++
           HOST=aarch64-linux-gnu
-          make -C depends -j$(nproc) HOST=$HOST BLS_VERSION=${BLS_VERSION} \
-               CC=gcc CXX=g++
-
+          make -C depends -j$(nproc) HOST=$HOST BLS_VERSION=${BLS_VERSION}
       - name: Configure VKAX
         run: |
           ./autogen.sh
@@ -198,8 +182,9 @@ jobs:
                       --with-zmq \
                       --with-gui=qt5 \
                       CFLAGS="$CFLAGS" \
-                      CXXFLAGS="$CXXFLAGS"
-
+                      CXXFLAGS="$CXXFLAGS" \
+                      CC="$CC" \
+                      CXX="$CXX"
       - name: Build Binary
         run: |
           make -j$(nproc)
@@ -208,18 +193,20 @@ jobs:
           cp src/{vkax-cli,vkaxd,qt/vkax-qt} $TEST_DIR/
           mv src/{vkax-cli,vkaxd,qt/vkax-qt} ${BUILD_DIR}_not_strip/
           strip $BUILD_DIR/* || echo "strip failed — skipping"
-
       - name: Build Debug Binary
         run: |
           make clean
           make distclean
           ./autogen.sh
           ./configure --prefix=$(pwd)/depends/$HOST --disable-tests --enable-debug \
-                      --with-incompatible-bdb --enable-upnp-default --with-zmq --with-gui=qt5
+                      --with-incompatible-bdb --enable-upnp-default --with-zmq --with-gui=qt5 \
+                      CFLAGS="$CFLAGS" \
+                      CXXFLAGS="$CXXFLAGS" \
+                      CC="$CC" \
+                      CXX="$CXX"
           make -j$(nproc)
           mkdir -p ${BUILD_DIR}_debug
           mv src/{vkax-cli,vkaxd,qt/vkax-qt} ${BUILD_DIR}_debug/
-
       - name: Generate Checksum and Compress
         run: |
           mkdir -p $COMPRESS_DIR
@@ -229,13 +216,11 @@ jobs:
             tar -czf ../$COMPRESS_DIR/$(basename $DIR)-${{ matrix.version }}-arm64-${{ needs.get-version.outputs.version }}.tar.gz *
             cd ..
           done
-
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: vkax-ubuntu-${{ matrix.version }}-arm64-${{ needs.get-version.outputs.version }}
           path: $COMPRESS_DIR
-
       - name: Upload Test Binaries
         uses: actions/upload-artifact@v4
         with:
