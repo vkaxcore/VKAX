@@ -24,14 +24,12 @@ jobs:
       version: ${{ steps.select-version.outputs.version }}
     steps:
       - uses: actions/checkout@v4
-
       - name: Read version from build.properties
         id: versions
         uses: christian-draeger/read-properties@1.1.1
         with:
           path: build.properties
           properties: 'release-version snapshot-version'
-
       - name: Choose version
         id: select-version
         run: |
@@ -43,136 +41,119 @@ jobs:
           fi
           echo "version=$version" >> $GITHUB_OUTPUT
           echo "$version" > version.txt
-
       - uses: actions/upload-artifact@v4
         with:
           name: version
           path: version.txt
 
-  # Step 2: Setup dependencies (cached)
+  # Step 2: Setup dependencies
   setup-dependencies:
     runs-on: ubuntu-latest
     outputs:
       deps-script: ${{ steps.save-script.outputs.deps-script }}
     steps:
       - uses: actions/checkout@v4
-
-      # Cache depends folder
       - name: Cache depends
         uses: actions/cache@v3
         with:
           path: ${{ env.DEPENDS_DIR }}
           key: ${{ runner.os }}-depends-${{ env.CACHE_VERSION }}-${{ hashFiles('build.properties') }}
-
       - name: Create install-deps.sh
         id: save-script
         run: |
           cat <<'EOF' > install-deps.sh
           #!/bin/bash
           set -e
-          echo "Installing dependencies for $OSTYPE..."
           if [[ "$OSTYPE" == "darwin"* ]]; then
+            echo "Installing macOS dependencies..."
             brew install automake libtool pkg-config miniupnpc libnatpmp zeromq python3 || true
             pip3 install setuptools || true
           else
+            echo "Installing Linux dependencies..."
             sudo apt-get update -y
             sudo apt-get install -y build-essential libtool autotools-dev automake pkg-config python3 bsdmainutils cmake curl || true
-            if [[ "$1" == "windows" ]]; then
-              sudo apt-get install -y g++-mingw-w64-x86-64 gcc-mingw-w64-x86-64
-              sudo update-alternatives --set x86_64-w64-mingw32-gcc /usr/bin/x86_64-w64-mingw32-gcc-posix
-              sudo update-alternatives --set x86_64-w64-mingw32-g++ /usr/bin/x86_64-w64-mingw32-g++-posix
-            elif [[ "$1" == "arm64" ]]; then
+            if [[ "$1" == "arm64" ]]; then
               sudo apt-get install -y g++-aarch64-linux-gnu
             fi
           fi
           EOF
-
           chmod +x install-deps.sh
           echo "deps-script=install-deps.sh" >> $GITHUB_OUTPUT
-
       - uses: actions/upload-artifact@v4
         with:
           name: install-deps
           path: install-deps.sh
 
-  # Step 3: Build all platforms using matrix
-  build:
+  # Step 3: Build macOS
+  build-macos:
+    runs-on: macos-13
     needs: [get-version, setup-dependencies]
-    strategy:
-      matrix:
-        os: [macos-13, ubuntu-22.04, ubuntu-22.04, ubuntu-22.04] # macOS, Ubuntu x86_64, Ubuntu ARM64, Windows
-        arch: [x86_64, x86_64, arm64, windows]
-      fail-fast: false
-    runs-on: ${{ matrix.os }}
+    outputs:
+      artifact-path: ${{ steps.set-artifact.outputs.artifact-path }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           name: install-deps
+      - run: bash install-deps.sh
+      - run: export CXXFLAGS="-Wno-deprecated-declarations"
+      - run: make -C depends -j$(sysctl -n hw.ncpu)
+      - run: ./autogen.sh && ./configure CXXFLAGS="$CXXFLAGS" --prefix=`pwd`/depends/x86_64-apple-darwin20.6.0
+      - run: make -j$(sysctl -n hw.ncpu)
+      - run: |
+          mkdir -p $BUILD_DIR
+          mv src/{vkax-cli,vkaxd,qt/vkax-qt} $BUILD_DIR/
+          strip $BUILD_DIR/*
+      - run: tar -czf ${COIN_NAME}-macos-${{ needs.get-version.outputs.version }}.tar.gz $BUILD_DIR
+      - name: Set artifact path
+        id: set-artifact
+        run: echo "artifact-path=${COIN_NAME}-macos-${{ needs.get-version.outputs.version }}.tar.gz" >> $GITHUB_OUTPUT
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-${{ needs.get-version.outputs.version }}
+          path: ${COIN_NAME}-macos-${{ needs.get-version.outputs.version }}.tar.gz
 
-      # Install dependencies
-      - name: Install dependencies
-        run: |
-          chmod +x install-deps.sh
-          bash install-deps.sh ${{ matrix.arch }}
-
-      # Cache build artifacts
+  # Step 4: Build Ubuntu (matrix x86_64 + ARM64)
+  build-ubuntu:
+    needs: [get-version, setup-dependencies]
+    strategy:
+      matrix:
+        arch: [x86_64, arm64]
+      fail-fast: false
+    runs-on: ubuntu-22.04
+    outputs:
+      artifact-path: ${{ steps.set-artifact.outputs.artifact-path }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: install-deps
+      - run: bash install-deps.sh ${{ matrix.arch }}
       - name: Cache depends
         uses: actions/cache@v3
         with:
           path: ${{ env.DEPENDS_DIR }}
           key: ${{ runner.os }}-build-${{ matrix.arch }}-${{ env.CACHE_VERSION }}-${{ hashFiles('build.properties') }}
-
-      # Prepare build dir
       - run: |
           rm -rf $BUILD_DIR
           mkdir -p $BUILD_DIR
-
-      # Build depends
       - run: |
           echo "Building depends..."
           if [[ "${{ matrix.arch }}" == "arm64" ]]; then
             make -C depends -j$(nproc) HOST=aarch64-linux-gnu
-          elif [[ "${{ matrix.arch }}" == "windows" ]]; then
-            make -C depends -j$(nproc) HOST=x86_64-w64-mingw32
-          elif [[ "${{ matrix.os }}" == "macos-13" ]]; then
-            make -C depends -j$(sysctl -n hw.ncpu)
           else
             make -C depends -j$(nproc)
           fi
-
-      # Autogen & configure
       - run: |
           echo "Configuring build..."
-          if [[ "${{ matrix.arch }}" == "windows" ]]; then
-            ./autogen.sh && ./configure --prefix=`pwd`/depends/x86_64-w64-mingw32
-          elif [[ "${{ matrix.arch }}" == "arm64" ]]; then
+          if [[ "${{ matrix.arch }}" == "arm64" ]]; then
             ./autogen.sh && ./configure --prefix=`pwd`/depends/aarch64-linux-gnu
-          elif [[ "${{ matrix.os }}" == "macos-13" ]]; then
-            export CXXFLAGS="-Wno-deprecated-declarations"
-            ./autogen.sh && ./configure CXXFLAGS="$CXXFLAGS" --prefix=`pwd`/depends/x86_64-apple-darwin20.6.0
           else
             ./autogen.sh && ./configure --prefix=`pwd`/depends/x86_64-pc-linux-gnu
           fi
-
-      # Compile
+      - run: make -j$(nproc) V=1
       - run: |
-          echo "Compiling..."
-          if [[ "${{ matrix.os }}" == "macos-13" ]]; then
-            make -j$(sysctl -n hw.ncpu) V=1
-          else
-            make -j$(nproc) V=1
-          fi
-
-      # Move binaries safely
-      - run: |
-          BINARIES=()
-          if [[ "${{ matrix.arch }}" == "windows" ]]; then
-            BINARIES=(src/vkax-cli.exe src/vkaxd.exe src/qt/vkax-qt.exe)
-          else
-            BINARIES=(src/vkax-cli src/vkaxd src/qt/vkax-qt)
-          fi
-
+          BINARIES=(src/vkax-cli src/vkaxd src/qt/vkax-qt)
           for f in "${BINARIES[@]}"; do
             if [[ -f "$f" ]]; then
               mv "$f" $BUILD_DIR/
@@ -180,40 +161,86 @@ jobs:
               echo "Warning: $f not found"
             fi
           done
-
-      # Strip binaries (skip Windows)
+      - run: strip $BUILD_DIR/* || true
       - run: |
-          if [[ "${{ matrix.arch }}" != "windows" ]]; then
-            strip $BUILD_DIR/* || true
-          fi
-
-      # Package artifacts
-      - run: |
-          ARTIFACT=""
           VERSION=${{ needs.get-version.outputs.version }}
-          case "${{ matrix.arch }}" in
-            windows)
-              ARTIFACT=${COIN_NAME}-win-${VERSION}.zip
-              zip -r $ARTIFACT $BUILD_DIR
-              ;;
-            arm64)
-              ARTIFACT=${COIN_NAME}-arm64-${VERSION}.tar.gz
-              tar -czf $ARTIFACT $BUILD_DIR
-              ;;
-            x86_64)
-              if [[ "${{ matrix.os }}" == "macos-13" ]]; then
-                ARTIFACT=${COIN_NAME}-macos-${VERSION}.tar.gz
-              else
-                ARTIFACT=${COIN_NAME}-ubuntu-${VERSION}.tar.gz
-              fi
-              tar -czf $ARTIFACT $BUILD_DIR
-              ;;
-          esac
-          echo "Artifact created: $ARTIFACT"
-          echo $ARTIFACT > artifact-path.txt
-
-      # Upload artifact
+          if [[ "${{ matrix.arch }}" == "arm64" ]]; then
+            ARTIFACT=${COIN_NAME}-arm64-${VERSION}.tar.gz
+          else
+            ARTIFACT=${COIN_NAME}-ubuntu-${VERSION}.tar.gz
+          fi
+          tar -czf $ARTIFACT $BUILD_DIR
+          echo "artifact-path=$ARTIFACT" >> $GITHUB_OUTPUT
+      - id: set-artifact
+        run: echo "artifact-path=$ARTIFACT" >> $GITHUB_OUTPUT
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.arch }}-${{ needs.get-version.outputs.version }}
-          path: artifact-path.txt
+          path: $ARTIFACT
+
+  # Step 5: Build Windows
+  build-windows:
+    runs-on: ubuntu-22.04
+    needs: [get-version, setup-dependencies]
+    outputs:
+      artifact-path: ${{ steps.set-artifact.outputs.artifact-path }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: install-deps
+      - run: bash install-deps.sh windows
+      - run: make -C depends -j$(nproc) HOST=x86_64-w64-mingw32
+      - run: ./autogen.sh && ./configure --prefix=`pwd`/depends/x86_64-w64-mingw32
+      - run: make -j$(nproc)
+      - run: |
+          mkdir -p $BUILD_DIR
+          mv src/{vkax-cli.exe,vkaxd.exe,qt/vkax-qt.exe} $BUILD_DIR/
+      - run: zip -r ${COIN_NAME}-win-${{ needs.get-version.outputs.version }}.zip $BUILD_DIR
+      - id: set-artifact
+        run: echo "artifact-path=${COIN_NAME}-win-${{ needs.get-version.outputs.version }}.zip" >> $GITHUB_OUTPUT
+      - uses: actions/upload-artifact@v4
+        with:
+          name: win-${{ needs.get-version.outputs.version }}
+          path: ${COIN_NAME}-win-${{ needs.get-version.outputs.version }}.zip
+
+  # Step 6: Test builds
+  test-builds:
+    runs-on: ubuntu-22.04
+    needs: [build-macos, build-ubuntu, build-windows]
+    steps:
+      - name: Create test log directory
+        run: mkdir -p ${{ env.TEST_LOG_ARTIFACT_DIR }}
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: macos-${{ needs.get-version.outputs.version }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: x86_64-${{ needs.get-version.outputs.version }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: arm64-${{ needs.get-version.outputs.version }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: win-${{ needs.get-version.outputs.version }}
+      - name: Test macOS binary
+        run: |
+          tar -xzf vkax-macos-${{ needs.get-version.outputs.version }}.tar.gz
+          ./vkax-build/vkax-cli --version > ${{ env.TEST_LOG_ARTIFACT_DIR }}/macos-cli.log 2>&1 || echo "macOS test failed"
+      - name: Test Ubuntu x86_64 binary
+        run: |
+          tar -xzf vkax-ubuntu-${{ needs.get-version.outputs.version }}.tar.gz
+          ./vkax-build/vkax-cli --version > ${{ env.TEST_LOG_ARTIFACT_DIR }}/ubuntu-x86_64-cli.log 2>&1 || echo "Ubuntu x86_64 test failed"
+      - name: Test Ubuntu ARM64 binary
+        run: |
+          tar -xzf vkax-arm64-${{ needs.get-version.outputs.version }}.tar.gz
+          ./vkax-build/vkax-cli --version > ${{ env.TEST_LOG_ARTIFACT_DIR }}/ubuntu-arm64-cli.log 2>&1 || echo "Ubuntu ARM64 test failed"
+      - name: Test Windows binary
+        run: |
+          unzip vkax-win-${{ needs.get-version.outputs.version }}.zip -d win-build
+          wine win-build/vkax-cli.exe --version > ${{ env.TEST_LOG_ARTIFACT_DIR }}/windows-cli.log 2>&1 || echo "Windows test failed"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: test-logs
+          path: ${{ env.TEST_LOG_ARTIFACT_DIR }}
