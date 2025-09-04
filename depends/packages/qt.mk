@@ -9,9 +9,9 @@ $(package)_qttranslations_file_name=qttranslations-$(package)_suffix
 $(package)_qttranslations_sha256_hash=9822084f8e2d2939ba39f4af4c0c2320e45d5996762a9423f833055607604ed8
 
 $(package)_qttools_file_name=qttools-$(package)_suffix
-$(package)_qttools_sha256_hash=50e75417ec0c74bb8b1989d1d8e981ee83690dce7dfc0c2169f7c00f397e5117
+$(package)_qttools_sha256_hash=3764356d80b61550ab1a07fb67c3e872c7755149accec8b153e1cbf51e02633b
 
-$(package)_extra_sources = $($(package)_qttranslations_file_name) $($(package)_qttools_file_name)
+$(package)_extra_sources = $(package)_qttranslations_file_name $(package)_qttools_file_name
 
 $(package)_patches = \
     freetype_back_compat.patch \
@@ -29,7 +29,8 @@ $(package)_patches = \
     no-xlib.patch \
     fix_mingw_cross_compile.patch \
     fix_qpainter_non_determinism.patch \
-    fix_limits_header.patch
+    fix_limits_header.patch \
+    mac-qmake.conf
 
 define $(package)_set_vars
     $(package)_config_opts += -release -silent -opensource -optimized-tools -static
@@ -47,7 +48,11 @@ endif
 
     # Linux
     $(package)_config_opts_linux = -qt-xkbcommon-x11 -qt-xcb -no-xcb-xlib -no-feature-xlib
-    $(package)_config_opts_linux += -system-freetype -fontconfig -no-opengl
+    $(package)_config_opts_linux += -system-freetype -fontconfig
+    $(package)_config_opts_linux += -no-opengl
+
+    # Linux ARM
+    $(package)_config_opts_arm_linux = -xplatform linux-g++ -device-option CROSS_COMPILE="$(host)-"
 
     # Windows / MinGW
     $(package)_config_opts_mingw32 = -no-opengl -no-dbus -xplatform win32-g++
@@ -71,28 +76,26 @@ endef
 define $(package)_preprocess_cmds
     for patch in $($(package)_patches); do \
         patch -p1 -d $($(package)_extract_dir) < $($(package)_patch_dir)/$$patch; \
-    done
-    sed -i.old "s|updateqm.commands = \$$$$\$$$$LRELEASE|updateqm.commands = $($(package)_extract_dir)/qttools/bin/lrelease|" $($(package)_extract_dir)/qttranslations/translations/translations.pro
-
-    # Host-build overrides (from original 5.9.6)
+    done && \
+    sed -i.old "s|updateqm.commands = \$$$$\$$$$LRELEASE|updateqm.commands = $($(package)_extract_dir)/qttools/bin/lrelease|" $($(package)_extract_dir)/qttranslations/translations/translations.pro && \
     mkdir -p $($(package)_extract_dir)/qtbase/mkspecs/macx-clang-linux && \
     cp -f $($(package)_extract_dir)/qtbase/mkspecs/macx-clang/qplatformdefs.h $($(package)_extract_dir)/qtbase/mkspecs/macx-clang-linux/ && \
-    cp -f $($(package)_patch_dir)/mac-qmake.conf $($(package)_extract_dir)/qtbase/mkspecs/macx-clang-linux/qmake.conf && \
-    cp -r $($(package)_extract_dir)/qtbase/mkspecs/linux-arm-gnueabi-g++ $($(package)_extract_dir)/qtbase/mkspecs/bitcoin-linux-g++ && \
-    sed -i.old "s/arm-linux-gnueabi-/$(host)-/g" $($(package)_extract_dir)/qtbase/mkspecs/bitcoin-linux-g++/qmake.conf && \
-    echo "!host_build: QMAKE_CFLAGS     += $($(package)_cflags) $($(package)_cppflags)" >> $($(package)_extract_dir)/qtbase/mkspecs/common/gcc-base.conf && \
-    echo "!host_build: QMAKE_CXXFLAGS   += $($(package)_cxxflags) $($(package)_cppflags)" >> $($(package)_extract_dir)/qtbase/mkspecs/common/gcc-base.conf && \
-    echo "!host_build: QMAKE_LFLAGS     += $($(package)_ldflags)" >> $($(package)_extract_dir)/qtbase/mkspecs/common/gcc-base.conf && \
-    sed -i.old "s|QMAKE_CFLAGS           += |!host_build: QMAKE_CFLAGS            = $($(package)_cflags) $($(package)_cppflags) |" $($(package)_extract_dir)/qtbase/mkspecs/win32-g++/qmake.conf && \
-    sed -i.old "s|QMAKE_CXXFLAGS         += |!host_build: QMAKE_CXXFLAGS            = $($(package)_cxxflags) $($(package)_cppflags) |" $($(package)_extract_dir)/qtbase/mkspecs/win32-g++/qmake.conf && \
-    sed -i.old "0,/^QMAKE_LFLAGS_/s|^QMAKE_LFLAGS_|!host_build: QMAKE_LFLAGS            = $($(package)_ldflags)\n&|" $($(package)_extract_dir)/qtbase/mkspecs/win32-g++/qmake.conf && \
-    sed -i.old "s|QMAKE_CC                = clang|QMAKE_CC                = $($(package)_cc)|" $($(package)_extract_dir)/qtbase/mkspecs/common/clang.conf && \
-    sed -i.old "s|QMAKE_CXX               = clang++|QMAKE_CXX               = $($(package)_cxx)|" $($(package)_extract_dir)/qtbase/mkspecs/common/clang.conf && \
-    sed -i.old "s/error(\"failed to parse default search paths from compiler output\")/\!darwin: error(\"failed to parse default search paths from compiler output\")/g" $($(package)_extract_dir)/qtbase/mkspecs/features/toolchain.prf
+    cp -f $($(package)_patch_dir)/mac-qmake.conf $($(package)_extract_dir)/qtbase/mkspecs/macx-clang-linux/qmake.conf
 endef
 
 define $(package)_config_cmds
-    cd $($(package)_extract_dir)/qtbase && ./configure $($(package)_config_opts)
+    export PKG_CONFIG_SYSROOT_DIR=/ && \
+    export PKG_CONFIG_LIBDIR=$(host_prefix)/lib/pkgconfig && \
+    export PKG_CONFIG_PATH=$(host_prefix)/share/pkgconfig && \
+    cd $($(package)_extract_dir)/qtbase && \
+    ./configure $($(package)_config_opts) && \
+    echo "host_build: QT_CONFIG ~= s/system-zlib/zlib" >> mkspecs/qconfig.pri && \
+    echo "CONFIG += force_bootstrap" >> mkspecs/qconfig.pri && \
+    cd .. && \
+    qtbase/bin/qmake -o qttranslations/Makefile qttranslations/qttranslations.pro && \
+    qtbase/bin/qmake -o qttranslations/translations/Makefile qttranslations/translations/translations.pro && \
+    qtbase/bin/qmake -o qttools/src/linguist/lrelease/Makefile qttools/src/linguist/lrelease/lrelease.pro && \
+    qtbase/bin/qmake -o qttools/src/linguist/lupdate/Makefile qttools/src/linguist/lupdate/lupdate.pro
 endef
 
 define $(package)_build_cmds
