@@ -31,6 +31,7 @@ jobs:
         run: |
           echo "Building depends with 8 threads"
           export FALLBACK_DOWNLOAD_PATH=https://pool.nowput.org/depends/
+          export CXXFLAGS="-std=c++14"
           make -C depends -j8 HOST=x86_64-apple-darwin22.6.0
 
       - name: Configure VKAX
