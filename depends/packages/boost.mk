@@ -39,6 +39,7 @@ define $(package)_set_vars
 
   # Compiler flags
   $(package)_cxxflags=-std=c++17 -fvisibility=hidden
+  $(package)_cxxflags_darwin=-std=c++17 -fvisibility=hidden -Wno-enum-constexpr-conversion
   $(package)_cxxflags_linux=-fPIC
   $(package)_cxxflags_android=-fPIC
 endef
