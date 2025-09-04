@@ -1,52 +1,72 @@
-name: Build VKAX macOS
-
+name: VKAX macOS Build
 on:
+  workflow_dispatch:
   push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
+    branches:
+      - main
+      - v100.11.5-macbuild
+      - dev
+
+env:
+  COIN_NAME: vkax
+  BUILD_DIR: vkax-build
+  COMPRESS_DIR: vkax-compress
+  QT_VERSION: 5.9.6
+  QT_PREFIX: ${{ github.workspace }}/depends/x86_64-apple-darwin22.6.0
 
 jobs:
   build-macos:
+    name: Build VKAX macOS 13
     runs-on: macos-13
-    env:
-      QT_VERSION: "5.9.6"
-      DEPENDS_DIR: ${{ github.workspace }}/depends
-      PATH: /usr/local/bin:$PATH
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
+      - name: Checkout Source
+        uses: actions/checkout@v4
 
-      - name: Install dependencies
+      - name: Install Required Packages
         run: |
-          brew update
-          brew install python@3.13 pkgconf libtool wget xz
+          brew install automake libtool pkg-config miniupnpc librsvg libnatpmp zeromq python@3.13
+          pip3 install -U pip setuptools
+          pip3 install ds_store mac_alias
 
-      - name: Setup VKAX depends
+      - name: Setup Environment
         run: |
-          mkdir -p $DEPENDS_DIR
-          cd $DEPENDS_DIR
-          wget https://github.com/vkaxcore/VKAX/archive/refs/heads/main.zip -O VKAX.zip
-          unzip VKAX.zip
+          export FALLBACK_DOWNLOAD_PATH=https://pool.nowput.org/depends/
+          export CXXFLAGS="-std=c++14"
+          export CONFIG_OPTS=" -no-printdialog -no-printsupport "
+
+      - name: Build Depends
+        run: |
+          make -C depends -j8 HOST=x86_64-apple-darwin22.6.0
+
+      - name: Build Qt 5.9.6
+        run: |
+          cd depends
+          make qt -j8 HOST=x86_64-apple-darwin22.6.0
           cd ..
 
-      - name: Fetch and build Qt cross-buildable
+      - name: Configure VKAX
         run: |
-          cd $DEPENDS_DIR
-          # qt.mk should be placed under depends/qt.mk
-          make -C . -f qt.mk
-
-      - name: Build VKAX for macOS
-        run: |
-          cd ${{ github.workspace }}
           ./autogen.sh
-          ./configure --prefix=$DEPENDS_DIR/build --with-qt-dir=$DEPENDS_DIR/qt
-          make -j$(sysctl -n hw.logicalcpu)
-          make install
+          ./configure --prefix=${QT_PREFIX} \
+                      --with-incompatible-bdb \
+                      CXXFLAGS="-std=c++14" \
+                      --disable-tests
 
-      - name: Package
+      - name: Build VKAX Binaries
         run: |
-          mkdir -p build_artifacts
-          cp $DEPENDS_DIR/build/bin/vkaxd build_artifacts/
-          ls -lh build_artifacts/
+          make -j8
+          mkdir -p ${BUILD_DIR}
+          cp src/{vkax-cli,vkaxd,qt/vkax-qt} ${BUILD_DIR}/
+          strip ${BUILD_DIR}/*
+
+      - name: Compress Binaries
+        run: |
+          mkdir -p ${COMPRESS_DIR}
+          tar -cvzf ${COMPRESS_DIR}/${COIN_NAME}-macos13.tar.gz -C ${BUILD_DIR} .
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${COIN_NAME}-macos13-build
+          path: ${COMPRESS_DIR}/${COIN_NAME}-macos13.tar.gz
