@@ -1,6 +1,6 @@
 package=boost
 $(package)_version=1_81_0
-$(package)_download_path=https://boostorg.jfrog.io/artifactory/main/release/$(subst _,.,$($(package)_version))/source/
+$(package)_download_path=https://downloads.sourceforge.net/project/boost/boost/1.81.0/
 $(package)_file_name=boost_$($(package)_version).tar.bz2
 $(package)_sha256_hash=7d382c156c1fc6f2b00a9c0b7c6b991c37f940f2eea4a55b4b8e8cbbda5d5a35
 $(package)_dependencies=native_b2
@@ -39,7 +39,6 @@ define $(package)_set_vars
 
   # Compiler flags
   $(package)_cxxflags=-std=c++17 -fvisibility=hidden
-  $(package)_cxxflags_darwin=-std=c++17 -fvisibility=hidden -Wno-enum-constexpr-conversion
   $(package)_cxxflags_linux=-fPIC
   $(package)_cxxflags_android=-fPIC
 endef
