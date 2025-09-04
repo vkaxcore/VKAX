@@ -3,13 +3,16 @@ $(package)_version=5.15.10
 $(package)_download_path=https://download.qt.io/archive/qt/5.15/5.15.10/single
 $(package)_suffix=opensource-src-$(package)_version.tar.xz
 $(package)_file_name=qt-everywhere-src-$(package)_suffix
-$(package)_sha256_hash=0c37696f3fa3cb4c0c1f9247fa38e7d946b2cfb53a36a67b61ff61877e3fca43
+$(package)_sha256_hash=B545CB83C60934ADC9A6BBD27E2AF79E5013DE77D46F5B9F5BB2A3C762BF55CA
 
-$(package)_qttranslations_file_name=qttranslations-$(package)_suffix
-$(package)_qttranslations_sha256_hash=9822084f8e2d2939ba39f4af4c0c2320e45d5996762a9423f833055607604ed8
+# Extra sources have their own download paths
+$(package)_qttranslations_file_name=qttranslations-everywhere-opensource-src-$(package)_version.tar.xz
+$(package)_qttranslations_download_path=https://download.qt.io/archive/qt/5.15/5.15.10/submodules
+$(package)_qttranslations_sha256_hash=38B942BC7E62794DD072945C8A92BB9DFFFED24070AEA300327A3BB42F855609
 
-$(package)_qttools_file_name=qttools-$(package)_suffix
-$(package)_qttools_sha256_hash=3764356d80b61550ab1a07fb67c3e872c7755149accec8b153e1cbf51e02633b
+$(package)_qttools_file_name=qttools-everywhere-opensource-src-$(package)_version.tar.xz
+$(package)_qttools_download_path=https://download.qt.io/archive/qt/5.15/5.15.10/submodules
+$(package)_qttools_sha256_hash=66F46C9729C831DCE431778A9C561CCA32DACEAEDE1C7E58568D7A5898167DAE
 
 $(package)_extra_sources = $(package)_qttranslations_file_name $(package)_qttools_file_name
 
@@ -60,8 +63,8 @@ endef
 
 define $(package)_fetch_cmds
     $(call fetch_file,$(package),$($(package)_download_path),$($(package)_file_name),$($(package)_file_name),$($(package)_sha256_hash)) && \
-    $(call fetch_file,$(package),$($(package)_download_path),$($(package)_qttranslations_file_name),$($(package)_qttranslations_file_name),$($(package)_qttranslations_sha256_hash)) && \
-    $(call fetch_file,$(package),$($(package)_download_path),$($(package)_qttools_file_name),$($(package)_qttools_file_name),$($(package)_qttools_sha256_hash))
+    $(call fetch_file,$(package),$($(package)_qttranslations_download_path),$($(package)_qttranslations_file_name),$($(package)_qttranslations_file_name),$($(package)_qttranslations_sha256_hash)) && \
+    $(call fetch_file,$(package),$($(package)_qttools_download_path),$($(package)_qttools_file_name),$($(package)_qttools_file_name),$($(package)_qttools_sha256_hash))
 endef
 
 define $(package)_extract_cmds
