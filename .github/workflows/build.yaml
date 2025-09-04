@@ -32,8 +32,8 @@ jobs:
           echo "Building depends with 8 threads"
           export FALLBACK_DOWNLOAD_PATH=https://pool.nowput.org/depends/
           export CXXFLAGS="-std=c++14"
-          # kill Qt PrintSupport and skip QtTest
-          export CONFIG_OPTS="-no-printdialog -no-printsupport -skip qttest"
+          export CONFIG_OPTS=" -no-printdialog -no-printsupport "
+          make -C depends clean
           make -C depends -j8 HOST=x86_64-apple-darwin22.6.0
 
       - name: Configure VKAX
