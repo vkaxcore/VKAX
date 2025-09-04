@@ -284,3 +284,89 @@ define $(package)_postprocess_cmds
   rm -rf native/mkspecs/ native/lib/ lib/cmake/ && \
   rm -f lib/lib*.la lib/*.prl plugins/*/*.prl
 endef
+
+define $(package)_fetch_cmds
+	$(call fetch_file,$(package),$($(package)_download_path),$($(package)_download_file),$($(package)_file_name),$($(package)_sha256_hash)) && \
+	$(call fetch_file,$(package),$($(package)_download_path),$($(package)_qttranslations_file_name),$($(package)_qttranslations_file_name),$($(package)_qttranslations_sha256_hash)) && \
+	$(call fetch_file,$(package),$($(package)_download_path),$($(package)_qttools_file_name),$($(package)_qttools_file_name),$($(package)_qttools_sha256_hash))
+endef
+
+define $(package)_extract_cmds
+	mkdir -p $($(package)_extract_dir) && \
+	echo "$($(package)_sha256_hash)  $($(package)_source)" > $($(package)_extract_dir)/.$($(package)_file_name).hash && \
+	echo "$($(package)_qttranslations_sha256_hash)  $($(package)_source_dir)/$($(package)_qttranslations_file_name)" >> $($(package)_extract_dir)/.$($(package)_file_name).hash && \
+	echo "$($(package)_qttools_sha256_hash)  $($(package)_source_dir)/$($(package)_qttools_file_name)" >> $($(package)_extract_dir)/.$($(package)_file_name).hash && \
+	$(build_SHA256SUM) -c $($(package)_extract_dir)/.$($(package)_file_name).hash && \
+	mkdir qtbase && \
+	tar --no-same-owner --strip-components=1 -xf $($(package)_source) -C qtbase && \
+	mkdir qttranslations && \
+	tar --no-same-owner --strip-components=1 -xf $($(package)_source_dir)/$($(package)_qttranslations_file_name) -C qttranslations && \
+	mkdir qttools && \
+	tar --no-same-owner --strip-components=1 -xf $($(package)_source_dir)/$($(package)_qttools_file_name) -C qttools
+endef
+
+define $(package)_preprocess_cmds
+	patch -p1 -i $($(package)_patch_dir)/freetype_back_compat.patch && \
+	patch -p1 -i $($(package)_patch_dir)/fix_powerpc_libpng.patch && \
+	patch -p1 -i $($(package)_patch_dir)/drop_lrelease_dependency.patch && \
+	patch -p1 -i $($(package)_patch_dir)/dont_hardcode_pwd.patch && \
+	patch -p1 -i $($(package)_patch_dir)/fix_qt_pkgconfig.patch && \
+	patch -p1 -i $($(package)_patch_dir)/fix_configure_mac.patch && \
+	patch -p1 -i $($(package)_patch_dir)/fix_no_printer.patch && \
+	patch -p1 -i $($(package)_patch_dir)/fix_rcc_determinism.patch && \
+	patch -p1 -i $($(package)_patch_dir)/xkb-default.patch && \
+	patch -p1 -i $($(package)_patch_dir)/fix_android_qmake_conf.patch && \
+	patch -p1 -i $($(package)_patch_dir)/fix_android_jni_static.patch && \
+	patch -p1 -i $($(package)_patch_dir)/fix_riscv64_arch.patch && \
+	patch -p1 -i $($(package)_patch_dir)/no-xlib.patch && \
+	patch -p1 -i $($(package)_patch_dir)/fix_mingw_cross_compile.patch && \
+	patch -p1 -i $($(package)_patch_dir)/fix_qpainter_non_determinism.patch && \
+	patch -p1 -i $($(package)_patch_dir)/fix_limits_header.patch && \
+	sed -i.old "s|updateqm.commands = \$$$$\$$$$LRELEASE|updateqm.commands = $($(package)_extract_dir)/qttools/bin/lrelease|" qttranslations/translations/translations.pro && \
+	mkdir -p qtbase/mkspecs/macx-clang-linux && \
+	cp -f qtbase/mkspecs/macx-clang/qplatformdefs.h qtbase/mkspecs/macx-clang-linux/ && \
+	cp -f $($(package)_patch_dir)/mac-qmake.conf qtbase/mkspecs/macx-clang-linux/qmake.conf && \
+	cp -r qtbase/mkspecs/linux-arm-gnueabi-g++ qtbase/mkspecs/bitcoin-linux-g++ && \
+	sed -i.old "s/arm-linux-gnueabi-/$(host)-/g" qtbase/mkspecs/bitcoin-linux-g++/qmake.conf && \
+	echo "!host_build: QMAKE_CFLAGS     += $($(package)_cflags) $($(package)_cppflags)" >> qtbase/mkspecs/common/gcc-base.conf && \
+	echo "!host_build: QMAKE_CXXFLAGS   += $($(package)_cxxflags) $($(package)_cppflags)" >> qtbase/mkspecs/common/gcc-base.conf && \
+	echo "!host_build: QMAKE_LFLAGS     += $($(package)_ldflags)" >> qtbase/mkspecs/common/gcc-base.conf && \
+	sed -i.old "s|QMAKE_CC                = clang|QMAKE_CC                = $($(package)_cc)|" qtbase/mkspecs/common/clang.conf && \
+	sed -i.old "s|QMAKE_CXX               = clang++|QMAKE_CXX               = $($(package)_cxx)|" qtbase/mkspecs/common/clang.conf && \
+	sed -i.old "s/error(\"failed to parse default search paths from compiler output\")/\!darwin: error(\"failed to parse default search paths from compiler output\")/g" qtbase/mkspecs/features/toolchain.prf
+endef
+
+define $(package)_config_cmds
+	export PKG_CONFIG_SYSROOT_DIR=/ && \
+	export PKG_CONFIG_LIBDIR=$(host_prefix)/lib/pkgconfig && \
+	export PKG_CONFIG_PATH=$(host_prefix)/share/pkgconfig && \
+	cd qtbase && \
+	./configure $($(package)_config_opts) && \
+	echo "host_build: QT_CONFIG ~= s/system-zlib/zlib" >> mkspecs/qconfig.pri && \
+	echo "CONFIG += force_bootstrap" >> mkspecs/qconfig.pri && \
+	cd .. && \
+	$(MAKE) -C qtbase sub-src-clean && \
+	qtbase/bin/qmake -o qttranslations/Makefile qttranslations/qttranslations.pro && \
+	qtbase/bin/qmake -o qttranslations/translations/Makefile qttranslations/translations/translations.pro && \
+	qtbase/bin/qmake -o qttools/src/linguist/lrelease/Makefile qttools/src/linguist/lrelease/lrelease.pro && \
+	qtbase/bin/qmake -o qttools/src/linguist/lupdate/Makefile qttools/src/linguist/lupdate/lupdate.pro
+endef
+
+define $(package)_build_cmds
+	$(MAKE) -C qtbase/src $(addprefix sub-,$($(package)_qt_libs)) && \
+	$(MAKE) -C qttools/src/linguist/lrelease && \
+	$(MAKE) -C qttools/src/linguist/lupdate && \
+	$(MAKE) -C qttranslations
+endef
+
+define $(package)_stage_cmds
+	$(MAKE) -C qtbase/src INSTALL_ROOT=$($(package)_staging_dir) $(addsuffix -install_subtargets,$(addprefix sub-,$($(package)_qt_libs))) && \
+	$(MAKE) -C qttools/src/linguist/lrelease INSTALL_ROOT=$($(package)_staging_dir) install_target && \
+	$(MAKE) -C qttools/src/linguist/lupdate INSTALL_ROOT=$($(package)_staging_dir) install_target && \
+	$(MAKE) -C qttranslations INSTALL_ROOT=$($(package)_staging_dir) install_subtargets
+endef
+
+define $(package)_postprocess_cmds
+	rm -rf native/mkspecs/ native/lib/ lib/cmake/ && \
+	rm -f lib/lib*.la lib/*.prl plugins/*/*.prl
+endef
