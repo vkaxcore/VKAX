@@ -37,7 +37,7 @@ jobs:
       - name: Configure VKAX
         run: |
           ./autogen.sh
-          ./configure --prefix=`pwd`/depends/x86_64-apple-darwin22.6.0
+          ./configure --prefix=`pwd`/depends/x86_64-apple-darwin22.6.0 --with-incompatible-bdb CXXFLAGS="-std=c++14"
 
       - name: Build Binaries
         run: |
