@@ -3,7 +3,7 @@ on:
   push:
     branches:
       - main
-      - v100.11.5*
+      - v100.11.5-macbuild*
       - develop
   pull_request:
     branches:
@@ -13,6 +13,7 @@ env:
   COIN_NAME: vkax
   BUILD_DIR: vkax-build
   COMPRESS_DIR: vkax-compress
+  RELEASE_BRANCH: main
 
 jobs:
   get-version:
@@ -21,22 +22,25 @@ jobs:
       version: ${{ steps.select-version.outputs.version }}
     steps:
       - uses: actions/checkout@v4
+
       - name: Read version from build.properties
         id: versions
         uses: christian-draeger/read-properties@1.1.1
         with:
           path: build.properties
           properties: 'release-version snapshot-version'
+
       - name: Choose version
         id: select-version
         run: |
-          if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]] || [[ "$GITHUB_REF" == *develop ]] || [[ "$GITHUB_REF" == *v100.11.3* ]]; then
+          if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]] || [[ github.ref == format('refs/heads/{0}', env.RELEASE_BRANCH) ]]; then
             version=${{ steps.versions.outputs.snapshot-version }}
           else
             version=${{ steps.versions.outputs.release-version }}
           fi
           echo "version=$version" >> $GITHUB_OUTPUT
           echo "$version" > version.txt
+
       - uses: actions/upload-artifact@v4
         with:
           name: version
@@ -54,7 +58,10 @@ jobs:
           brew install automake libtool pkg-config miniupnpc libnatpmp zeromq python3 || true
           pip3 install setuptools || true
 
-      # Patch Boost
+      # Build Boost dependencies
+      - run: make -C depends -j$(sysctl -n hw.ncpu)
+
+      # Patch Boost for macOS 13
       - name: Patch Boost for macOS 13
         run: |
           BOOST_FILE=depends/work/build/x86_64-apple-darwin22.6.0/boost/1_73_0/boost/mpl/aux_/integral_wrapper.hpp
@@ -64,9 +71,6 @@ jobs:
           else
             echo "Boost file not found yet — patching after depends build"
           fi
-
-      # Build Boost dependencies
-      - run: make -C depends -j$(sysctl -n hw.ncpu)
 
       # Build VKAX
       - run: ./autogen.sh && ./configure --prefix=`pwd`/depends/x86_64-apple-darwin20.6.0
@@ -78,6 +82,7 @@ jobs:
           mv src/{vkax-cli,vkaxd,qt/vkax-qt} $BUILD_DIR/
           strip $BUILD_DIR/*
           tar -czf ${COIN_NAME}-macos-${{ needs.get-version.outputs.version }}.tar.gz $BUILD_DIR
+
       - uses: actions/upload-artifact@v4
         with:
           name: macos-${{ needs.get-version.outputs.version }}
