@@ -1,4 +1,5 @@
 name: VKAX Build
+
 on:
   push:
     branches:
@@ -15,6 +16,7 @@ env:
   DEPENDS_DIR: depends
   TEST_LOG_ARTIFACT_DIR: test-logs
   CACHE_VERSION: v1
+  RELEASE_BRANCH: main   # Only this branch will trigger GitHub Release
 
 jobs:
   # Step 1: Determine version
@@ -105,8 +107,7 @@ jobs:
           mv src/{vkax-cli,vkaxd,qt/vkax-qt} $BUILD_DIR/
           strip $BUILD_DIR/*
       - run: tar -czf ${COIN_NAME}-macos-${{ needs.get-version.outputs.version }}.tar.gz $BUILD_DIR
-      - name: Set artifact path
-        id: set-artifact
+      - id: set-artifact
         run: echo "artifact-path=${COIN_NAME}-macos-${{ needs.get-version.outputs.version }}.tar.gz" >> $GITHUB_OUTPUT
       - uses: actions/upload-artifact@v4
         with:
@@ -170,7 +171,6 @@ jobs:
             ARTIFACT=${COIN_NAME}-ubuntu-${VERSION}.tar.gz
           fi
           tar -czf $ARTIFACT $BUILD_DIR
-          echo "artifact-path=$ARTIFACT" >> $GITHUB_OUTPUT
       - id: set-artifact
         run: echo "artifact-path=$ARTIFACT" >> $GITHUB_OUTPUT
       - uses: actions/upload-artifact@v4
@@ -244,3 +244,43 @@ jobs:
         with:
           name: test-logs
           path: ${{ env.TEST_LOG_ARTIFACT_DIR }}
+
+  # Step 7: Release (only RELEASE_BRANCH)
+  release:
+    runs-on: ubuntu-latest
+    needs: [test-builds]
+    if: github.ref == 'refs/heads/' + env.RELEASE_BRANCH
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: macos-${{ needs.get-version.outputs.version }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: x86_64-${{ needs.get-version.outputs.version }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: arm64-${{ needs.get-version.outputs.version }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: win-${{ needs.get-version.outputs.version }}
+      - name: Create GitHub Release
+        id: create_release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ needs.get-version.outputs.version }}
+          name: "VKAX ${{ needs.get-version.outputs.version }}"
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Upload release assets
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            vkax-macos-${{ needs.get-version.outputs.version }}.tar.gz
+            vkax-ubuntu-${{ needs.get-version.outputs.version }}.tar.gz
+            vkax-arm64-${{ needs.get-version.outputs.version }}.tar.gz
+            vkax-win-${{ needs.get-version.outputs.version }}.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
