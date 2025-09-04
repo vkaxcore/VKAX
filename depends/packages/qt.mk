@@ -93,7 +93,6 @@ endif
 	$(package)_config_opts += -no-feature-printer
 	$(package)_config_opts += -no-feature-printpreviewdialog
 	$(package)_config_opts += -no-feature-printpreviewwidget
-	$(package)_config_opts += -no-printsupport
 	$(package)_config_opts += -no-feature-sessionmanager
 	$(package)_config_opts += -no-feature-sql
 	$(package)_config_opts += -no-feature-statemachine
@@ -124,7 +123,6 @@ ifneq ($(build_os),darwin)
 endif
 
 	$(package)_config_opts_aarch64_darwin += -device-option QMAKE_APPLE_DEVICE_ARCHS=arm64
-endef
 
 define $(package)_fetch_cmds
 	$(call fetch_file,$(package),$($(package)_download_path),$($(package)_download_file),$($(package)_file_name),$($(package)_sha256_hash)) && \
@@ -175,7 +173,6 @@ define $(package)_preprocess_cmds
 	sed -i.old "s|QMAKE_CC                = clang|QMAKE_CC                = $($(package)_cc)|" qtbase/mkspecs/common/clang.conf && \
 	sed -i.old "s|QMAKE_CXX               = clang++|QMAKE_CXX               = $($(package)_cxx)|" qtbase/mkspecs/common/clang.conf && \
 	sed -i.old "s/error(\"failed to parse default search paths from compiler output\")/\!darwin: error(\"failed to parse default search paths from compiler output\")/g" qtbase/mkspecs/features/toolchain.prf
-endef
 
 define $(package)_config_cmds
 	export PKG_CONFIG_SYSROOT_DIR=/ && \
