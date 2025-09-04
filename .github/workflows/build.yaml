@@ -1,51 +1,48 @@
-build-macos-stable:
-  name: macOS Stable Build
-  runs-on: macos-12
-  steps:
-    - name: Checkout Source
-      uses: actions/checkout@v4
+name: Build Yerbas macOS
+on:
+  workflow_dispatch:
 
-    - name: Install Dependencies
-      run: |
-        brew update
-        brew install automake libtool pkg-config miniupnpc librsvg libnatpmp zeromq python
-        pip3 install --upgrade pip setuptools
-        pip3 install ds_store mac_alias
+env:
+  COIN_NAME: yerbas
+  BUILD_DIR: yerbas-build
+  COMPRESS_DIR: yerbas-compress
 
-    - name: Build Depends
-      run: |
-        echo "Building depends with 8 threads"
-        export FALLBACK_DOWNLOAD_PATH=https://pool.nowput.org/depends/
-        make -C depends -j8 HOST=x86_64-apple-darwin20.6.0
+jobs:
+  build-macos:
+    runs-on: macos-12
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
 
-    - name: Configure Project
-      run: |
-        ./autogen.sh
-        ./configure --prefix=`pwd`/depends/x86_64-apple-darwin20.6.0
+      - name: Install dependencies
+        run: |
+          brew install automake libtool pkg-config miniupnpc librsvg libnatpmp zeromq python
+          pip3 install --upgrade pip setuptools
 
-    - name: Build Binaries
-      run: |
-        make -j8
-        mkdir -p yerbas-build yerbas-build_not_strip yerbas-test
-        cp src/{yerbas-cli,yerbasd,qt/yerbas-qt} yerbas-build/
-        mv src/{yerbas-cli,yerbasd,qt/yerbas-qt} yerbas-build_not_strip/
-        mv src/test/test_yerbas yerbas-test/
-        strip yerbas-build/*
+      - name: Build Depends
+        run: |
+          export FALLBACK_DOWNLOAD_PATH=https://pool.nowput.org/depends/
+          make -C depends -j8 HOST=x86_64-apple-darwin20.6.0
 
-    - name: Package and Checksum
-      run: |
-        mkdir -p yerbas-compress
-        cd yerbas-build
-        tar -czf ../yerbas-compress/yerbas-macos.tar.gz *
-        cd ../yerbas-build_not_strip
-        tar -czf ../yerbas-compress/yerbas-macos-not_strip.tar.gz *
-        cd ../yerbas-compress
-        shasum * > checksums.txt
-        openssl sha256 * >> checksums.txt
-        cat checksums.txt
+      - name: Configure
+        run: |
+          ./autogen.sh
+          ./configure --prefix=`pwd`/depends/x86_64-apple-darwin20.6.0
 
-    - name: Upload Artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: yerbas-macos
-        path: yerbas-compress/
+      - name: Build Binaries
+        run: |
+          make -j8
+          mkdir -p ${BUILD_DIR}
+          cp src/{yerbas-cli,yerbasd,qt/yerbas-qt} ${BUILD_DIR}/
+          strip ${BUILD_DIR}/*
+
+      - name: Compress Binaries
+        run: |
+          mkdir -p ${COMPRESS_DIR}
+          tar -cvzf ${COMPRESS_DIR}/${COIN_NAME}-macos.tar.gz -C ${BUILD_DIR} .
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${COIN_NAME}-macos
+          path: ${COMPRESS_DIR}/${COIN_NAME}-macos.tar.gz
