@@ -2,7 +2,7 @@ PACKAGE=qt
 $(package)_version=5.15.10
 $(package)_download_path=https://download.qt.io/archive/qt/5.15/5.15.10/single
 $(package)_suffix=opensource-src-$(package)_version.tar.xz
-$(package)_file_name=qt-everywhere-src-$(package)_suffix
+$(package)_suffix=$(package)_version.tar.xz
 $(package)_sha256_hash=0c37696f3fa3cb4c0c1f9247fa38e7d946b2cfb53a36a67b61ff61877e3fca43
 
 $(package)_qttranslations_file_name=qttranslations-$(package)_suffix
