@@ -1,11 +1,10 @@
-name: VKAX Ubuntu Test Build
+name: VKAX Ubuntu Build Test
 
 on:
   push:
     branches:
       - main
       - develop
-      - v100.11.5
   pull_request:
     branches:
       - develop
@@ -14,30 +13,105 @@ env:
   COIN_NAME: vkax
   BUILD_DIR: vkax-build
   TEST_LOG_ARTIFACT_DIR: test-logs
+  RELEASE_BRANCH: main
 
 jobs:
+  # -------------------------
+  # Step 1: Determine version
+  # -------------------------
+  get-version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.select-version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read version from build.properties
+        id: versions
+        uses: christian-draeger/read-properties@1.1.1
+        with:
+          path: build.properties
+          properties: 'release-version snapshot-version'
+      - name: Choose version
+        id: select-version
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]] || [[ "$GITHUB_REF" == *develop ]]; then
+            version=${{ steps.versions.outputs.snapshot-version }}
+          else
+            version=${{ steps.versions.outputs.release-version }}
+          fi
+          echo "version=$version" >> $GITHUB_OUTPUT
+          echo "$version" > version.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: version
+          path: version.txt
+
+  # -------------------------
+  # Step 2: Setup dependencies
+  # -------------------------
+  setup-dependencies:
+    runs-on: ubuntu-latest
+    outputs:
+      deps-script: ${{ steps.save-script.outputs.deps-script }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create install-deps.sh
+        id: save-script
+        run: |
+          cat <<'EOF' > install-deps.sh
+          #!/bin/bash
+          set -e
+          sudo apt-get update -y
+          sudo apt-get install -y build-essential libtool autotools-dev automake pkg-config python3 bsdmainutils cmake curl zip unzip
+          if [[ "$1" == "windows" ]]; then
+            sudo apt-get install -y g++-mingw-w64-x86-64 gcc-mingw-w64-x86-64
+            sudo update-alternatives --set x86_64-w64-mingw32-gcc /usr/bin/x86_64-w64-mingw32-gcc-posix
+            sudo update-alternatives --set x86_64-w64-mingw32-g++ /usr/bin/x86_64-w64-mingw32-g++-posix
+          elif [[ "$1" == "arm64" ]]; then
+            sudo apt-get install -y g++-aarch64-linux-gnu
+          fi
+          EOF
+          chmod +x install-deps.sh
+          echo "deps-script=install-deps.sh" >> $GITHUB_OUTPUT
+      - uses: actions/upload-artifact@v4
+        with:
+          name: install-deps
+          path: install-deps.sh
+
+  # -------------------------
+  # Step 3: Cache depends + ccache
+  # -------------------------
+  cache-depends:
+    runs-on: ubuntu-latest
+    needs: setup-dependencies
+    steps:
+      - name: Cache depends folder
+        uses: actions/cache@v3
+        with:
+          path: depends
+          key: depends-${{ runner.os }}-${{ hashFiles('build.properties') }}
+      - name: Cache ccache
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.ccache
+          key: ccache-${{ runner.os }}-${{ hashFiles('**/*.cpp','**/*.h') }}
+
+  # -------------------------
+  # Step 4: Ubuntu matrix build
+  # -------------------------
   build-ubuntu:
     runs-on: ubuntu-22.04
+    needs: [get-version, setup-dependencies, cache-depends]
     strategy:
       matrix:
         arch: [x86_64, arm64]
     steps:
       - uses: actions/checkout@v4
-
-      # -------------------------
-      # Install dependencies
-      # -------------------------
-      - name: Install dependencies
-        run: |
-          sudo apt-get update -y
-          sudo apt-get install -y build-essential libtool autotools-dev automake pkg-config python3 bsdmainutils cmake curl zip unzip libboost-all-dev
-          if [[ "${{ matrix.arch }}" == "arm64" ]]; then
-            sudo apt-get install -y g++-aarch64-linux-gnu
-          fi
-
-      # -------------------------
-      # Build depends
-      # -------------------------
+      - uses: actions/download-artifact@v4
+        with:
+          name: install-deps
+      - run: bash install-deps.sh ${{ matrix.arch }}
       - name: Build depends
         run: |
           if [[ "${{ matrix.arch }}" == "x86_64" ]]; then
@@ -45,43 +119,58 @@ jobs:
           else
             make -C depends -j$(nproc) HOST=aarch64-linux-gnu
           fi
-
-      # -------------------------
-      # Configure with correct Boost
-      # -------------------------
       - name: Configure
         run: |
-          BOOST_LIB_DIR=$(pwd)/depends/${{ matrix.arch == 'x86_64' && echo 'x86_64-pc-linux-gnu' || echo 'aarch64-linux-gnu' }}/lib
+          if [[ "${{ matrix.arch }}" == "x86_64" ]]; then
+            PREFIX=$(pwd)/depends/x86_64-pc-linux-gnu
+          else
+            PREFIX=$(pwd)/depends/aarch64-linux-gnu
+          fi
           ./autogen.sh
-          ./configure --prefix=$BOOST_LIB_DIR --with-boost-libdir=$BOOST_LIB_DIR
-
-      # -------------------------
-      # Build
-      # -------------------------
-      - name: Build VKAX
-        run: make -j$(nproc)
-
-      # -------------------------
-      # Package
-      # -------------------------
-      - name: Package build
-        run: |
+          ./configure --prefix=$PREFIX --with-boost-libdir=$PREFIX/lib
+      - run: make -j$(nproc)
+      - run: |
           mkdir -p $BUILD_DIR
           mv src/{vkax-cli,vkaxd,qt/vkax-qt} $BUILD_DIR/ || true
           strip $BUILD_DIR/* || true
+      - name: Archive build
+        run: |
           if [[ "${{ matrix.arch }}" == "x86_64" ]]; then
-            tar -czf ${COIN_NAME}-ubuntu-${{ matrix.arch }}.tar.gz $BUILD_DIR
-            sha256sum ${COIN_NAME}-ubuntu-${{ matrix.arch }}.tar.gz > ${COIN_NAME}-ubuntu-${{ matrix.arch }}.sha256
+            tar -czf ${COIN_NAME}-ubuntu-${{ needs.get-version.outputs.version }}.tar.gz $BUILD_DIR
+            sha256sum ${COIN_NAME}-ubuntu-${{ needs.get-version.outputs.version }}.tar.gz > ${COIN_NAME}-ubuntu-${{ needs.get-version.outputs.version }}.sha256
           else
-            tar -czf ${COIN_NAME}-arm64-${{ matrix.arch }}.tar.gz $BUILD_DIR
-            sha256sum ${COIN_NAME}-arm64-${{ matrix.arch }}.tar.gz > ${COIN_NAME}-arm64-${{ matrix.arch }}.sha256
+            tar -czf ${COIN_NAME}-arm64-${{ needs.get-version.outputs.version }}.tar.gz $BUILD_DIR
+            sha256sum ${COIN_NAME}-arm64-${{ needs.get-version.outputs.version }}.tar.gz > ${COIN_NAME}-arm64-${{ needs.get-version.outputs.version }}.sha256
           fi
-
-      # -------------------------
-      # Upload artifacts
-      # -------------------------
       - uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.arch }}-ubuntu
+          name: ${{ matrix.arch }}-ubuntu-${{ needs.get-version.outputs.version }}
           path: |
-            ${{ matrix.arch == 'x86_64' && format('{0}-ubuntu-{1}.tar.gz\n{0}-ubuntu-{1}.sha256', env.COIN_NAME, matrix.arch) || format('{0}-arm64-{1}.tar.gz\n{0}-arm64-{1}.sha256', env.COIN_NAME, matrix.arch) }}
+            ${{ matrix.arch == 'x86_64' && format('{0}-ubuntu-{1}.tar.gz\n{0}-ubuntu-{1}.sha256', env.COIN_NAME, needs.get-version.outputs.version) || format('{0}-arm64-{1}.tar.gz\n{0}-arm64-{1}.sha256', env.COIN_NAME, needs.get-version.outputs.version) }}
+
+  # -------------------------
+  # Step 5: Test builds
+  # -------------------------
+  test-builds:
+    runs-on: ubuntu-22.04
+    needs: build-ubuntu
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create test logs dir
+        run: mkdir -p $TEST_LOG_ARTIFACT_DIR
+      - uses: actions/download-artifact@v4
+        with:
+          name: x86_64-ubuntu-${{ needs.get-version.outputs.version }}
+          path: ubuntu-x86_64
+      - uses: actions/download-artifact@v4
+        with:
+          name: arm64-ubuntu-${{ needs.get-version.outputs.version }}
+          path: ubuntu-arm64
+      - name: Run CLI --version tests
+        run: |
+          ./ubuntu-x86_64/vkax-cli --version > $TEST_LOG_ARTIFACT_DIR/ubuntu-x86_64.log || true
+          ./ubuntu-arm64/vkax-cli --version > $TEST_LOG_ARTIFACT_DIR/ubuntu-arm64.log || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: test-logs-${{ needs.get-version.outputs.version }}
+          path: $TEST_LOG_ARTIFACT_DIR
