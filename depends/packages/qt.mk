@@ -17,7 +17,7 @@ define $(PACKAGE)_set_vars
   $(PACKAGE)_config_opts = -opensource -confirm-license -prefix=$($(PACKAGE)_staging_dir)/$(host) \
     -no-opengl -no-icu -no-dbus -no-qml-debug -nomake examples -nomake tests \
     -no-feature-printer -no-feature-printdialog -skip qttest
-  $(PACKAGE)_cxxflags = -std=c++14
+  $(PACKAGE)_cxxflags = -std=c++17
 endef
 
 define $(PACKAGE)_fetch_cmds
