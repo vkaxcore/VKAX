@@ -1,21 +1,32 @@
+name: VKAX macOS Test Build
+
+on:
+  push:
+    branches:
+      - main
+      - v100.11.5*
+      - develop
+  workflow_dispatch:
+
+env:
+  COIN_NAME: vkax
+  BUILD_DIR: vkax-build
+  RELEASE_BRANCH: main
+  CCACHE_DIR: ~/Library/Caches/ccache
+  CXXFLAGS: -Wno-deprecated-declarations -Wno-enum-constexpr-conversion
+
+jobs:
   build-macos:
     runs-on: macos-13
-    needs: get-version
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - name: Setup Ccache
+      - name: Setup ccache
         uses: actions/cache@v3
         with:
           path: ${{ env.CCACHE_DIR }}
           key: macos-ccache-${{ hashFiles('**/*') }}
-          restore-keys: macos-ccache-
-
-      - name: Cache depends
-        uses: actions/cache@v3
-        with:
-          path: depends/work
-          key: macos-depends-${{ hashFiles('build.properties') }}
 
       - name: Install Dependencies
         run: |
@@ -31,9 +42,8 @@
             echo "Boost file not found — patch will apply during depends build"
           fi
 
-      - name: Build Boost + Depends
-        run: |
-          make -C depends -j$(sysctl -n hw.ncpu)
+      - name: Build Depends
+        run: make -C depends -j$(sysctl -n hw.ncpu)
 
       - name: Configure VKAX
         run: |
@@ -48,9 +58,10 @@
           mkdir -p $BUILD_DIR
           mv src/{vkax-cli,vkaxd,qt/vkax-qt} $BUILD_DIR/
           strip $BUILD_DIR/*
-          tar -czf ${COIN_NAME}-macos-${{ needs.get-version.outputs.version }}.tar.gz $BUILD_DIR
+          tar -czf ${COIN_NAME}-macos-test.tar.gz $BUILD_DIR
 
-      - uses: actions/upload-artifact@v4
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
         with:
-          name: macos-${{ needs.get-version.outputs.version }}
-          path: ${COIN_NAME}-macos-${{ needs.get-version.outputs.version }}.tar.gz
+          name: macos-test-build
+          path: ${COIN_NAME}-macos-test.tar.gz
