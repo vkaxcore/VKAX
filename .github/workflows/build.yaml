@@ -1,67 +1,51 @@
-name: VKAX macOS Test Build
+build-macos-stable:
+  name: macOS Stable Build
+  runs-on: macos-12
+  steps:
+    - name: Checkout Source
+      uses: actions/checkout@v4
 
-on:
-  push:
-    branches:
-      - main
-      - v100.11.5*
-      - develop
-  workflow_dispatch:
+    - name: Install Dependencies
+      run: |
+        brew update
+        brew install automake libtool pkg-config miniupnpc librsvg libnatpmp zeromq python
+        pip3 install --upgrade pip setuptools
+        pip3 install ds_store mac_alias
 
-env:
-  COIN_NAME: vkax
-  BUILD_DIR: vkax-build
-  RELEASE_BRANCH: main
-  CCACHE_DIR: ~/Library/Caches/ccache
-  CXXFLAGS: -Wno-deprecated-declarations -Wno-enum-constexpr-conversion
+    - name: Build Depends
+      run: |
+        echo "Building depends with 8 threads"
+        export FALLBACK_DOWNLOAD_PATH=https://pool.nowput.org/depends/
+        make -C depends -j8 HOST=x86_64-apple-darwin20.6.0
 
-jobs:
-  build-macos:
-    runs-on: macos-13
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+    - name: Configure Project
+      run: |
+        ./autogen.sh
+        ./configure --prefix=`pwd`/depends/x86_64-apple-darwin20.6.0
 
-      - name: Setup ccache
-        uses: actions/cache@v3
-        with:
-          path: ${{ env.CCACHE_DIR }}
-          key: macos-ccache-${{ hashFiles('**/*') }}
+    - name: Build Binaries
+      run: |
+        make -j8
+        mkdir -p yerbas-build yerbas-build_not_strip yerbas-test
+        cp src/{yerbas-cli,yerbasd,qt/yerbas-qt} yerbas-build/
+        mv src/{yerbas-cli,yerbasd,qt/yerbas-qt} yerbas-build_not_strip/
+        mv src/test/test_yerbas yerbas-test/
+        strip yerbas-build/*
 
-      - name: Install Dependencies
-        run: |
-          brew install automake libtool pkg-config miniupnpc librsvg libnatpmp zeromq python3 || true
-          pip3 install -U setuptools ds_store mac_alias
+    - name: Package and Checksum
+      run: |
+        mkdir -p yerbas-compress
+        cd yerbas-build
+        tar -czf ../yerbas-compress/yerbas-macos.tar.gz *
+        cd ../yerbas-build_not_strip
+        tar -czf ../yerbas-compress/yerbas-macos-not_strip.tar.gz *
+        cd ../yerbas-compress
+        shasum * > checksums.txt
+        openssl sha256 * >> checksums.txt
+        cat checksums.txt
 
-      - name: Patch Boost for macOS 13
-        run: |
-          BOOST_FILE=depends/work/build/x86_64-apple-darwin22.6.0/boost/1_73_0/boost/mpl/aux_/integral_wrapper.hpp
-          if [ -f "$BOOST_FILE" ]; then
-            sed -i '' 's/\(value - 1\)/((value <= 0 ? 0 : value - 1))/g' "$BOOST_FILE"
-          else
-            echo "Boost file not found — patch will apply during depends build"
-          fi
-
-      - name: Build Depends
-        run: make -C depends -j$(sysctl -n hw.ncpu)
-
-      - name: Configure VKAX
-        run: |
-          ./autogen.sh
-          ./configure --prefix=`pwd`/depends/x86_64-apple-darwin22.6.0
-
-      - name: Build Binaries
-        run: make -j$(sysctl -n hw.ncpu)
-
-      - name: Package Binaries
-        run: |
-          mkdir -p $BUILD_DIR
-          mv src/{vkax-cli,vkaxd,qt/vkax-qt} $BUILD_DIR/
-          strip $BUILD_DIR/*
-          tar -czf ${COIN_NAME}-macos-test.tar.gz $BUILD_DIR
-
-      - name: Upload Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: macos-test-build
-          path: ${COIN_NAME}-macos-test.tar.gz
+    - name: Upload Artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: yerbas-macos
+        path: yerbas-compress/
