@@ -14,7 +14,7 @@ env:
   COIN_NAME: vkax
   BUILD_DIR: vkax-build
   TEST_LOG_ARTIFACT_DIR: test-logs
-  RELEASE_BRANCH: main
+  RELEASE_BRANCH: main  # Only release artifacts from this branch
 
 jobs:
   # -------------------------
@@ -24,6 +24,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.select-version.outputs.version }}
+      release-branch: ${{ env.RELEASE_BRANCH }}
     steps:
       - uses: actions/checkout@v4
       - name: Read version from build.properties
@@ -85,11 +86,31 @@ jobs:
           path: install-deps.sh
 
   # -------------------------
-  # Step 3: Ubuntu build matrix (x86_64 + ARM64)
+  # Step 3: Cache directories for faster rebuilds
+  # -------------------------
+  cache-depends:
+    runs-on: ubuntu-latest
+    needs: setup-dependencies
+    steps:
+      - name: Cache depends folder
+        uses: actions/cache@v3
+        with:
+          path: depends
+          key: depends-${{ runner.os }}-${{ hashFiles('build.properties') }}
+      - name: Cache ccache
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.ccache
+          key: ccache-${{ runner.os }}-${{ hashFiles('**/*.cpp','**/*.h') }}
+
+
+  # -------------------------
+  # Step 4: Build Ubuntu (matrix)
   # -------------------------
   build-ubuntu:
     runs-on: ubuntu-22.04
-    needs: [get-version, setup-dependencies]
+    needs: [get-version, setup-dependencies, cache-depends]
     strategy:
       matrix:
         arch: [x86_64, arm64]
@@ -98,49 +119,48 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: install-deps
-      - name: Install dependencies
-        run: |
-          if [[ "${{ matrix.arch }}" == "arm64" ]]; then
-            bash install-deps.sh arm64
-          else
-            bash install-deps.sh
-          fi
+      - run: bash install-deps.sh ${{ matrix.arch }}
       - name: Build depends
         run: |
-          if [[ "${{ matrix.arch }}" == "arm64" ]]; then
-            make -C depends -j$(nproc) HOST=aarch64-linux-gnu
-          else
+          if [[ "${{ matrix.arch }}" == "x86_64" ]]; then
             make -C depends -j$(nproc)
-          fi
-      - name: Configure and build
-        run: |
-          if [[ "${{ matrix.arch }}" == "arm64" ]]; then
-            ./autogen.sh && ./configure --prefix=`pwd`/depends/aarch64-linux-gnu
           else
+            make -C depends -j$(nproc) HOST=aarch64-linux-gnu
+          fi
+      - run: |
+          if [[ "${{ matrix.arch }}" == "x86_64" ]]; then
             ./autogen.sh && ./configure --prefix=`pwd`/depends/x86_64-pc-linux-gnu
-          fi
-          make -j$(nproc)
-      - name: Move binaries
-        run: |
-          mkdir -p $BUILD_DIR
-          mv src/{vkax-cli,vkaxd,qt/vkax-qt} $BUILD_DIR/
-          strip $BUILD_DIR/*
-      - name: Create artifact
-        run: |
-          if [[ "${{ matrix.arch }}" == "arm64" ]]; then
-            tar -czf ${COIN_NAME}-arm64-${{ needs.get-version.outputs.version }}.tar.gz $BUILD_DIR
           else
-            tar -czf ${COIN_NAME}-ubuntu-${{ needs.get-version.outputs.version }}.tar.gz $BUILD_DIR
+            ./autogen.sh && ./configure --prefix=`pwd`/depends/aarch64-linux-gnu
           fi
-      - name: Upload artifact
+      - run: make -j$(nproc)
+      - run: |
+          mkdir -p $BUILD_DIR
+          mv src/{vkax-cli,vkaxd,qt/vkax-qt} $BUILD_DIR/ || true
+          strip $BUILD_DIR/* || true
+      - name: Archive build
+        run: |
+          if [[ "${{ matrix.arch }}" == "x86_64" ]]; then
+            tar -czf ${COIN_NAME}-ubuntu-${{ needs.get-version.outputs.version }}.tar.gz $BUILD_DIR
+          else
+            tar -czf ${COIN_NAME}-arm64-${{ needs.get-version.outputs.version }}.tar.gz $BUILD_DIR
+          fi
+      - name: Generate SHA256
+        run: |
+          if [[ "${{ matrix.arch }}" == "x86_64" ]]; then
+            sha256sum ${COIN_NAME}-ubuntu-${{ needs.get-version.outputs.version }}.tar.gz > ${COIN_NAME}-ubuntu-${{ needs.get-version.outputs.version }}.sha256
+          else
+            sha256sum ${COIN_NAME}-arm64-${{ needs.get-version.outputs.version }}.tar.gz > ${COIN_NAME}-arm64-${{ needs.get-version.outputs.version }}.sha256
+          fi
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.arch }}-${{ needs.get-version.outputs.version }}
+          name: ${{ matrix.arch }}-ubuntu-${{ needs.get-version.outputs.version }}
           path: |
-            ${{ matrix.arch == 'arm64' && format('{0}-arm64-{1}.tar.gz', env.COIN_NAME, needs.get-version.outputs.version) || format('{0}-ubuntu-{1}.tar.gz', env.COIN_NAME, needs.get-version.outputs.version) }}
+            ${{ matrix.arch == 'x86_64' && format('{0}-ubuntu-{1}.tar.gz\n{0}-ubuntu-{1}.sha256', env.COIN_NAME, needs.get-version.outputs.version) || format('{0}-arm64-{1}.tar.gz\n{0}-arm64-{1}.sha256', env.COIN_NAME, needs.get-version.outputs.version) }}
 
   # -------------------------
-  # Step 4: macOS build
+  # Step 5: Build macOS
   # -------------------------
   build-macos:
     runs-on: macos-13
@@ -150,129 +170,138 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: install-deps
-      - name: Install macOS dependencies
-        run: bash install-deps.sh
-      - name: Set CXXFLAGS
-        run: export CXXFLAGS="-Wno-deprecated-declarations"
-      - name: Build depends
-        run: make -C depends -j$(sysctl -n hw.ncpu)
-      - name: Configure and build
-        run: ./autogen.sh && ./configure CXXFLAGS="$CXXFLAGS" --prefix=`pwd`/depends/x86_64-apple-darwin20.6.0 && make -j$(sysctl -n hw.ncpu)
-      - name: Move binaries
-        run: |
+      - run: bash install-deps.sh
+      - run: export CXXFLAGS="-Wno-deprecated-declarations"
+      - run: make -C depends -j$(sysctl -n hw.ncpu)
+      - run: ./autogen.sh && ./configure CXXFLAGS="$CXXFLAGS" --prefix=`pwd`/depends/x86_64-apple-darwin20.6.0
+      - run: make -j$(sysctl -n hw.ncpu)
+      - run: |
           mkdir -p $BUILD_DIR
-          mv src/{vkax-cli,vkaxd,qt/vkax-qt} $BUILD_DIR/
-          strip $BUILD_DIR/*
-      - name: Create artifact
-        run: tar -czf ${COIN_NAME}-macos-${{ needs.get-version.outputs.version }}.tar.gz $BUILD_DIR
+          mv src/{vkax-cli,vkaxd,qt/vkax-qt} $BUILD_DIR/ || true
+          strip $BUILD_DIR/* || true
+      - run: tar -czf ${COIN_NAME}-macos-${{ needs.get-version.outputs.version }}.tar.gz $BUILD_DIR
+      - run: sha256sum ${COIN_NAME}-macos-${{ needs.get-version.outputs.version }}.tar.gz > ${COIN_NAME}-macos-${{ needs.get-version.outputs.version }}.sha256
       - uses: actions/upload-artifact@v4
         with:
           name: macos-${{ needs.get-version.outputs.version }}
-          path: ${COIN_NAME}-macos-${{ needs.get-version.outputs.version }}.tar.gz
-      - name: SHA256 checksum
-        run: sha256sum ${COIN_NAME}-macos-${{ needs.get-version.outputs.version }}.tar.gz > ${COIN_NAME}-macos-${{ needs.get-version.outputs.version }}.sha256
+          path: |
+            ${COIN_NAME}-macos-${{ needs.get-version.outputs.version }}.tar.gz
+            ${COIN_NAME}-macos-${{ needs.get-version.outputs.version }}.sha256
 
   # -------------------------
-  # Step 5: Windows cross-compile
+  # Step 6: Windows cross-compile
   # -------------------------
   build-windows:
     runs-on: ubuntu-22.04
-    needs: [get-version, setup-dependencies]
+    needs: [get-version, setup-dependencies, cache-depends]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           name: install-deps
-      - name: Install Windows dependencies
-        run: bash install-deps.sh windows
-      - name: Build depends
-        run: make -C depends -j$(nproc) HOST=x86_64-w64-mingw32
-      - name: Configure and build
-        run: ./autogen.sh && ./configure --prefix=`pwd`/depends/x86_64-w64-mingw32 && make -j$(nproc)
-      - name: Move binaries
-        run: |
+      - run: bash install-deps.sh windows
+      - run: make -C depends -j$(nproc) HOST=x86_64-w64-mingw32
+      - run: ./autogen.sh && ./configure --prefix=`pwd`/depends/x86_64-w64-mingw32
+      - run: make -j$(nproc)
+      - run: |
           mkdir -p $BUILD_DIR
-          mv src/{vkax-cli.exe,vkaxd.exe,qt/vkax-qt.exe} $BUILD_DIR/
-      - name: Create zip artifact
-        run: zip -r ${COIN_NAME}-win-${{ needs.get-version.outputs.version }}.zip $BUILD_DIR
+          mv src/{vkax-cli.exe,vkaxd.exe,qt/vkax-qt.exe} $BUILD_DIR/ || true
+          strip $BUILD_DIR/* || true
+      - run: zip -r ${COIN_NAME}-win-${{ needs.get-version.outputs.version }}.zip $BUILD_DIR
+      - run: sha256sum ${COIN_NAME}-win-${{ needs.get-version.outputs.version }}.zip > ${COIN_NAME}-win-${{ needs.get-version.outputs.version }}.sha256
       - uses: actions/upload-artifact@v4
         with:
           name: win-${{ needs.get-version.outputs.version }}
-          path: ${COIN_NAME}-win-${{ needs.get-version.outputs.version }}.zip
-      - name: SHA256 checksum
-        run: sha256sum ${COIN_NAME}-win-${{ needs.get-version.outputs.version }}.zip > ${COIN_NAME}-win-${{ needs.get-version.outputs.version }}.sha256
+          path: |
+            ${COIN_NAME}-win-${{ needs.get-version.outputs.version }}.zip
+            ${COIN_NAME}-win-${{ needs.get-version.outputs.version }}.sha256
 
   # -------------------------
-  # Step 6: Test binaries
+  # Step 7: Test builds
   # -------------------------
-  test-binaries:
+  test-builds:
     runs-on: ubuntu-22.04
-    needs: [build-ubuntu, build-ubuntu-arm64, build-macos, build-windows]
+    needs: [build-ubuntu, build-ubuntu-arm64, build-windows, build-macos]
     steps:
+      - uses: actions/checkout@v4
+      - name: Create test logs dir
+        run: mkdir -p $TEST_LOG_ARTIFACT_DIR
+
+      # Download all artifacts
       - uses: actions/download-artifact@v4
         with:
-          name: ubuntu-${{ needs.get-version.outputs.version }}
-          path: ubuntu-test
+          name: x86_64-ubuntu-${{ needs.get-version.outputs.version }}
+          path: ubuntu-x86_64
       - uses: actions/download-artifact@v4
         with:
-          name: arm64-${{ needs.get-version.outputs.version }}
-          path: arm64-test
+          name: arm64-ubuntu-${{ needs.get-version.outputs.version }}
+          path: ubuntu-arm64
       - uses: actions/download-artifact@v4
         with:
           name: macos-${{ needs.get-version.outputs.version }}
-          path: macos-test
+          path: macos
       - uses: actions/download-artifact@v4
         with:
           name: win-${{ needs.get-version.outputs.version }}
-          path: win-test
-      - name: Run CLI version checks
-        run: |
-          echo "Testing Ubuntu x86_64..."
-          ./ubuntu-test/vkax-cli --version
-          echo "Testing Ubuntu ARM64..."
-          ./arm64-test/vkax-cli --version
-          echo "Testing macOS..."
-          ./macos-test/vkax-cli --version
-          echo "Testing Windows (wine)..."
-          sudo apt-get install -y wine64
-          wine win-test/vkax-cli.exe --version
-      - name: Upload test logs
-        run: |
-          mkdir -p $TEST_LOG_ARTIFACT_DIR
-          echo "Tests passed" > $TEST_LOG_ARTIFACT_DIR/tests.log
+          path: windows
+
+      # Run CLI --version for all builds
+      - name: Test Ubuntu x86_64
+        run: ./ubuntu-x86_64/vkax-cli --version > $TEST_LOG_ARTIFACT_DIR/ubuntu-x86_64.log
+      - name: Test Ubuntu ARM64
+        run: ./ubuntu-arm64/vkax-cli --version > $TEST_LOG_ARTIFACT_DIR/ubuntu-arm64.log
+      - name: Test macOS
+        run: ./macos/vkax-cli --version > $TEST_LOG_ARTIFACT_DIR/macos.log
+      - name: Test Windows with wine
+        run: wine64 windows/vkax-cli.exe --version > $TEST_LOG_ARTIFACT_DIR/windows.log
+
+      # Upload test logs
       - uses: actions/upload-artifact@v4
         with:
-          name: test-logs
+          name: test-logs-${{ needs.get-version.outputs.version }}
           path: $TEST_LOG_ARTIFACT_DIR
 
   # -------------------------
-  # Step 7: Release upload (optional)
+  # Step 8: GitHub Release (conditional)
   # -------------------------
-  create-release:
-    runs-on: ubuntu-latest
-    needs: [build-ubuntu, build-ubuntu-arm64, build-macos, build-windows, test-binaries]
-    if: github.ref == 'refs/heads/${{ env.RELEASE_BRANCH }}'
+  release:
+    runs-on: ubuntu-22.04
+    needs: [build-ubuntu, build-ubuntu-arm64, build-macos, build-windows, test-builds]
+    if: github.ref == 'refs/heads/' + needs.get-version.outputs.release-branch
     steps:
       - uses: actions/checkout@v4
+      - name: Download all artifacts for release
+        uses: actions/download-artifact@v4
+        with:
+          name: x86_64-ubuntu-${{ needs.get-version.outputs.version }}
+          path: ubuntu-x86_64
       - uses: actions/download-artifact@v4
         with:
-          name: ubuntu-${{ needs.get-version.outputs.version }}
-          path: artifacts
-      - uses: actions/download-artifact@v4
-        with:
-          name: arm64-${{ needs.get-version.outputs.version }}
-          path: artifacts
+          name: arm64-ubuntu-${{ needs.get-version.outputs.version }}
+          path: ubuntu-arm64
       - uses: actions/download-artifact@v4
         with:
           name: macos-${{ needs.get-version.outputs.version }}
-          path: artifacts
+          path: macos
       - uses: actions/download-artifact@v4
         with:
           name: win-${{ needs.get-version.outputs.version }}
-          path: artifacts
+          path: windows
+      - uses: actions/download-artifact@v4
+        with:
+          name: version
+          path: .
       - name: Create GitHub Release
         uses: ncipollo/release-action@v1
         with:
-          tag: ${{ needs.get-version.outputs.version }}
-          name: "VKAX ${{ needs.get-version.outputs.version }}"
-          files: artifacts/*
+          tag: ${{ steps.select-version.outputs.version }}
+          name: VKAX ${{ steps.select-version.outputs.version }}
+          files: |
+            ubuntu-x86_64/${COIN_NAME}-ubuntu-${{ steps.select-version.outputs.version }}.tar.gz
+            ubuntu-x86_64/${COIN_NAME}-ubuntu-${{ steps.select-version.outputs.version }}.sha256
+            ubuntu-arm64/${COIN_NAME}-arm64-${{ steps.select-version.outputs.version }}.tar.gz
+            ubuntu-arm64/${COIN_NAME}-arm64-${{ steps.select-version.outputs.version }}.sha256
+            macos/${COIN_NAME}-macos-${{ steps.select-version.outputs.version }}.tar.gz
+            macos/${COIN_NAME}-macos-${{ steps.select-version.outputs.version }}.sha256
+            windows/${COIN_NAME}-win-${{ steps.select-version.outputs.version }}.zip
+            windows/${COIN_NAME}-win-${{ steps.select-version.outputs.version }}.sha256
