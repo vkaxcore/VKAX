@@ -33,7 +33,7 @@ jobs:
       - name: Choose version
         id: select-version
         run: |
-          if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]] || [[ github.ref == format('refs/heads/{0}', env.RELEASE_BRANCH) ]]; then
+          if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]] || [[ "$GITHUB_REF" == "refs/heads/${RELEASE_BRANCH}" ]]; then
             version=${{ steps.versions.outputs.snapshot-version }}
           else
             version=${{ steps.versions.outputs.release-version }}
@@ -55,13 +55,15 @@ jobs:
       # Install dependencies
       - name: Install dependencies
         run: |
-          brew install automake libtool pkg-config miniupnpc libnatpmp zeromq python3 || true
+          brew update
+          brew install automake libtool pkg-config miniupnpc libnatpmp zeromq python@3.13 || true
           pip3 install setuptools || true
 
-      # Build Boost dependencies
-      - run: make -C depends -j$(sysctl -n hw.ncpu)
+      # Build Boost dependencies first
+      - name: Build Boost dependencies
+        run: make -C depends -j$(sysctl -n hw.ncpu)
 
-      # Patch Boost for macOS 13
+      # Patch Boost for macOS 13 after depends build
       - name: Patch Boost for macOS 13
         run: |
           BOOST_FILE=depends/work/build/x86_64-apple-darwin22.6.0/boost/1_73_0/boost/mpl/aux_/integral_wrapper.hpp
@@ -69,15 +71,19 @@ jobs:
             echo "Patching $BOOST_FILE ..."
             sed -i '' 's/\(value - 1\)/((value <= 0 ? 0 : value - 1))/g' "$BOOST_FILE"
           else
-            echo "Boost file not found yet — patching after depends build"
+            echo "Boost file not found — skipping patch"
           fi
 
       # Build VKAX
-      - run: ./autogen.sh && ./configure --prefix=`pwd`/depends/x86_64-apple-darwin20.6.0
-      - run: make -j$(sysctl -n hw.ncpu)
+      - name: Configure and build
+        run: |
+          ./autogen.sh
+          ./configure --prefix=`pwd`/depends/x86_64-apple-darwin20.6.0
+          make -j$(sysctl -n hw.ncpu)
 
       # Package binaries
-      - run: |
+      - name: Package binaries
+        run: |
           mkdir -p $BUILD_DIR
           mv src/{vkax-cli,vkaxd,qt/vkax-qt} $BUILD_DIR/
           strip $BUILD_DIR/*
