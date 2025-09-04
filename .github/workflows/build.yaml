@@ -1,88 +1,49 @@
-name: VKAX macOS Build
-on:
-  push:
-    branches:
-      - main
-      - v100.11.5-macbuild*
-      - develop
-  pull_request:
-    branches:
-      - develop
-
-env:
-  COIN_NAME: vkax
-  BUILD_DIR: vkax-build
-  COMPRESS_DIR: vkax-compress
-  RELEASE_BRANCH: main
-
-jobs:
-  get-version:
-    runs-on: ubuntu-latest
-    outputs:
-      version: ${{ steps.select-version.outputs.version }}
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Read version from build.properties
-        id: versions
-        uses: christian-draeger/read-properties@1.1.1
-        with:
-          path: build.properties
-          properties: 'release-version snapshot-version'
-
-      - name: Choose version
-        id: select-version
-        run: |
-          if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]] || [[ "$GITHUB_REF" == "refs/heads/${RELEASE_BRANCH}" ]]; then
-            version=${{ steps.versions.outputs.snapshot-version }}
-          else
-            version=${{ steps.versions.outputs.release-version }}
-          fi
-          echo "version=$version" >> $GITHUB_OUTPUT
-          echo "$version" > version.txt
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: version
-          path: version.txt
-
   build-macos:
     runs-on: macos-13
     needs: get-version
     steps:
       - uses: actions/checkout@v4
 
-      # Install dependencies
-      - name: Install dependencies
+      - name: Setup Ccache
+        uses: actions/cache@v3
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: macos-ccache-${{ hashFiles('**/*') }}
+          restore-keys: macos-ccache-
+
+      - name: Cache depends
+        uses: actions/cache@v3
+        with:
+          path: depends/work
+          key: macos-depends-${{ hashFiles('build.properties') }}
+
+      - name: Install Dependencies
         run: |
-          brew update
-          brew install automake libtool pkg-config miniupnpc libnatpmp zeromq python@3.13 || true
-          pip3 install setuptools || true
+          brew install automake libtool pkg-config miniupnpc librsvg libnatpmp zeromq python3 || true
+          pip3 install -U setuptools ds_store mac_alias
 
-      # Build Boost dependencies first
-      - name: Build Boost dependencies
-        run: make -C depends -j$(sysctl -n hw.ncpu)
-
-      # Patch Boost for macOS 13 after depends build
       - name: Patch Boost for macOS 13
         run: |
           BOOST_FILE=depends/work/build/x86_64-apple-darwin22.6.0/boost/1_73_0/boost/mpl/aux_/integral_wrapper.hpp
           if [ -f "$BOOST_FILE" ]; then
-            echo "Patching $BOOST_FILE ..."
             sed -i '' 's/\(value - 1\)/((value <= 0 ? 0 : value - 1))/g' "$BOOST_FILE"
           else
-            echo "Boost file not found — skipping patch"
+            echo "Boost file not found — patch will apply during depends build"
           fi
 
-      # Build VKAX
-      - name: Configure and build
+      - name: Build Boost + Depends
+        run: |
+          make -C depends -j$(sysctl -n hw.ncpu)
+
+      - name: Configure VKAX
         run: |
           ./autogen.sh
-          ./configure --prefix=`pwd`/depends/x86_64-apple-darwin20.6.0
-          make -j$(sysctl -n hw.ncpu)
+          ./configure --prefix=`pwd`/depends/x86_64-apple-darwin22.6.0
 
-      # Package binaries
-      - name: Package binaries
+      - name: Build Binaries
+        run: make -j$(sysctl -n hw.ncpu)
+
+      - name: Package Binaries
         run: |
           mkdir -p $BUILD_DIR
           mv src/{vkax-cli,vkaxd,qt/vkax-qt} $BUILD_DIR/
