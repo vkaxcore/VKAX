@@ -1,77 +1,91 @@
-name: VKAX macOS Minimal Build
-
+name: VKAX macOS Build
 on:
   push:
     branches:
-      - v100.11.5-macbuild
-  workflow_dispatch:
+      - main
+      - v100.11.5*
+      - develop
+  pull_request:
+    branches:
+      - develop
 
 env:
   COIN_NAME: vkax
   BUILD_DIR: vkax-build
   COMPRESS_DIR: vkax-compress
-  TEST_DIR: vkax-test
-  BOOST_VERSION: 1_73_0
 
 jobs:
+  get-version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.select-version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read version from build.properties
+        id: versions
+        uses: christian-draeger/read-properties@1.1.1
+        with:
+          path: build.properties
+          properties: 'release-version snapshot-version'
+      - name: Choose version
+        id: select-version
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]] || [[ "$GITHUB_REF" == *develop ]] || [[ "$GITHUB_REF" == *v100.11.3* ]]; then
+            version=${{ steps.versions.outputs.snapshot-version }}
+          else
+            version=${{ steps.versions.outputs.release-version }}
+          fi
+          echo "version=$version" >> $GITHUB_OUTPUT
+          echo "$version" > version.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: version
+          path: version.txt
+
   build-macos:
-    name: macOS Build
-    strategy:
-      matrix:
-        version: [12, 13]
-        arch: [x86_64, arm64]
-    runs-on: macos-${{ matrix.version }}
+    runs-on: macos-13
+    needs: get-version
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Dependencies
+      # Install dependencies
+      - name: Install dependencies
         run: |
-          brew install automake libtool pkg-config miniupnpc libnatpmp zeromq python qt@5
-          export BDB_INCLUDE_DIR=$(brew --prefix berkeley-db@4)/include
-          export BDB_LIB_DIR=$(brew --prefix berkeley-db@4)/lib
-          export QT_PATH=$(brew --prefix qt@5)
-          export PATH=$QT_PATH/bin:$PATH
-          export PKG_CONFIG_PATH=$QT_PATH/lib/pkgconfig:$PKG_CONFIG_PATH
+          brew install automake libtool pkg-config miniupnpc libnatpmp zeromq python3 || true
+          pip3 install setuptools || true
 
-      - name: Build depends
+      # Build Boost dependencies first
+      - name: Build Boost dependencies
+        run: make -C depends/boost
+
+      # Patch Boost for macOS 13
+      - name: Patch Boost for macOS 13
         run: |
-          HOST=${{ matrix.arch }}-apple-darwin20.6.0
-          make -C depends -j$(sysctl -n hw.ncpu) HOST=$HOST
+          BOOST_FILE=depends/work/build/x86_64-apple-darwin22.6.0/boost/1_73_0/boost/mpl/aux_/integral_wrapper.hpp
+          if [ -f "$BOOST_FILE" ]; then
+            echo "Patching $BOOST_FILE ..."
+            sed -i '' 's/\(value - 1\)/((value <= 0 ? 0 : value - 1))/g' "$BOOST_FILE"
+          else
+            echo "Boost file not found — check depends path"
+            exit 1
+          fi
 
-      - name: Configure VKAX
+      # Build VKAX
+      - name: Build VKAX
         run: |
           ./autogen.sh
-          ./configure --prefix=$(pwd)/depends/$HOST \
-                      --with-boost=$(pwd)/depends/boost \
-                      --with-incompatible-bdb \
-                      CXXFLAGS="-I$BDB_INCLUDE_DIR -I$QT_PATH/include" \
-                      LDFLAGS="-L$BDB_LIB_DIR -L$QT_PATH/lib" \
-                      QT_SELECT=5
-
-      - name: Build Binary
-        run: |
+          ./configure CXXFLAGS="-Wno-deprecated-declarations" --prefix=`pwd`/depends/x86_64-apple-darwin20.6.0
           make -j$(sysctl -n hw.ncpu)
-          mkdir -p $BUILD_DIR $TEST_DIR
-          mv src/{vkax-cli,vkaxd,qt/vkax-qt} $BUILD_DIR/
-          cp src/{vkax-cli,vkaxd,qt/vkax-qt} $TEST_DIR/
 
-      - name: Generate DMG
+      # Package binaries
+      - name: Package VKAX
         run: |
-          make deploy
-          mkdir -p macos-dmg
-          mv vkax-Qt.dmg macos-dmg/
-          cd macos-dmg
-          shasum -a 256 *.dmg > checksums.txt
-          cd ..
+          mkdir -p $BUILD_DIR
+          mv src/{vkax-cli,vkaxd,qt/vkax-qt} $BUILD_DIR/
+          strip $BUILD_DIR/*
+          tar -czf ${COIN_NAME}-macos-${{ needs.get-version.outputs.version }}.tar.gz $BUILD_DIR
 
-      - name: Upload Artifacts
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
-          name: vkax-macos-${{ matrix.arch }}-${{ matrix.version }}
-          path: $BUILD_DIR
-
-      - name: Upload DMG
-        uses: actions/upload-artifact@v4
-        with:
-          name: vkax-macos-${{ matrix.arch }}-dmg-${{ matrix.version }}
-          path: macos-dmg
+          name: macos-${{ needs.get-version.outputs.version }}
+          path: ${COIN_NAME}-macos-${{ needs.get-version.outputs.version }}.tar.gz
