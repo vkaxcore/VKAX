@@ -5,7 +5,7 @@ $(package)_suffix=opensource-src-$(package)_version.tar.xz
 $(package)_file_name=qt-everywhere-src-$(package)_suffix
 $(package)_sha256_hash=B545CB83C60934ADC9A6BBD27E2AF79E5013DE77D46F5B9F5BB2A3C762BF55CA
 
-# Extra sources have their own download paths
+# Extra sources
 $(package)_qttranslations_file_name=qttranslations-everywhere-opensource-src-$(package)_version.tar.xz
 $(package)_qttranslations_download_path=https://download.qt.io/archive/qt/5.15/5.15.10/submodules
 $(package)_qttranslations_sha256_hash=38B942BC7E62794DD072945C8A92BB9DFFFED24070AEA300327A3BB42F855609
@@ -54,11 +54,12 @@ endif
     $(package)_config_opts_linux += -system-freetype -fontconfig
     $(package)_config_opts_linux += -no-opengl
 
-    # Linux ARM
+    # Linux ARM cross-compile
     $(package)_config_opts_arm_linux = -xplatform linux-g++ -device-option CROSS_COMPILE="$(host)-"
 
     # Windows / MinGW
     $(package)_config_opts_mingw32 = -no-opengl -no-dbus -xplatform win32-g++
+    $(package)_qt_libs += qtwinextras qtnetworkauth qtwebsockets qtserialport
 endef
 
 define $(package)_fetch_cmds
