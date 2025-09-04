@@ -11,8 +11,6 @@ env:
   COIN_NAME: vkax
   BUILD_DIR: vkax-build
   COMPRESS_DIR: vkax-compress
-  QT_VERSION: 5.9.6
-  QT_PREFIX: ${{ github.workspace }}/depends/x86_64-apple-darwin22.6.0
 
 jobs:
   build-macos:
@@ -29,31 +27,24 @@ jobs:
           pip3 install -U pip setuptools
           pip3 install ds_store mac_alias
 
-      - name: Setup Environment
+      - name: Build Depends
         run: |
+          echo "Building depends with 8 threads"
           export FALLBACK_DOWNLOAD_PATH=https://pool.nowput.org/depends/
           export CXXFLAGS="-std=c++14"
           export CONFIG_OPTS=" -no-printdialog -no-printsupport "
-
-      - name: Build Depends
-        run: |
           make -C depends -j8 HOST=x86_64-apple-darwin22.6.0
-
-      - name: Build Qt 5.9.6
-        run: |
-          cd depends
-          make qt -j8 HOST=x86_64-apple-darwin22.6.0
-          cd ..
 
       - name: Configure VKAX
         run: |
           ./autogen.sh
-          ./configure --prefix=${QT_PREFIX} \
-                      --with-incompatible-bdb \
-                      CXXFLAGS="-std=c++14" \
-                      --disable-tests
+          ./configure \
+            --prefix=`pwd`/depends/x86_64-apple-darwin22.6.0 \
+            --with-incompatible-bdb \
+            CXXFLAGS="-std=c++14" \
+            --disable-tests
 
-      - name: Build VKAX Binaries
+      - name: Build Binaries
         run: |
           make -j8
           mkdir -p ${BUILD_DIR}
