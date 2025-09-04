@@ -93,6 +93,7 @@ endif
 	$(package)_config_opts += -no-feature-printer
 	$(package)_config_opts += -no-feature-printpreviewdialog
 	$(package)_config_opts += -no-feature-printpreviewwidget
+	$(package)_config_opts += -no-printsupport
 	$(package)_config_opts += -no-feature-sessionmanager
 	$(package)_config_opts += -no-feature-sql
 	$(package)_config_opts += -no-feature-statemachine
