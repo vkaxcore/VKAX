@@ -1,11 +1,14 @@
 package=boost
 $(package)_version=1_81_0
-# SourceForge download URL with redirect handling
-$(package)_download_path=https://downloads.sourceforge.net/project/boost/boost/1.81.0/
+$(package)_download_path=https://downloads.sourceforge.net/project/boost/boost/$(subst _,.,$($(package)_version))/
 $(package)_file_name=boost_$($(package)_version).tar.bz2
-# Correct SHA256 for Boost 1.81
 $(package)_sha256_hash=71feeed900fbccca04a3b4f2f84a7c217186f28a940ed8b7ed4725986baf99fa
 $(package)_dependencies=native_b2
+
+# Detect CPU cores (macOS compatible)
+ifndef nproc
+  nproc := $(shell sysctl -n hw.ncpu 2>/dev/null || echo 4)
+endif
 
 define $(package)_set_vars
   # Build variants
@@ -74,12 +77,4 @@ endef
 define $(package)_stage_cmds
   b2 -d0 -j$(nproc) --prefix=$($(package)_staging_prefix_dir) \
   $($(package)_config_opts) toolset=$($(package)_toolset_$(host_os)) install
-endef
-
-# Override download command to handle SourceForge redirects
-define $(package)_download_cmds
-  mkdir -p $(dir $($(package)_staging_prefix_dir)/dummy) && \
-  curl -L -o $($(package)_file_name).temp "$($(package)_download_path)$($(package)_file_name)" && \
-  shasum -a 256 -c <(echo "$($(package)_sha256_hash)  $($(package)_file_name).temp") && \
-  mv $($(package)_file_name).temp $($(package)_file_name)
 endef
