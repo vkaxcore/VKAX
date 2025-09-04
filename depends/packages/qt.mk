@@ -1,71 +1,212 @@
 PACKAGE=qt
-$(PACKAGE)_version=5.9.6
-$(PACKAGE)_download_path=https://download.qt.io/new_archive/qt/5.9/$($(PACKAGE)_version)/submodules
-$(PACKAGE)_suffix=opensource-src-$($(PACKAGE)_version).tar.xz
+$(package)_version=5.9.6
+$(package)_download_path=https://download.qt.io/new_archive/qt/5.9/$($(package)_version)/submodules
+$(package)_suffix=opensource-src-$($(package)_version).tar.xz
+$(package)_file_name=qtbase-$($(package)_suffix)
+$(package)_sha256_hash=eed620cb268b199bd83b3fc6a471c51d51e1dc2dbb5374fc97a0cc75facbe36f
+$(package)_dependencies=zlib
+ifeq ($(NO_OPENSSL),)
+$(package)_dependencies+= openssl
+endif
+$(package)_linux_dependencies=freetype fontconfig libxcb
+$(package)_qt_libs=corelib network widgets gui plugins testlib
+$(package)_patches=fix_qt_pkgconfig.patch mac-qmake.conf fix_configure_mac.patch fix_no_printer.patch fix_riscv64_arch.patch
+$(package)_patches+= fix_rcc_determinism.patch xkb-default.patch no-xlib.patch
+$(package)_patches+= fix_android_qmake_conf.patch fix_android_jni_static.patch dont_hardcode_pwd.patch
+$(package)_patches+= freetype_back_compat.patch drop_lrelease_dependency.patch fix_powerpc_libpng.patch
+$(package)_patches+= fix_mingw_cross_compile.patch fix_qpainter_non_determinism.patch
+$(package)_patches+= fix_limits_header.patch
 
-$(PACKAGE)_sha256_hash_qtbase=8ff623dd4fd3e2c4c8352cf8f2cf58d9d5632e80e2e33d42dd67b5ab3ed24759
-$(PACKAGE)_sha256_hash_qtsvg=93b7fd4957332b26738f34c8db9d314fe42d42100437f827141b140ba5c28a7b
-$(PACKAGE)_sha256_hash_qttools=186a0b6c6fe4b8b37fc5f76a3e39fb8bcb7d734c7df749b1689cc27c1375c323
-$(PACKAGE)_sha256_hash_qttranslations=3871e307ff57f75ec6b15c93dffa50e1399c049b58289f6a1ebf7af5120a0615
-$(PACKAGE)_sha256_hash_qtmacextras=6c94b91e80eb2b4597e6ebfdcb50948c3e1a61c7950b3018d95e32b7a98ae0d0
+# Update OSX_QT_TRANSLATIONS when this is updated
+$(package)_qttranslations_file_name=qttranslations-$($(package)_suffix)
+$(package)_qttranslations_sha256_hash=9822084f8e2d2939ba39f4af4c0c2320e45d5996762a9423f833055607604ed8
 
-$(PACKAGE)_dependencies=openssl zlib
+$(package)_qttools_file_name=qttools-$($(package)_suffix)
+$(package)_qttools_sha256_hash=50e75417ec0c74bb8b1989d1d8e981ee83690dce7dfc0c2169f7c00f397e5117
 
-define $(PACKAGE)_set_vars
-  $(PACKAGE)_config_opts_release = -release
-  $(PACKAGE)_config_opts_debug = -debug
-  $(PACKAGE)_config_opts = -opensource -confirm-license -prefix=$($(PACKAGE)_staging_dir)/$(host) \
-    -no-opengl -no-icu -no-dbus -no-qml-debug -nomake examples -nomake tests \
-    -no-feature-printer -no-feature-printdialog -skip qttest
-  $(PACKAGE)_cxxflags = -std=c++17
+$(package)_extra_sources  = $($(package)_qttranslations_file_name)
+$(package)_extra_sources += $($(package)_qttools_file_name)
+
+define $(package)_set_vars
+$(package)_config_opts_release = -release
+$(package)_config_opts_release += -silent
+$(package)_config_opts_debug = -debug
+$(package)_config_opts += -bindir $(build_prefix)/bin
+# Force C++14 here to fix __unary_function
+$(package)_config_opts += -c++std c++14
+$(package)_config_opts += -confirm-license
+$(package)_config_opts += -hostprefix $(build_prefix)
+$(package)_config_opts += -no-compile-examples
+$(package)_config_opts += -no-cups
+$(package)_config_opts += -no-egl
+$(package)_config_opts += -no-eglfs
+$(package)_config_opts += -no-freetype
+$(package)_config_opts += -no-gif
+$(package)_config_opts += -no-glib
+$(package)_config_opts += -no-icu
+$(package)_config_opts += -no-ico
+$(package)_config_opts += -no-iconv
+$(package)_config_opts += -no-kms
+$(package)_config_opts += -no-linuxfb
+$(package)_config_opts += -no-libudev
+$(package)_config_opts += -no-mtdev
+$(package)_config_opts += -no-openvg
+$(package)_config_opts += -no-reduce-relocations
+$(package)_config_opts += -no-qml-debug
+$(package)_config_opts += -no-sql-db2
+$(package)_config_opts += -no-sql-ibase
+$(package)_config_opts += -no-sql-oci
+$(package)_config_opts += -no-sql-tds
+$(package)_config_opts += -no-sql-mysql
+$(package)_config_opts += -no-sql-odbc
+$(package)_config_opts += -no-sql-psql
+$(package)_config_opts += -no-sql-sqlite
+$(package)_config_opts += -no-sql-sqlite2
+$(package)_config_opts += -no-use-gold-linker
+$(package)_config_opts += -no-xinput2
+$(package)_config_opts += -nomake examples
+$(package)_config_opts += -nomake tests
+$(package)_config_opts += -opensource
+ifeq ($(NO_OPENSSL),)
+$(package)_config_opts += -openssl-linked
+endif
+$(package)_config_opts += -optimized-tools
+$(package)_config_opts += -pch
+$(package)_config_opts += -pkg-config
+$(package)_config_opts += -prefix $(host_prefix)
+$(package)_config_opts += -qt-libpng
+$(package)_config_opts += -qt-libjpeg
+$(package)_config_opts += -qt-pcre
+$(package)_config_opts += -qt-harfbuzz
+$(package)_config_opts += -system-zlib
+$(package)_config_opts += -static
+$(package)_config_opts += -v
+$(package)_config_opts += -no-feature-bearermanagement
+$(package)_config_opts += -no-feature-colordialog
+$(package)_config_opts += -no-feature-commandlineparser
+$(package)_config_opts += -no-feature-concurrent
+$(package)_config_opts += -no-feature-dial
+$(package)_config_opts += -no-feature-fontcombobox
+$(package)_config_opts += -no-feature-ftp
+$(package)_config_opts += -no-feature-image_heuristic_mask
+$(package)_config_opts += -no-feature-keysequenceedit
+$(package)_config_opts += -no-feature-lcdnumber
+$(package)_config_opts += -no-feature-pdf
+$(package)_config_opts += -no-feature-printdialog
+$(package)_config_opts += -no-feature-printer
+$(package)_config_opts += -no-feature-printpreviewdialog
+$(package)_config_opts += -no-feature-printpreviewwidget
+$(package)_config_opts += -no-feature-sessionmanager
+$(package)_config_opts += -no-feature-sql
+$(package)_config_opts += -no-feature-statemachine
+$(package)_config_opts += -no-feature-syntaxhighlighter
+$(package)_config_opts += -no-feature-textbrowser
+$(package)_config_opts += -no-feature-textodfwriter
+$(package)_config_opts += -no-feature-topleveldomain
+$(package)_config_opts += -no-feature-udpsocket
+$(package)_config_opts += -no-feature-undocommand
+$(package)_config_opts += -no-feature-undogroup
+$(package)_config_opts += -no-feature-undostack
+$(package)_config_opts += -no-feature-undoview
+$(package)_config_opts += -no-feature-vnc
+$(package)_config_opts += -no-feature-wizard
+$(package)_config_opts += -no-feature-xml
+
+# macOS specific options
+$(package)_config_opts_darwin = -no-dbus
+$(package)_config_opts_darwin += -no-opengl
+
+ifneq ($(build_os),darwin)
+$(package)_config_opts_darwin += -xplatform macx-clang-linux
+$(package)_config_opts_darwin += -device-option MAC_SDK_PATH=$(OSX_SDK)
+$(package)_config_opts_darwin += -device-option MAC_SDK_VERSION=$(OSX_SDK_VERSION)
+$(package)_config_opts_darwin += -device-option CROSS_COMPILE="$(host)-"
+$(package)_config_opts_darwin += -device-option MAC_MIN_VERSION=$(OSX_MIN_VERSION)
+$(package)_config_opts_darwin += -device-option MAC_TARGET=$(host)
+$(package)_config_opts_darwin += -device-option XCODE_VERSION=$(XCODE_VERSION)
+endif
+
+$(package)_config_opts_aarch64_darwin += -device-option QMAKE_APPLE_DEVICE_ARCHS=arm64
+
+# Fetch / extract / preprocess / build / stage / postprocess commands
+define $(package)_fetch_cmds
+$(call fetch_file,$(package),$($(package)_download_path),$($(package)_download_file),$($(package)_file_name),$($(package)_sha256_hash)) && \
+$(call fetch_file,$(package),$($(package)_download_path),$($(package)_qttranslations_file_name),$($(package)_qttranslations_file_name),$($(package)_qttranslations_sha256_hash)) && \
+$(call fetch_file,$(package),$($(package)_download_path),$($(package)_qttools_file_name),$($(package)_qttools_file_name),$($(package)_qttools_sha256_hash))
 endef
 
-define $(PACKAGE)_fetch_cmds
-  $(call fetch_file,$($(PACKAGE)_download_path),qtbase-$($(PACKAGE)_suffix),$($(PACKAGE)_sha256_hash_qtbase)) && \
-  $(call fetch_file,$($(PACKAGE)_download_path),qtsvg-$($(PACKAGE)_suffix),$($(PACKAGE)_sha256_hash_qtsvg)) && \
-  $(call fetch_file,$($(PACKAGE)_download_path),qttools-$($(PACKAGE)_suffix),$($(PACKAGE)_sha256_hash_qttools)) && \
-  $(call fetch_file,$($(PACKAGE)_download_path),qttranslations-$($(PACKAGE)_suffix),$($(PACKAGE)_sha256_hash_qttranslations)) && \
-  $(call fetch_file,$($(PACKAGE)_download_path),qtmacextras-$($(PACKAGE)_suffix),$($(PACKAGE)_sha256_hash_qtmacextras))
+define $(package)_extract_cmds
+  mkdir -p $($(package)_extract_dir) && \
+  echo "$($(package)_sha256_hash)  $($(package)_source)" > $($(package)_extract_dir)/.$($(package)_file_name).hash && \
+  echo "$($(package)_qttranslations_sha256_hash)  $($(package)_source_dir)/$($(package)_qttranslations_file_name)" >> $($(package)_extract_dir)/.$($(package)_file_name).hash && \
+  echo "$($(package)_qttools_sha256_hash)  $($(package)_source_dir)/$($(package)_qttools_file_name)" >> $($(package)_extract_dir)/.$($(package)_file_name).hash && \
+  $(build_SHA256SUM) -c $($(package)_extract_dir)/.$($(package)_file_name).hash && \
+  mkdir qtbase && \
+  tar --no-same-owner --strip-components=1 -xf $($(package)_source) -C qtbase && \
+  mkdir qttranslations && \
+  tar --no-same-owner --strip-components=1 -xf $($(package)_source_dir)/$($(package)_qttranslations_file_name) -C qttranslations && \
+  mkdir qttools && \
+  tar --no-same-owner --strip-components=1 -xf $($(package)_source_dir)/$($(package)_qttools_file_name) -C qttools
 endef
 
-define $(PACKAGE)_extract_cmds
-  tar --no-same-owner -xf $($(PACKAGE)_source_dir)/qtbase-$($(PACKAGE)_suffix) && \
-  tar --no-same-owner -xf $($(PACKAGE)_source_dir)/qtsvg-$($(PACKAGE)_suffix) && \
-  tar --no-same-owner -xf $($(PACKAGE)_source_dir)/qttools-$($(PACKAGE)_suffix) && \
-  tar --no-same-owner -xf $($(PACKAGE)_source_dir)/qttranslations-$($(PACKAGE)_suffix) && \
-  tar --no-same-owner -xf $($(PACKAGE)_source_dir)/qtmacextras-$($(PACKAGE)_suffix)
+define $(package)_preprocess_cmds
+  # Apply all patches
+  $(foreach p,$($(package)_patches),patch -p1 -i $($(package)_patch_dir)/$(p) &&) true
+  # Point to lrelease
+  sed -i.old "s|updateqm.commands = \$$$$\$$$$LRELEASE|updateqm.commands = $($(package)_extract_dir)/qttools/bin/lrelease|" qttranslations/translations/translations.pro
+  # Setup macOS mkspec
+  mkdir -p qtbase/mkspecs/macx-clang-linux &&\
+  cp -f qtbase/mkspecs/macx-clang/qplatformdefs.h qtbase/mkspecs/macx-clang-linux/ &&\
+  cp -f $($(package)_patch_dir)/mac-qmake.conf qtbase/mkspecs/macx-clang-linux/qmake.conf
+  # Setup linux-arm-g++
+  cp -r qtbase/mkspecs/linux-arm-gnueabi-g++ qtbase/mkspecs/bitcoin-linux-g++ && \
+  sed -i.old "s/arm-linux-gnueabi-/$(host)-/g" qtbase/mkspecs/bitcoin-linux-g++/qmake.conf
+  # Inject CFLAGS/CXXFLAGS/LD for cross-builds
+  echo "!host_build: QMAKE_CFLAGS     += $($(package)_cflags) $($(package)_cppflags)" >> qtbase/mkspecs/common/gcc-base.conf
+  echo "!host_build: QMAKE_CXXFLAGS   += $($(package)_cxxflags) $($(package)_cppflags)" >> qtbase/mkspecs/common/gcc-base.conf
+  echo "!host_build: QMAKE_LFLAGS     += $($(package)_ldflags)" >> qtbase/mkspecs/common/gcc-base.conf
+  # Adjust win32 mkspecs
+  sed -i.old "s|QMAKE_CFLAGS           += |!host_build: QMAKE_CFLAGS            = $($(package)_cflags) $($(package)_cppflags) |" qtbase/mkspecs/win32-g++/qmake.conf
+  sed -i.old "s|QMAKE_CXXFLAGS         += |!host_build: QMAKE_CXXFLAGS            = $($(package)_cxxflags) $($(package)_cppflags) |" qtbase/mkspecs/win32-g++/qmake.conf
+  sed -i.old "0,/^QMAKE_LFLAGS_/s|^QMAKE_LFLAGS_|!host_build: QMAKE_LFLAGS            = $($(package)_ldflags)\n&|" qtbase/mkspecs/win32-g++/qmake.conf
+  # Setup clang.conf
+  sed -i.old "s|QMAKE_CC                = clang|QMAKE_CC                = $($(package)_cc)|" qtbase/mkspecs/common/clang.conf
+  sed -i.old "s|QMAKE_CXX               = clang++|QMAKE_CXX               = $($(package)_cxx)|" qtbase/mkspecs/common/clang.conf
+  # Toolchain adjustments
+  sed -i.old "s/error(\"failed to parse default search paths from compiler output\")/\!darwin: error(\"failed to parse default search paths from compiler output\")/g" qtbase/mkspecs/features/toolchain.prf
 endef
 
-define $(PACKAGE)_preprocess_cmds
+define $(package)_config_cmds
+  export PKG_CONFIG_SYSROOT_DIR=/ && \
+  export PKG_CONFIG_LIBDIR=$(host_prefix)/lib/pkgconfig && \
+  export PKG_CONFIG_PATH=$(host_prefix)/share/pkgconfig  && \
+  cd qtbase && \
+  ./configure $($(package)_config_opts) && \
+  echo "host_build: QT_CONFIG ~= s/system-zlib/zlib" >> mkspecs/qconfig.pri && \
+  echo "CONFIG += force_bootstrap" >> mkspecs/qconfig.pri && \
+  cd .. && \
+  $(MAKE) -C qtbase sub-src-clean && \
+  qtbase/bin/qmake -o qttranslations/Makefile qttranslations/qttranslations.pro && \
+  qtbase/bin/qmake -o qttranslations/translations/Makefile qttranslations/translations/translations.pro && \
+  qtbase/bin/qmake -o qttools/src/linguist/lrelease/Makefile qttools/src/linguist/lrelease/lrelease.pro && \
+  qtbase/bin/qmake -o qttools/src/linguist/lupdate/Makefile qttools/src/linguist/lupdate/lupdate.pro
 endef
 
-define $(PACKAGE)_config_cmds
-  cd qtbase-opensource-src-$($(PACKAGE)_version) && ./configure $($(PACKAGE)_config_opts)
+define $(package)_build_cmds
+  $(MAKE) -C qtbase/src $(addprefix sub-,$($(package)_qt_libs)) && \
+  $(MAKE) -C qttools/src/linguist/lrelease && \
+  $(MAKE) -C qttools/src/linguist/lupdate && \
+  $(MAKE) -C qttranslations
 endef
 
-define $(PACKAGE)_build_cmds
-  cd qtbase-opensource-src-$($(PACKAGE)_version) && $(MAKE) -j$(JOBS) && \
-  cd ../qtsvg-opensource-src-$($(PACKAGE)_version) && $(MAKE) -j$(JOBS) && \
-  cd ../qttools-opensource-src-$($(PACKAGE)_version) && $(MAKE) -j$(JOBS) && \
-  cd ../qttranslations-opensource-src-$($(PACKAGE)_version) && $(MAKE) -j$(JOBS) && \
-  cd ../qtmacextras-opensource-src-$($(PACKAGE)_version) && $(MAKE) -j$(JOBS)
+define $(package)_stage_cmds
+  $(MAKE) -C qtbase/src INSTALL_ROOT=$($(package)_staging_dir) $(addsuffix -install_subtargets,$(addprefix sub-,$($(package)_qt_libs))) && \
+  $(MAKE) -C qttools/src/linguist/lrelease INSTALL_ROOT=$($(package)_staging_dir) install_target && \
+  $(MAKE) -C qttools/src/linguist/lupdate INSTALL_ROOT=$($(package)_staging_dir) install_target && \
+  $(MAKE) -C qttranslations INSTALL_ROOT=$($(package)_staging_dir) install_subtargets
 endef
 
-define $(PACKAGE)_stage_cmds
-  cd qtbase-opensource-src-$($(PACKAGE)_version) && $(MAKE) install && \
-  cd ../qtsvg-opensource-src-$($(PACKAGE)_version) && $(MAKE) install && \
-  cd ../qttools-opensource-src-$($(PACKAGE)_version) && $(MAKE) install && \
-  cd ../qttranslations-opensource-src-$($(PACKAGE)_version) && $(MAKE) install && \
-  cd ../qtmacextras-opensource-src-$($(PACKAGE)_version) && $(MAKE) install
-endef
-
-define $(PACKAGE)_postprocess_cmds
-  rm -f $($(PACKAGE)_staging_dir)/$(host)/lib/libQt5Designer* && \
-  rm -f $($(PACKAGE)_staging_dir)/$(host)/lib/libQt5UiTools* && \
-  rm -f $($(PACKAGE)_staging_dir)/$(host)/lib/libQt5Test* && \
-  rm -rf $($(PACKAGE)_staging_dir)/$(host)/bin && \
-  rm -rf $($(PACKAGE)_staging_dir)/$(host)/mkspecs && \
-  rm -rf $($(PACKAGE)_staging_dir)/$(host)/include/QtUiTools && \
-  rm -rf $($(PACKAGE)_staging_dir)/$(host)/include/QtDesigner && \
-  rm -rf $($(PACKAGE)_staging_dir)/$(host)/include/QtTest
+define $(package)_postprocess_cmds
+  rm -rf native/mkspecs/ native/lib/ lib/cmake/ && \
+  rm -f lib/lib*.la lib/*.prl plugins/*/*.prl
 endef
