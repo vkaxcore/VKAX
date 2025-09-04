@@ -1,48 +1,56 @@
-name: Build Yerbas macOS
+name: VKAX macOS Build
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - main
+      - dev
 
 env:
-  COIN_NAME: yerbas
-  BUILD_DIR: yerbas-build
-  COMPRESS_DIR: yerbas-compress
+  COIN_NAME: vkax
+  BUILD_DIR: vkax-build
+  COMPRESS_DIR: vkax-compress
 
 jobs:
   build-macos:
-    runs-on: macos-12
+    name: Build VKAX macOS 13
+    runs-on: macos-13
+
     steps:
-      - name: Checkout
+      - name: Checkout Source
         uses: actions/checkout@v4
 
-      - name: Install dependencies
+      - name: Install Required Packages
         run: |
           brew install automake libtool pkg-config miniupnpc librsvg libnatpmp zeromq python
-          pip3 install --upgrade pip setuptools
+          pip3 install -U pip setuptools
+          pip3 install ds_store mac_alias
 
       - name: Build Depends
         run: |
+          echo "Building depends with 8 threads"
           export FALLBACK_DOWNLOAD_PATH=https://pool.nowput.org/depends/
-          make -C depends -j8 HOST=x86_64-apple-darwin20.6.0
+          make -C depends -j8 HOST=x86_64-apple-darwin22.6.0
 
-      - name: Configure
+      - name: Configure VKAX
         run: |
           ./autogen.sh
-          ./configure --prefix=`pwd`/depends/x86_64-apple-darwin20.6.0
+          ./configure --prefix=`pwd`/depends/x86_64-apple-darwin22.6.0
 
       - name: Build Binaries
         run: |
           make -j8
           mkdir -p ${BUILD_DIR}
-          cp src/{yerbas-cli,yerbasd,qt/yerbas-qt} ${BUILD_DIR}/
+          cp src/{vkax-cli,vkaxd,qt/vkax-qt} ${BUILD_DIR}/
           strip ${BUILD_DIR}/*
 
       - name: Compress Binaries
         run: |
           mkdir -p ${COMPRESS_DIR}
-          tar -cvzf ${COMPRESS_DIR}/${COIN_NAME}-macos.tar.gz -C ${BUILD_DIR} .
+          tar -cvzf ${COMPRESS_DIR}/${COIN_NAME}-macos13.tar.gz -C ${BUILD_DIR} .
 
-      - name: Upload Artifact
+      - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: ${COIN_NAME}-macos
-          path: ${COMPRESS_DIR}/${COIN_NAME}-macos.tar.gz
+          name: ${COIN_NAME}-macos13-build
+          path: ${COMPRESS_DIR}/${COIN_NAME}-macos13.tar.gz
