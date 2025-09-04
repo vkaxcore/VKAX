@@ -9,111 +9,51 @@ ifeq ($(NO_OPENSSL),)
 $(package)_dependencies+= openssl
 endif
 $(package)_linux_dependencies=freetype fontconfig libxcb
-$(package)_qt_libs=corelib network widgets gui plugins testlib
+$(package)_qt_libs=corelib network widgets gui plugins
 $(package)_patches=fix_qt_pkgconfig.patch mac-qmake.conf fix_configure_mac.patch fix_no_printer.patch fix_riscv64_arch.patch
 $(package)_patches+= fix_rcc_determinism.patch xkb-default.patch no-xlib.patch
 $(package)_patches+= fix_android_qmake_conf.patch fix_android_jni_static.patch dont_hardcode_pwd.patch
 $(package)_patches+= freetype_back_compat.patch drop_lrelease_dependency.patch fix_powerpc_libpng.patch
-$(package)_patches+= fix_mingw_cross_compile.patch fix_qpainter_non_determinism.patch
-$(package)_patches+= fix_limits_header.patch fix_xcode15_unary_function.patch fix_qplaintestlogger_xcode15.patch
-
-# Update OSX_QT_TRANSLATIONS when this is updated
+$(package)_patches+= fix_mingw_cross_compile.patch fix_qpainter_non_determinism.patch fix_limits_header.patch
 $(package)_qttranslations_file_name=qttranslations-$($(package)_suffix)
 $(package)_qttranslations_sha256_hash=9822084f8e2d2939ba39f4af4c0c2320e45d5996762a9423f833055607604ed8
-
 $(package)_qttools_file_name=qttools-$($(package)_suffix)
 $(package)_qttools_sha256_hash=50e75417ec0c74bb8b1989d1d8e981ee83690dce7dfc0c2169f7c00f397e5117
-
 $(package)_extra_sources  = $($(package)_qttranslations_file_name)
 $(package)_extra_sources += $($(package)_qttools_file_name)
 
 define $(package)_set_vars
-$(package)_config_opts_release = -release
-$(package)_config_opts_release += -silent
+$(package)_config_opts_release = -release -silent
 $(package)_config_opts_debug = -debug
 $(package)_config_opts += -bindir $(build_prefix)/bin
 $(package)_config_opts += -c++std c++1z
 $(package)_config_opts += -confirm-license
 $(package)_config_opts += -hostprefix $(build_prefix)
 $(package)_config_opts += -no-compile-examples
-$(package)_config_opts += -no-cups
-$(package)_config_opts += -no-egl
-$(package)_config_opts += -no-eglfs
-$(package)_config_opts += -no-freetype
-$(package)_config_opts += -no-gif
-$(package)_config_opts += -no-glib
-$(package)_config_opts += -no-icu
-$(package)_config_opts += -no-ico
-$(package)_config_opts += -no-iconv
-$(package)_config_opts += -no-kms
-$(package)_config_opts += -no-linuxfb
-$(package)_config_opts += -no-libudev
-$(package)_config_opts += -no-mtdev
-$(package)_config_opts += -no-openvg
-$(package)_config_opts += -no-reduce-relocations
-$(package)_config_opts += -no-qml-debug
-$(package)_config_opts += -no-sql-db2
-$(package)_config_opts += -no-sql-ibase
-$(package)_config_opts += -no-sql-oci
-$(package)_config_opts += -no-sql-tds
-$(package)_config_opts += -no-sql-mysql
-$(package)_config_opts += -no-sql-odbc
-$(package)_config_opts += -no-sql-psql
-$(package)_config_opts += -no-sql-sqlite
-$(package)_config_opts += -no-sql-sqlite2
-$(package)_config_opts += -no-use-gold-linker
-$(package)_config_opts += -no-xinput2
-$(package)_config_opts += -nomake examples
-$(package)_config_opts += -nomake tests
+$(package)_config_opts += -no-cups -no-egl -no-eglfs
+$(package)_config_opts += -no-freetype -no-gif -no-glib -no-icu -no-ico -no-iconv
+$(package)_config_opts += -no-kms -no-linuxfb -no-libudev -no-mtdev -no-openvg
+$(package)_config_opts += -no-reduce-relocations -no-qml-debug
+$(package)_config_opts += -no-sql-db2 -no-sql-ibase -no-sql-oci -no-sql-tds
+$(package)_config_opts += -no-sql-mysql -no-sql-odbc -no-sql-psql -no-sql-sqlite -no-sql-sqlite2
+$(package)_config_opts += -no-use-gold-linker -no-xinput2 -nomake examples -nomake tests
 $(package)_config_opts += -opensource
 ifeq ($(NO_OPENSSL),)
 $(package)_config_opts += -openssl-linked
 endif
-$(package)_config_opts += -optimized-tools
-$(package)_config_opts += -pch
-$(package)_config_opts += -pkg-config
-$(package)_config_opts += -prefix $(host_prefix)
-$(package)_config_opts += -qt-libpng
-$(package)_config_opts += -qt-libjpeg
-$(package)_config_opts += -qt-pcre
-$(package)_config_opts += -qt-harfbuzz
-$(package)_config_opts += -system-zlib
-$(package)_config_opts += -static
-$(package)_config_opts += -v
-$(package)_config_opts += -no-feature-bearermanagement
-$(package)_config_opts += -no-feature-colordialog
-$(package)_config_opts += -no-feature-commandlineparser
-$(package)_config_opts += -no-feature-concurrent
-$(package)_config_opts += -no-feature-dial
-$(package)_config_opts += -no-feature-fontcombobox
-$(package)_config_opts += -no-feature-ftp
-$(package)_config_opts += -no-feature-image_heuristic_mask
-$(package)_config_opts += -no-feature-keysequenceedit
-$(package)_config_opts += -no-feature-lcdnumber
-$(package)_config_opts += -no-feature-pdf
-$(package)_config_opts += -no-feature-printdialog
-$(package)_config_opts += -no-feature-printer
-$(package)_config_opts += -no-feature-printpreviewdialog
-$(package)_config_opts += -no-feature-printpreviewwidget
-$(package)_config_opts += -no-feature-sessionmanager
-$(package)_config_opts += -no-feature-sql
-$(package)_config_opts += -no-feature-statemachine
-$(package)_config_opts += -no-feature-syntaxhighlighter
-$(package)_config_opts += -no-feature-textbrowser
-$(package)_config_opts += -no-feature-textodfwriter
-$(package)_config_opts += -no-feature-topleveldomain
-$(package)_config_opts += -no-feature-udpsocket
-$(package)_config_opts += -no-feature-undocommand
-$(package)_config_opts += -no-feature-undogroup
-$(package)_config_opts += -no-feature-undostack
-$(package)_config_opts += -no-feature-undoview
-$(package)_config_opts += -no-feature-vnc
-$(package)_config_opts += -no-feature-wizard
-$(package)_config_opts += -no-feature-xml
+$(package)_config_opts += -optimized-tools -pch -pkg-config -prefix $(host_prefix)
+$(package)_config_opts += -qt-libpng -qt-libjpeg -qt-pcre -qt-harfbuzz -system-zlib -static -v
+$(package)_config_opts += -no-feature-bearermanagement -no-feature-colordialog -no-feature-commandlineparser
+$(package)_config_opts += -no-feature-concurrent -no-feature-dial -no-feature-fontcombobox -no-feature-ftp
+$(package)_config_opts += -no-feature-image_heuristic_mask -no-feature-keysequenceedit -no-feature-lcdnumber
+$(package)_config_opts += -no-feature-pdf -no-feature-printdialog -no-feature-printer -no-feature-printpreviewdialog
+$(package)_config_opts += -no-feature-printpreviewwidget -no-feature-sessionmanager -no-feature-sql
+$(package)_config_opts += -no-feature-statemachine -no-feature-syntaxhighlighter -no-feature-textbrowser
+$(package)_config_opts += -no-feature-textodfwriter -no-feature-topleveldomain -no-feature-udpsocket
+$(package)_config_opts += -no-feature-undocommand -no-feature-undogroup -no-feature-undostack -no-feature-undoview
+$(package)_config_opts += -no-feature-vnc -no-feature-wizard -no-feature-xml
 
-$(package)_config_opts_darwin = -no-dbus
-$(package)_config_opts_darwin += -no-opengl
-
+$(package)_config_opts_darwin += -no-dbus -no-opengl
 ifneq ($(build_os),darwin)
 $(package)_config_opts_darwin += -xplatform macx-clang-linux
 $(package)_config_opts_darwin += -device-option MAC_SDK_PATH=$(OSX_SDK)
@@ -123,52 +63,103 @@ $(package)_config_opts_darwin += -device-option MAC_MIN_VERSION=$(OSX_MIN_VERSIO
 $(package)_config_opts_darwin += -device-option MAC_TARGET=$(host)
 $(package)_config_opts_darwin += -device-option XCODE_VERSION=$(XCODE_VERSION)
 endif
-
 $(package)_config_opts_aarch64_darwin += -device-option QMAKE_APPLE_DEVICE_ARCHS=arm64
 
-$(package)_config_opts_linux  = -qt-xkbcommon-x11
-$(package)_config_opts_linux += -qt-xcb
-$(package)_config_opts_linux += -no-xcb-xlib
-$(package)_config_opts_linux += -no-feature-xlib
-$(package)_config_opts_linux += -system-freetype
-$(package)_config_opts_linux += -fontconfig
-$(package)_config_opts_linux += -no-opengl
-$(package)_config_opts_linux += -dbus-runtime
+$(package)_config_opts_linux  += -qt-xkbcommon-x11 -qt-xcb -no-xcb-xlib -no-feature-xlib
+$(package)_config_opts_linux += -system-freetype -fontconfig -no-opengl -dbus-runtime
 $(package)_config_opts_arm_linux += -platform linux-g++ -xplatform bitcoin-linux-g++
-$(package)_config_opts_i686_linux  = -xplatform linux-g++-32
+$(package)_config_opts_i686_linux  += -xplatform linux-g++-32
 ifneq (,$(findstring -stdlib=libc++,$($(1)_cxx)))
-$(package)_config_opts_x86_64_linux = -xplatform linux-clang-libc++
+$(package)_config_opts_x86_64_linux += -xplatform linux-clang-libc++
 else
-$(package)_config_opts_x86_64_linux = -xplatform linux-g++-64
+$(package)_config_opts_x86_64_linux += -xplatform linux-g++-64
 endif
-$(package)_config_opts_aarch64_linux = -xplatform linux-aarch64-gnu-g++
-$(package)_config_opts_riscv64_linux = -platform linux-g++ -xplatform bitcoin-linux-g++
+$(package)_config_opts_aarch64_linux += -xplatform linux-aarch64-gnu-g++
+$(package)_config_opts_riscv64_linux += -platform linux-g++ -xplatform bitcoin-linux-g++
 
-$(package)_config_opts_mingw32 = -no-opengl
-$(package)_config_opts_mingw32 += -no-dbus
-$(package)_config_opts_mingw32 += -xplatform win32-g++
-$(package)_config_opts_mingw32 += -device-option CROSS_COMPILE="$(host)-"
+$(package)_config_opts_mingw32 += -no-opengl -no-dbus -xplatform win32-g++ -device-option CROSS_COMPILE="$(host)-"
 
-$(package)_config_opts_android = -xplatform android-clang
-$(package)_config_opts_android += -android-sdk $(ANDROID_SDK)
-$(package)_config_opts_android += -android-ndk $(ANDROID_NDK)
-$(package)_config_opts_android += -android-ndk-platform android-$(ANDROID_API_LEVEL)
-$(package)_config_opts_android += -device-option CROSS_COMPILE="$(host)-"
-$(package)_config_opts_android += -egl
-$(package)_config_opts_android += -qpa xcb
-$(package)_config_opts_android += -no-eglfs
-$(package)_config_opts_android += -no-dbus
-$(package)_config_opts_android += -opengl es2
-$(package)_config_opts_android += -qt-freetype
-$(package)_config_opts_android += -no-fontconfig
-$(package)_config_opts_android += -L $(host_prefix)/lib
-$(package)_config_opts_android += -I $(host_prefix)/include
-
+$(package)_config_opts_android += -xplatform android-clang -android-sdk $(ANDROID_SDK) -android-ndk $(ANDROID_NDK)
+$(package)_config_opts_android += -android-ndk-platform android-$(ANDROID_API_LEVEL) -device-option CROSS_COMPILE="$(host)-"
+$(package)_config_opts_android += -egl -qpa xcb -no-eglfs -no-dbus -opengl es2 -qt-freetype -no-fontconfig
+$(package)_config_opts_android += -L $(host_prefix)/lib -I $(host_prefix)/include
 $(package)_config_opts_aarch64_android += -android-arch arm64-v8a
 $(package)_config_opts_armv7a_android += -android-arch armeabi-v7a
 $(package)_config_opts_x86_64_android += -android-arch x86_64
 $(package)_config_opts_i686_android += -android-arch i686
 
-$(package)_build_env  = QT_RCC_TEST=1
-$(package)_build_env += QT_RCC_SOURCE_DATE_OVERRIDE=1
+$(package)_build_env  += QT_RCC_TEST=1 QT_RCC_SOURCE_DATE_OVERRIDE=1
+endef
+
+define $(package)_fetch_cmds
+$(call fetch_file,$(package),$($(package)_download_path),$($(package)_download_file),$($(package)_file_name),$($(package)_sha256_hash)) && \
+$(call fetch_file,$(package),$($(package)_download_path),$($(package)_qttranslations_file_name),$($(package)_qttranslations_file_name),$($(package)_qttranslations_sha256_hash)) && \
+$(call fetch_file,$(package),$($(package)_download_path),$($(package)_qttools_file_name),$($(package)_qttools_file_name),$($(package)_qttools_sha256_hash))
+endef
+
+define $(package)_extract_cmds
+  mkdir -p $($(package)_extract_dir) && \
+  echo "$($(package)_sha256_hash)  $($(package)_source)" > $($(package)_extract_dir)/.$($(package)_file_name).hash && \
+  echo "$($(package)_qttranslations_sha256_hash)  $($(package)_source_dir)/$($(package)_qttranslations_file_name)" >> $($(package)_extract_dir)/.$($(package)_file_name).hash && \
+  echo "$($(package)_qttools_sha256_hash)  $($(package)_source_dir)/$($(package)_qttools_file_name)" >> $($(package)_extract_dir)/.$($(package)_file_name).hash && \
+  $(build_SHA256SUM) -c $($(package)_extract_dir)/.$($(package)_file_name).hash && \
+  mkdir qtbase && tar --no-same-owner --strip-components=1 -xf $($(package)_source) -C qtbase && \
+  mkdir qttranslations && tar --no-same-owner --strip-components=1 -xf $($(package)_source_dir)/$($(package)_qttranslations_file_name) -C qttranslations && \
+  mkdir qttools && tar --no-same-owner --strip-components=1 -xf $($(package)_source_dir)/$($(package)_qttools_file_name) -C qttools
+endef
+
+define $(package)_preprocess_cmds
+  patch -p1 -i $($(package)_patch_dir)/freetype_back_compat.patch && \
+  patch -p1 -i $($(package)_patch_dir)/fix_powerpc_libpng.patch && \
+  patch -p1 -i $($(package)_patch_dir)/drop_lrelease_dependency.patch && \
+  patch -p1 -i $($(package)_patch_dir)/dont_hardcode_pwd.patch && \
+  patch -p1 -i $($(package)_patch_dir)/fix_qt_pkgconfig.patch && \
+  patch -p1 -i $($(package)_patch_dir)/fix_configure_mac.patch && \
+  patch -p1 -i $($(package)_patch_dir)/fix_no_printer.patch && \
+  patch -p1 -i $($(package)_patch_dir)/fix_rcc_determinism.patch && \
+  patch -p1 -i $($(package)_patch_dir)/xkb-default.patch && \
+  patch -p1 -i $($(package)_patch_dir)/fix_android_qmake_conf.patch && \
+  patch -p1 -i $($(package)_patch_dir)/fix_android_jni_static.patch && \
+  patch -p1 -i $($(package)_patch_dir)/fix_riscv64_arch.patch && \
+  patch -p1 -i $($(package)_patch_dir)/no-xlib.patch && \
+  patch -p1 -i $($(package)_patch_dir)/fix_mingw_cross_compile.patch && \
+  patch -p1 -i $($(package)_patch_dir)/fix_qpainter_non_determinism.patch && \
+  patch -p1 -i $($(package)_patch_dir)/fix_limits_header.patch && \
+  sed -i.old "s|updateqm.commands = \$$$$\$$$$LRELEASE|updateqm.commands = $($(package)_extract_dir)/qttools/bin/lrelease|" qttranslations/translations/translations.pro && \
+  mkdir -p qtbase/mkspecs/macx-clang-linux && \
+  cp -f qtbase/mkspecs/macx-clang/qplatformdefs.h qtbase/mkspecs/macx-clang-linux/ && \
+  cp -f $($(package)_patch_dir)/mac-qmake.conf qtbase/mkspecs/macx-clang-linux/qmake.conf
+endef
+
+define $(package)_config_cmds
+  export PKG_CONFIG_SYSROOT_DIR=/ && \
+  export PKG_CONFIG_LIBDIR=$(host_prefix)/lib/pkgconfig && \
+  export PKG_CONFIG_PATH=$(host_prefix)/share/pkgconfig && \
+  cd qtbase && \
+  ./configure $($(package)_config_opts) && \
+  echo "CONFIG += force_bootstrap" >> mkspecs/qconfig.pri && \
+  cd .. && \
+  qtbase/bin/qmake -o qttranslations/Makefile qttranslations/qttranslations.pro && \
+  qtbase/bin/qmake -o qttranslations/translations/Makefile qttranslations/translations/translations.pro && \
+  qtbase/bin/qmake -o qttools/src/linguist/lrelease/Makefile qttools/src/linguist/lrelease/lrelease.pro && \
+  qtbase/bin/qmake -o qttools/src/linguist/lupdate/Makefile qttools/src/linguist/lupdate/lupdate.pro
+endef
+
+define $(package)_build_cmds
+  $(MAKE) -C qtbase/src $(addprefix sub-,$($(package)_qt_libs)) && \
+  $(MAKE) -C qttools/src/linguist/lrelease && \
+  $(MAKE) -C qttools/src/linguist/lupdate && \
+  $(MAKE) -C qttranslations
+endef
+
+define $(package)_stage_cmds
+  $(MAKE) -C qtbase/src INSTALL_ROOT=$($(package)_staging_dir) $(addsuffix -install_subtargets,$(addprefix sub-,$($(package)_qt_libs))) && \
+  $(MAKE) -C qttools/src/linguist/lrelease INSTALL_ROOT=$($(package)_staging_dir) install_target && \
+  $(MAKE) -C qttools/src/linguist/lupdate INSTALL_ROOT=$($(package)_staging_dir) install_target && \
+  $(MAKE) -C qttranslations INSTALL_ROOT=$($(package)_staging_dir) install_subtargets
+endef
+
+define $(package)_postprocess_cmds
+  rm -rf native/mkspecs/ native/lib/ lib/cmake/ && \
+  rm -f lib/lib*.la lib/*.prl plugins/*/*.prl
 endef
