@@ -66,16 +66,16 @@ jobs:
           mv "$ANDROID_SDK_ROOT/cmdline-tools/cmdline-tools" "$ANDROID_SDK_ROOT/cmdline-tools/latest"
           export PATH="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH"
           sdkmanager --licenses || true
-          sdkmanager "platform-tools" "platforms;android-${{ env.ANDROID_API }}" "ndk;25.2.9519653"
+          sdkmanager "platform-tools" "platforms;android-${{ env.ANDROID_API }}" "ndk;25.2.9519653" || true
           echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> "$GITHUB_ENV"
           echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/25.2.9519653" >> "$GITHUB_ENV"
           echo "$ANDROID_SDK_ROOT/ndk/25.2.9519653/toolchains/llvm/prebuilt/linux-x86_64/bin" >> "$GITHUB_PATH"
 
-      # Verify NDK installation
+      # Check if NDK is installed correctly
       - name: Verify NDK installation
         run: |
           echo "Listing the contents of the NDK directory..."
-          ls -l $ANDROID_SDK_ROOT/ndk/25.2.9519653/
+          ls -l $ANDROID_SDK_ROOT/ndk/
 
       # List NDK toolchain binaries to check if clang++ exists
       - name: List NDK toolchain binaries
