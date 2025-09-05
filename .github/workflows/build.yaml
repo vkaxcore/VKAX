@@ -1,5 +1,8 @@
 # .github/workflows/build.yaml
-# VKAX Android APK Build — aarch64; sanitize Makefiles (CRLF/BOM), depends-only Boost/BDB4.8/miniupnpc. — Setvin
+# VKAX Android APK Build — aarch64; NDK r23c; depends-only (no Qt); strict toolchain export for android.mk resolution.
+# Maintainers: keep ANDROID_NDK + ANDROID_API_LEVEL exported for deterministic clang triplets.
+# Signed: Setvin
+
 name: VKAX Android APK Build
 
 on:
@@ -20,7 +23,7 @@ jobs:
     runs-on: ubuntu-22.04
     env:
       HOST: aarch64-linux-android
-      ANDROID_API: "21"
+      ANDROID_API: "21"   # external knob; android.mk reads ANDROID_API_LEVEL (exported below)
     defaults:
       run:
         shell: bash
@@ -67,15 +70,19 @@ jobs:
           sdkmanager "platform-tools" "platforms;android-${{ env.ANDROID_API }}"
           wget -q https://dl.google.com/android/repository/android-ndk-r23c-linux.zip -O /tmp/ndk.zip
           unzip -q /tmp/ndk.zip -d "$ANDROID_SDK_ROOT/ndk"
-          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> "$GITHUB_ENV"
-          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/android-ndk-r23c" >> "$GITHUB_ENV"
+
+          # Export canonical variables for the rest of the job and for depends/hosts/android.mk
+          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"                                  >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/android-ndk-r23c"             >> "$GITHUB_ENV"
+          echo "ANDROID_NDK=$ANDROID_SDK_ROOT/ndk/android-ndk-r23c"                  >> "$GITHUB_ENV"
+          echo "ANDROID_API_LEVEL=${{ env.ANDROID_API }}"                            >> "$GITHUB_ENV"
           echo "$ANDROID_SDK_ROOT/ndk/android-ndk-r23c/toolchains/llvm/prebuilt/linux-x86_64/bin" >> "$GITHUB_PATH"
 
       - name: Sanitize Makefiles (strip CRLF + BOM)
         run: |
           set -eux
           python3 - <<'PY'
-          import os,sys
+          import os
           roots=['depends']
           files=[]
           for root in roots:
@@ -85,9 +92,7 @@ jobs:
                   files.append(os.path.join(r,f))
           for p in files:
             with open(p,'rb') as fh: data=fh.read()
-            # strip BOM
             if data.startswith(b'\xef\xbb\xbf'): data=data[3:]
-            # normalize newlines
             data=data.replace(b'\r\n',b'\n').replace(b'\r',b'\n')
             with open(p,'wb') as fh: fh.write(data)
           print("Sanitized", len(files), "makefiles")
@@ -96,17 +101,18 @@ jobs:
       - name: Verify NDK toolchain
         run: |
           set -eux
-          which clang++ || true
-          clang++ --target=${HOST}${ANDROID_API} -v || true
+          "${ANDROID_NDK}/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++" --target=${HOST}${ANDROID_API_LEVEL} -v || true
 
-      - name: Build depends (Boost/BDB4.8/OpenSSL/miniupnpc; no Qt)
+      - name: Build depends (no Qt)
         env:
           HOST: ${{ env.HOST }}
-          ANDROID_API: ${{ env.ANDROID_API }}
         run: |
           set -eux
-          make -C depends -j"$(nproc)" HOST="$HOST" ANDROID_NDK="$ANDROID_NDK_HOME" ANDROID_API="$ANDROID_API" NO_QT=1 V=1
-          make -C depends -j"$(nproc)" HOST="$HOST" ANDROID_NDK="$ANDROID_NDK_HOME" ANDROID_API="$ANDROID_API" miniupnpc V=1
+          make -C depends -j"$(nproc)" \
+            HOST="$HOST" \
+            ANDROID_NDK="$ANDROID_NDK" \
+            ANDROID_API="$(echo "$ANDROID_API_LEVEL")" \
+            NO_QT=1 V=1
 
       - name: Configure core (depends-only; BDB 4.8; miniupnpc on)
         env:
@@ -207,8 +213,7 @@ jobs:
         run: |
           set -eux
           ls -l "depends/${HOST}/lib" | grep -E 'boost|db|miniupnpc' || true
-          which clang++ || true
-          clang++ --version || true
+          "${ANDROID_NDK}/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++" --version || true
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -216,4 +221,3 @@ jobs:
         with:
           name: ${{ env.COIN_NAME }}-android-aarch64-apk
           path: ${{ env.COMPRESS_DIR }}/${{ env.COIN_NAME }}-android-aarch64.apk
-# Signed: Setvin
