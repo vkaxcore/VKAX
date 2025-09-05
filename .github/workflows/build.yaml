@@ -1,4 +1,3 @@
-# .github/workflows/build.yaml
 # VKAX Android APK build — aarch64. v5: YAML-safe, fixes Boost retargeting and libc++ headers.
 # Do not edit randomly; wrappers strip hostile flags and re-apply Android triple + sysroot. — Setvin
 
@@ -55,7 +54,7 @@ jobs:
           sudo unzip -q /tmp/gradle.zip -d /opt/gradle
           echo "/opt/gradle/gradle-8.7/bin" >> "$GITHUB_PATH"
 
-      - name: Install Android SDK and NDK r21 manually
+      - name: Install Android SDK and NDK r25c
         env:
           ANDROID_SDK_ROOT: ${{ github.workspace }}/android-sdk
         run: |
@@ -73,29 +72,27 @@ jobs:
           # Install platform tools and the NDK manually from a specific link
           sdkmanager "platform-tools" "platforms;android-${{ env.ANDROID_API }}"
           
-          # Download and manually install NDK 21.4
-          wget -q https://dl.google.com/android/repository/android-ndk-r21e-linux-x86_64.zip -O /tmp/ndk.zip
+          # Download and manually install NDK r25c
+          wget -q https://dl.google.com/android/repository/android-ndk-r25c-linux-x86_64.zip -O /tmp/ndk.zip
           unzip -q /tmp/ndk.zip -d "$ANDROID_SDK_ROOT/ndk"
           
           # Set environment variables for NDK
           echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> "$GITHUB_ENV"
-          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/android-ndk-r21e" >> "$GITHUB_ENV"
-          echo "$ANDROID_SDK_ROOT/ndk/android-ndk-r21e/toolchains/llvm/prebuilt/linux-x86_64/bin" >> "$GITHUB_PATH"
+          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/android-ndk-r25c" >> "$GITHUB_ENV"
+          echo "$ANDROID_SDK_ROOT/ndk/android-ndk-r25c/toolchains/llvm/prebuilt/linux-x86_64/bin" >> "$GITHUB_PATH"
           
           # Check NDK installation
           ls -l $ANDROID_SDK_ROOT/ndk/
-          ls -l $ANDROID_SDK_ROOT/ndk/android-ndk-r21e/toolchains/llvm/prebuilt/linux-x86_64/bin
+          ls -l $ANDROID_SDK_ROOT/ndk/android-ndk-r25c/toolchains/llvm/prebuilt/linux-x86_64/bin
           
           # Verify the NDK version
-          cat $ANDROID_SDK_ROOT/ndk/android-ndk-r21e/build.gradle
+          cat $ANDROID_SDK_ROOT/ndk/android-ndk-r25c/build.gradle
 
-      # List NDK toolchain binaries to check if clang++ exists
       - name: List NDK toolchain binaries
         run: |
           echo "Checking for clang++ in NDK toolchain..."
           ls -l $ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin | grep aarch64-linux-android21-clang++
 
-      # Print NDK Path and Version for debugging
       - name: Print NDK Path and Version
         run: |
           echo "ANDROID_NDK_HOME=$ANDROID_NDK_HOME"
