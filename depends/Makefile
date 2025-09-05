@@ -105,6 +105,24 @@ AT:=$(AT_$(V))
 
 all: install
 
+# Include the NDK package
+include packages/ndk.mk
+
+# Add NDK to the list of packages to install
+packages += $(ndk_packages)
+
+# Ensure NDK is part of all packages to download/install
+all_packages = $(packages) $(native_packages) $(ndk_packages)
+
+# Make sure the NDK gets installed
+install: check-packages $(host_prefix)/share/config.site
+	$(MAKE) -s $(foreach package,$(all_packages),$(package)_install;)
+
+# Ensuring proper NDK download
+download-one: check-sources $(all_sources)
+	$(AT)mkdir -p $(WORK_PATH)/download/$(package)
+	$(AT)cd $(WORK_PATH)/download/$(package); $(MAKE) $(package)_download_and_extract
+
 include hosts/$(host_os).mk
 include hosts/default.mk
 include builders/$(build_os).mk
@@ -201,7 +219,7 @@ $(host_prefix)/.stamp_$(final_build_id): $(native_packages) $(packages)
 # Minor note: it is also okay to refer to tools by their absolute path even if
 # we expect them to be available in $PATH at all times, more specificity does
 # not hurt.
-$(host_prefix)/share/config.site : config.site.in $(host_prefix)/.stamp_$(final_build_id)
+$(host_prefix)/share/config.site : check-packages
 	$(AT)@mkdir -p $(@D)
 	$(AT)sed -e 's|@HOST@|$(host)|' \
             -e 's|@CC@|$(host_CC)|' \
