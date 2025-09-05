@@ -1,7 +1,7 @@
 # .github/workflows/build.yaml
-# VKAX Android APK build — aarch64 only; preserves legacy depends; pins NDK r25c; 
-# Forces Boost/b2 to the Android target to avoid 'cstddef not found' from arm64-pc-linux retargeting.
-# Comments kept terse; long-term stability prioritized. — Setvin
+# VKAX Android APK build — aarch64; legacy-friendly. 
+# Hardened wrappers STRIP any incoming --target/-target/-isysroot and re-apply correct Android triple + sysroot + libc++ includes.
+# This neuters Boost b2 retargeting and fixes missing <cstddef>. — Setvin
 
 name: VKAX Android APK Build
 
@@ -26,19 +26,16 @@ jobs:
       ANDROID_API: "21"
 
     steps:
-      # ----- CHECKOUT -----
       - uses: actions/checkout@v4
         with:
           lfs: true
 
-      # ----- JAVA (AGP 8.x needs JDK 17) -----
       - name: JDK 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
 
-      # ----- HOST TOOLS -----
       - name: Tooling
         run: |
           set -eux
@@ -47,7 +44,6 @@ jobs:
             build-essential automake libtool pkg-config \
             python3 unzip wget cmake ninja-build zip curl
 
-      # ----- GRADLE (match AGP 8.3.x) -----
       - name: Install Gradle 8.7
         run: |
           set -eux
@@ -56,8 +52,7 @@ jobs:
           sudo unzip -q /tmp/gradle.zip -d /opt/gradle
           echo "/opt/gradle/gradle-8.7/bin" >> "$GITHUB_PATH"
 
-      # ----- ANDROID SDK + NDK r25c -----
-      - name: Install Android SDK + NDK
+      - name: Install Android SDK + NDK r25c
         env:
           ANDROID_SDK_ROOT: ${{ github.workspace }}/android-sdk
         run: |
@@ -73,8 +68,7 @@ jobs:
           echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/25.2.9519653" >> "$GITHUB_ENV"
           echo "$ANDROID_SDK_ROOT/ndk/25.2.9519653/toolchains/llvm/prebuilt/linux-x86_64/bin" >> "$GITHUB_PATH"
 
-      # ----- WRAPPERS (pin target+sysroot; stop b2 retargeting) -----
-      - name: Android toolchain wrappers + Boost lock-in
+      - name: Android wrappers (strip hostile flags) + Boost lock-in
         env:
           HOST: ${{ env.HOST }}
           ANDROID_API: ${{ env.ANDROID_API }}
@@ -89,36 +83,63 @@ jobs:
           test -x "$BIN/${ARCH}${API}-clang++"
           WRAP="$GITHUB_WORKSPACE/.ccwrap"; mkdir -p "$WRAP"
 
-          # C wrapper — put our flags *after* "$@" so our target wins over b2.
+          # Small helper to purge conflicting flags.
+          cat > "$WRAP/_strip_flags.sh" << 'SH'
+          #!/usr/bin/env bash
+          set -e
+          out=()
+          skip_next=0
+          for a in "$@"; do
+            if [ "$skip_next" = 1 ]; then skip_next=0; continue; fi
+            case "$a" in
+              --target=*|-target=*) continue ;;
+              -target) skip_next=1; continue ;;
+              --sysroot=*|-isysroot=*) continue ;;
+              -isysroot) skip_next=1; continue ;;
+              -stdlib=*) continue ;; # avoid clang's unused warning
+            esac
+            out+=("$a")
+          done
+          printf '%s\n' "${out[@]}"
+          SH
+          chmod +x "$WRAP/_strip_flags.sh"
+
+          # C wrapper.
           cat > "$WRAP/${ARCH}${API}-clang" << 'EOF'
           #!/usr/bin/env bash
           set -e
           LLVM="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64"
           SYSROOT="$LLVM/sysroot"
-          exec "$LLVM/bin/${HOST}${API}-clang" "$@" --target=${HOST}${API} --sysroot="$SYSROOT" -D__ANDROID_API__=${API}
+          ARCH="${HOST}"
+          API="${API}"
+          CLEANED=( $("$(dirname "$0")/_strip_flags.sh" "$@") )
+          exec "$LLVM/bin/${HOST}${API}-clang" "${CLEANED[@]}" --target=${HOST}${API} --sysroot="$SYSROOT"
           EOF
           sed -i "s/\${HOST}/${ARCH}/g; s/\${API}/${API}/g" "$WRAP/${ARCH}${API}-clang"
           chmod +x "$WRAP/${ARCH}${API}-clang"
 
-          # C++ wrapper — explicit libc++ headers; b2 likes to confuse include paths.
+          # C++ wrapper.
           cat > "$WRAP/${ARCH}${API}-clang++" << 'EOF'
           #!/usr/bin/env bash
           set -e
           LLVM="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64"
           SYSROOT="$LLVM/sysroot"
           INC_CPP="$LLVM/include/c++/v1"
-          exec "$LLVM/bin/${HOST}${API}-clang++" "$@" --target=${HOST}${API} --sysroot="$SYSROOT" -D__ANDROID_API__=${API} -nostdinc++ -isystem "$INC_CPP" -isystem "$SYSROOT/usr/include"
+          ARCH="${HOST}"
+          API="${API}"
+          CLEANED=( $("$(dirname "$0")/_strip_flags.sh" "$@") )
+          exec "$LLVM/bin/${HOST}${API}-clang++" "${CLEANED[@]}" --target=${HOST}${API} --sysroot="$SYSROOT" -nostdinc++ -isystem "$INC_CPP" -isystem "$SYSROOT/usr/include"
           EOF
           sed -i "s/\${HOST}/${ARCH}/g; s/\${API}/${API}/g" "$WRAP/${ARCH}${API}-clang++"
           chmod +x "$WRAP/${ARCH}${API}-clang++"
 
-          # Names without API suffix for Boost probes; ensure wrappers win PATH lookup.
+          # Probes without API suffix; wrappers must win on PATH.
           ln -sf "$WRAP/${ARCH}${API}-clang"  "$WRAP/${ARCH}-clang"
           ln -sf "$WRAP/${ARCH}${API}-clang++" "$WRAP/${ARCH}-clang++"
           echo "$WRAP" >> "$GITHUB_PATH"
           export PATH="$WRAP:$PATH"
 
-          # Toolchain env for autotools and linkers
+          # Toolchain env for autotools.
           {
             echo "CC=${ARCH}${API}-clang"
             echo "CXX=${ARCH}${API}-clang++"
@@ -126,7 +147,7 @@ jobs:
             echo "RANLIB=llvm-ranlib"
           } >> "$GITHUB_ENV"
 
-          # Force Boost to use *our* compiler path; minimal flags since wrappers enforce target.
+          # Force Boost to our compiler; target-os=android.
           mkdir -p depends "$HOME/.boost-build"
           cat > depends/user-config.jam <<JAM
           using clang : aarch64 : $WRAP/${ARCH}-clang++ : <target-os>android ;
@@ -134,7 +155,6 @@ jobs:
           cp depends/user-config.jam "$HOME/.boost-build/user-config.jam"
           echo "BOOST_BUILD_PATH=$PWD/depends" >> "$GITHUB_ENV"
 
-      # ----- DEPENDS (NO QT) -----
       - name: Build depends
         env:
           HOST: ${{ env.HOST }}
@@ -143,11 +163,10 @@ jobs:
         run: |
           set -eux
           export PATH="${GITHUB_WORKSPACE}/.ccwrap:${PATH}"
-          which aarch64-linux-android21-clang++ || true
-          aarch64-linux-android21-clang++ --version || true
+          which aarch64-linux-android21-clang++
+          aarch64-linux-android21-clang++ -v || true
           make -C depends -j"$(nproc)" HOST="$HOST" ANDROID_NDK="$ANDROID_NDK_HOME" ANDROID_API="$ANDROID_API" NO_QT=1 V=1
 
-      # ----- CONFIGURE CORE -----
       - name: Configure (vkaxd/cli/tx)
         env:
           HOST: ${{ env.HOST }}
@@ -155,7 +174,6 @@ jobs:
         run: |
           set -eux
           export PATH="${GITHUB_WORKSPACE}/.ccwrap:${PATH}"
-          which aarch64-linux-android21-clang++ || true
           export PKG_CONFIG_PATH="${PWD}/depends/${HOST}/lib/pkgconfig"
           ./autogen.sh || true
           ./configure \
@@ -165,7 +183,6 @@ jobs:
             --without-gui --disable-bench --disable-tests \
             CXXFLAGS="-O2 -fPIC"
 
-      # ----- BUILD CORE BINARIES -----
       - name: Build core
         run: |
           set -eux
@@ -173,20 +190,17 @@ jobs:
           mkdir -p "$BUILD_DIR"
           cp -f src/vkaxd src/vkax-cli src/vkax-tx "$BUILD_DIR/"
 
-      # ----- MINIMAL APK WRAPPER (GRADLE) -----
       - name: Create APK with embedded binaries
         run: |
           set -eux
           mkdir -p android-app/app/src/main/{jniLibs/arm64-v8a,java/org/vkax/android}
           cp "$BUILD_DIR/vkaxd" "$BUILD_DIR/vkax-cli" "$BUILD_DIR/vkax-tx" android-app/app/src/main/jniLibs/arm64-v8a/
 
-          # settings.gradle
           cat > android-app/settings.gradle << 'GRADLE'
           rootProject.name = "VKAXAndroid"
           include(":app")
           GRADLE
 
-          # top-level build.gradle
           cat > android-app/build.gradle << 'GRADLE'
           buildscript {
             repositories { google(); mavenCentral() }
@@ -195,7 +209,6 @@ jobs:
           allprojects { repositories { google(); mavenCentral() } }
           GRADLE
 
-          # app/build.gradle
           mkdir -p android-app/app/src/main
           cat > android-app/app/build.gradle << 'GRADLE'
           plugins { id "com.android.application" }
@@ -214,9 +227,8 @@ jobs:
           }
           GRADLE
 
-          # AndroidManifest.xml
           cat > android-app/app/src/main/AndroidManifest.xml << 'XML'
-          <!-- Minimal wrapper; do not escalate privileges; binaries only; — Setvin -->
+          <!-- Minimal, binaries via jniLibs. — Setvin -->
           <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="org.vkax.android">
             <application android:label="VKAX Daemon" android:allowBackup="false">
               <activity android:name=".MainActivity">
@@ -229,9 +241,8 @@ jobs:
           </manifest>
           XML
 
-          # Minimal activity
           cat > android-app/app/src/main/java/org/vkax/android/MainActivity.java << 'JAVA'
-          // Legacy-friendly stub activity; binaries are delivered via jniLibs; — Setvin
+          // Stub activity; keep app footprint trivial. — Setvin
           package org.vkax.android;
           import android.app.Activity;
           import android.os.Bundle;
@@ -240,23 +251,22 @@ jobs:
           }
           JAVA
 
-          # Build the APK
           cd android-app
           /opt/gradle/gradle-8.7/bin/gradle --no-daemon --warning-mode all assembleRelease
           cd ..
           mkdir -p "$COMPRESS_DIR"
           cp android-app/app/build/outputs/apk/release/app-release.apk "$COMPRESS_DIR/${COIN_NAME}-android-aarch64.apk"
 
-      # ----- DIAGNOSTICS -----
       - name: Diagnostics (always)
         if: always()
         run: |
           set -x
           find depends -maxdepth 7 -type f \( -name bootstrap.log -o -name config.log -o -name project-config.jam -o -name user-config.jam \) -print || true
-          B2=$(find depends -maxdepth 7 -type f -name b2 -print -quit || true)
-          if [ -n "$B2" ]; then "$(dirname "$B2")/b2" --debug-configuration -n --version toolset=clang target-os=android || true; fi
+          # Prefer to run the b2 we built for host tools, if it exists.
+          B2=$(command -v b2 || true)
+          [ -z "$B2" ] && B2=$(find depends -type f -name b2 -perm -111 -print -quit || true)
+          if [ -n "$B2" ]; then "$B2" --debug-configuration -n --version toolset=clang target-os=android || true; fi
 
-      # ----- ARTIFACT -----
       - uses: actions/upload-artifact@v4
         if: always()
         with:
