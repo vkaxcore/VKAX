@@ -1,4 +1,5 @@
-# qt.mk — Part 1/2 (header + variables) — VKAX (Setvin)
+# qt.mk — Full Final (mac uses SecureTransport; OpenSSL linking only non-mac) — VKAX (Setvin)
+
 package=qt
 
 # Qt 5.15.10 single-tarball (static) for legacy Bitcoin/Dash forks
@@ -48,27 +49,30 @@ define $(package)_set_vars
 	$(package)_config_opts += -qt-libpng -qt-libjpeg -qt-harfbuzz -system-zlib
 
 ifeq ($(NO_OPENSSL),)
-	# force static OpenSSL from depends
+	# OpenSSL is still a depends component for core/daemon everywhere,
+	# but ONLY force Qt's -openssl-linked on non-mac. On mac we use SecureTransport.
+ifneq ($(host_os),darwin)
 	$(package)_config_opts += -openssl-linked -I$(host_prefix)/include -L$(host_prefix)/lib
+endif
 endif
 
 	# trim fat; no GL/ICU/CUPS/GIF for legacy GUI
 	$(package)_config_opts += -no-icu -no-cups -no-gif -no-opengl
-	# kill printsupport UI bits in static builds
+	# kill printsupport UI bits in static builds (avoid CUPS surprises)
 	$(package)_config_opts += -no-feature-printdialog -no-feature-printer -no-feature-printpreviewdialog -no-feature-printpreviewwidget
 
 	# per-OS knobs
-	$(package)_config_opts_darwin += -platform macx-clang -no-dbus -no-securetransport
+	# mac: use apple SecureTransport and avoid OpenSSL probing; also avoid duplicate flags
+	$(package)_config_opts_darwin += -platform macx-clang -no-dbus -securetransport
+	# linux: keep xcb path, no legacy xlib
 	$(package)_config_opts_linux  = -qt-xkbcommon-x11 -qt-xcb -no-xcb-xlib -no-feature-xlib -system-freetype -fontconfig -no-opengl
+	# mingw32: standard cross spec
 	$(package)_config_opts_mingw32 = -xplatform win32-g++ -no-dbus -no-opengl -device-option CROSS_COMPILE="$(host)-"
 
 	# deterministic rcc
 	$(package)_build_env  = QT_RCC_TEST=1
 	$(package)_build_env += QT_RCC_SOURCE_DATE_OVERRIDE=1
 endef
-
-
-# qt.mk — Part 2/2 (rules) — VKAX (Setvin)
 
 define $(package)_fetch_cmds
 	$(call fetch_file,$(package),$($(package)_download_path),$($(package)_download_file),$($(package)_file_name),$($(package)_sha256_hash))
@@ -82,25 +86,33 @@ endef
 define $(package)_preprocess_cmds
 	set -e; \
 	for p in $($(package)_patches); do patch -p1 -d $($(package)_extract_dir) < $($(package)_patch_dir)/$$p || true; done; \
+	# ensure lrelease path for translations
 	sed -i.old "s|updateqm.commands = \$$$$\$$$$LRELEASE|updateqm.commands = $($(package)_extract_dir)/qttools/bin/lrelease|" \
 		$($(package)_extract_dir)/qttranslations/translations/translations.pro; \
+	# provide macx-clang-linux spec to keep depends toolchain happy
 	mkdir -p $($(package)_extract_dir)/qtbase/mkspecs/macx-clang-linux && \
 	cp -f $($(package)_extract_dir)/qtbase/mkspecs/macx-clang/qplatformdefs.h \
 	      $($(package)_extract_dir)/qtbase/mkspecs/macx-clang-linux/ && \
 	cp -f $($(package)_patch_dir)/mac-qmake.conf \
 	      $($(package)_extract_dir)/qtbase/mkspecs/macx-clang-linux/qmake.conf; \
+	# don't choke on default search path probe when cross-building non-darwin
 	sed -i.old "s/error(\\\"failed to parse default search paths from compiler output\\\")/!darwin: error(\\\"failed to parse default search paths from compiler output\\\")/g" \
 		$($(package)_extract_dir)/qtbase/mkspecs/features/toolchain.prf
 endef
 
 define $(package)_config_cmds
+	# locale sanity for Qt's configure
 	export LC_ALL=C LANG=C; \
+	# Xcode SDK for mac builders
 	export SDKROOT="$$(xcrun --sdk macosx --show-sdk-path 2>/dev/null)"; \
+	# nuke noisy qmake env that breaks reproducibility
 	unset QMAKESPEC XQMAKESPEC QMAKEPATH QMAKEFEATURES QMAKE QMAKE_SPEC QTDIR QT_PLUGIN_PATH QT_QPA_PLATFORM_PLUGIN_PATH PKG_CONFIG_PATH; \
+	# pkg-config through depends
 	export PKG_CONFIG_SYSROOT_DIR=/; \
 	export PKG_CONFIG_LIBDIR=$(host_prefix)/lib/pkgconfig; \
 	export PKG_CONFIG_PATH=$(host_prefix)/share/pkgconfig; \
-	if [ -z "$(NO_OPENSSL)" ]; then \
+	# Only feed Qt OPENSSL_* when we're actually using -openssl-linked (non-mac path).
+	if [ -z "$(NO_OPENSSL)" ] && [ "$(host_os)" != "darwin" ]; then \
 		export OPENSSL_INCDIR="$(host_prefix)/include"; \
 		export OPENSSL_LIBS="$(host_prefix)/lib/libssl.a $(host_prefix)/lib/libcrypto.a -lz"; \
 	fi; \
@@ -132,5 +144,3 @@ endef
 define $(package)_postprocess_cmds
 	rm -rf $($(package)_staging_dir)/lib/cmake
 endef
-
-
