@@ -26,8 +26,9 @@ jobs:
         with:
           lfs: true
 
-      - name: Xcode toolchain info
+      - name: Pin Xcode 14.3.1
         run: |
+          sudo xcode-select -s /Applications/Xcode_14.3.1.app
           xcodebuild -version
           clang -v | head -n 5
           echo "SDKROOT=$(xcrun --sdk macosx --show-sdk-path)" >> $GITHUB_ENV
@@ -36,6 +37,11 @@ jobs:
         run: |
           brew install automake libtool pkg-config gnu-tar coreutils miniupnpc librsvg libnatpmp zeromq
           python3 -m pip install -U pip setuptools wheel ds_store mac_alias
+
+      - name: Sanitize env that breaks Qt/qmake
+        run: |
+          unset QMAKESPEC XQMAKESPEC QMAKEPATH QMAKEFEATURES QMAKE QMAKE_SPEC QTDIR PKG_CONFIG_PATH
+          printenv | sort | sed -n '1,120p'
 
       - name: Clean stale depends
         run: |
@@ -47,7 +53,7 @@ jobs:
 
       - name: Build depends (Qt 5.15.10)
         env:
-          FALLBACK_DOWNLOAD_PATH: ""
+          HOST: ${{ env.HOST }}
         run: |
           echo "Building depends…"
           make -C depends -j"$(sysctl -n hw.ncpu)" HOST=${HOST}
