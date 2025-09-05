@@ -45,7 +45,10 @@ define $(package)_set_vars
 ifeq ($(NO_OPENSSL),)
     $(package)_config_opts += -openssl-linked
 endif
-    $(package)_config_opts += -no-icu -no-dbus -no-sql -no-cups -no-gif -no-iconv -no-opengl
+    # trim features (Qt 5.15: use -no-feature-* where required)
+    $(package)_config_opts += -no-icu -no-dbus -no-cups -no-gif -no-iconv -no-opengl
+    $(package)_config_opts += -no-feature-sql
+    $(package)_config_opts += -no-feature-printdialog -no-feature-printer -no-feature-printpreviewdialog -no-feature-printpreviewwidget
 
     # macOS
     $(package)_config_opts_darwin += -no-dbus -no-opengl
@@ -67,7 +70,7 @@ define $(package)_fetch_cmds
     $(call fetch_file,$(package),$($(package)_download_path),$($(package)_download_file),$($(package)_file_name),$($(package)_sha256_hash))
 endef
 
-# ---- extract (single tarball ships qtbase/qttools/qttranslations, etc.) ----
+# ---- extract ----
 define $(package)_extract_cmds
     mkdir -p $($(package)_extract_dir) && \
     tar --no-same-owner --strip-components=1 -xf $($(package)_source) -C $($(package)_extract_dir)
