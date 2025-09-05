@@ -1,3 +1,8 @@
+# .github/workflows/build.yaml
+# VKAX Android APK build — aarch64 only; preserves legacy depends; pins NDK r25c; 
+# Forces Boost/b2 to the Android target to avoid 'cstddef not found' from arm64-pc-linux retargeting.
+# Comments kept terse; long-term stability prioritized. — Setvin
+
 name: VKAX Android APK Build
 
 on:
@@ -26,19 +31,30 @@ jobs:
         with:
           lfs: true
 
-      # ----- JAVA FOR SDK/GRADLE -----
-      - name: JDK 11
+      # ----- JAVA (AGP 8.x needs JDK 17) -----
+      - name: JDK 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: "11"
+          java-version: "17"
 
       # ----- HOST TOOLS -----
       - name: Tooling
-        run: >
-          sudo apt-get update &&
-          sudo apt-get install -y build-essential automake libtool pkg-config
-          python3 unzip wget cmake ninja-build gradle
+        run: |
+          set -eux
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential automake libtool pkg-config \
+            python3 unzip wget cmake ninja-build zip curl
+
+      # ----- GRADLE (match AGP 8.3.x) -----
+      - name: Install Gradle 8.7
+        run: |
+          set -eux
+          curl -sL https://services.gradle.org/distributions/gradle-8.7-bin.zip -o /tmp/gradle.zip
+          sudo mkdir -p /opt/gradle
+          sudo unzip -q /tmp/gradle.zip -d /opt/gradle
+          echo "/opt/gradle/gradle-8.7/bin" >> "$GITHUB_PATH"
 
       # ----- ANDROID SDK + NDK r25c -----
       - name: Install Android SDK + NDK
@@ -57,8 +73,8 @@ jobs:
           echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/25.2.9519653" >> "$GITHUB_ENV"
           echo "$ANDROID_SDK_ROOT/ndk/25.2.9519653/toolchains/llvm/prebuilt/linux-x86_64/bin" >> "$GITHUB_PATH"
 
-      # ----- WRAPPER COMPILERS (NO HEREDOCS; BOOST-PROOF) -----
-      - name: Android wrappers + Boost config
+      # ----- WRAPPERS (pin target+sysroot; stop b2 retargeting) -----
+      - name: Android toolchain wrappers + Boost lock-in
         env:
           HOST: ${{ env.HOST }}
           ANDROID_API: ${{ env.ANDROID_API }}
@@ -69,34 +85,40 @@ jobs:
           SYSROOT="$LLVM/sysroot"
           ARCH="$HOST"
           API="$ANDROID_API"
+
           test -x "$BIN/${ARCH}${API}-clang++"
           WRAP="$GITHUB_WORKSPACE/.ccwrap"; mkdir -p "$WRAP"
 
-          # C wrapper (printf lines to avoid YAML heredocs)
-          printf '%s\n' '#!/usr/bin/env bash' \
-            'set -e' \
-            'LLVM="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64"' \
-            'SYSROOT="$LLVM/sysroot"' \
-            'exec "$LLVM/bin/'"${ARCH}${API}-clang"'" --target='"${ARCH}${API}"' --sysroot="$SYSROOT" -D__ANDROID_API__='"${API}"' "$@"' \
-            > "$WRAP/${ARCH}${API}-clang"
+          # C wrapper — put our flags *after* "$@" so our target wins over b2.
+          cat > "$WRAP/${ARCH}${API}-clang" << 'EOF'
+          #!/usr/bin/env bash
+          set -e
+          LLVM="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64"
+          SYSROOT="$LLVM/sysroot"
+          exec "$LLVM/bin/${HOST}${API}-clang" "$@" --target=${HOST}${API} --sysroot="$SYSROOT" -D__ANDROID_API__=${API}
+          EOF
+          sed -i "s/\${HOST}/${ARCH}/g; s/\${API}/${API}/g" "$WRAP/${ARCH}${API}-clang"
           chmod +x "$WRAP/${ARCH}${API}-clang"
 
-          # C++ wrapper
-          printf '%s\n' '#!/usr/bin/env bash' \
-            'set -e' \
-            'LLVM="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64"' \
-            'SYSROOT="$LLVM/sysroot"' \
-            'INC_CPP="$LLVM/include/c++/v1"' \
-            'exec "$LLVM/bin/'"${ARCH}${API}-clang++"'" --target='"${ARCH}${API}"' --sysroot="$SYSROOT" -D__ANDROID_API__='"${API}"' -nostdinc++ -stdlib=libc++ -isystem "$INC_CPP" -isystem "$SYSROOT/usr/include" "$@"' \
-            > "$WRAP/${ARCH}${API}-clang++"
+          # C++ wrapper — explicit libc++ headers; b2 likes to confuse include paths.
+          cat > "$WRAP/${ARCH}${API}-clang++" << 'EOF'
+          #!/usr/bin/env bash
+          set -e
+          LLVM="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64"
+          SYSROOT="$LLVM/sysroot"
+          INC_CPP="$LLVM/include/c++/v1"
+          exec "$LLVM/bin/${HOST}${API}-clang++" "$@" --target=${HOST}${API} --sysroot="$SYSROOT" -D__ANDROID_API__=${API} -nostdinc++ -isystem "$INC_CPP" -isystem "$SYSROOT/usr/include"
+          EOF
+          sed -i "s/\${HOST}/${ARCH}/g; s/\${API}/${API}/g" "$WRAP/${ARCH}${API}-clang++"
           chmod +x "$WRAP/${ARCH}${API}-clang++"
 
-          # Names Boost probes without API suffix
+          # Names without API suffix for Boost probes; ensure wrappers win PATH lookup.
           ln -sf "$WRAP/${ARCH}${API}-clang"  "$WRAP/${ARCH}-clang"
           ln -sf "$WRAP/${ARCH}${API}-clang++" "$WRAP/${ARCH}-clang++"
           echo "$WRAP" >> "$GITHUB_PATH"
+          export PATH="$WRAP:$PATH"
 
-          # Toolchain env for autotools and link
+          # Toolchain env for autotools and linkers
           {
             echo "CC=${ARCH}${API}-clang"
             echo "CXX=${ARCH}${API}-clang++"
@@ -104,9 +126,11 @@ jobs:
             echo "RANLIB=llvm-ranlib"
           } >> "$GITHUB_ENV"
 
-          # Force Boost to use our toolset
+          # Force Boost to use *our* compiler path; minimal flags since wrappers enforce target.
           mkdir -p depends "$HOME/.boost-build"
-          printf '%s\n' 'using clang : aarch64 : '"${ARCH}"'-clang++ : <target-os>android ;' > depends/user-config.jam
+          cat > depends/user-config.jam <<JAM
+          using clang : aarch64 : $WRAP/${ARCH}-clang++ : <target-os>android ;
+          JAM
           cp depends/user-config.jam "$HOME/.boost-build/user-config.jam"
           echo "BOOST_BUILD_PATH=$PWD/depends" >> "$GITHUB_ENV"
 
@@ -152,62 +176,68 @@ jobs:
           cp "$BUILD_DIR/vkaxd" "$BUILD_DIR/vkax-cli" "$BUILD_DIR/vkax-tx" android-app/app/src/main/jniLibs/arm64-v8a/
 
           # settings.gradle
-          printf '%s\n' 'rootProject.name = "VKAXAndroid"' 'include(":app")' > android-app/settings.gradle
+          cat > android-app/settings.gradle << 'GRADLE'
+          rootProject.name = "VKAXAndroid"
+          include(":app")
+          GRADLE
 
           # top-level build.gradle
-          printf '%s\n' \
-            'buildscript {' \
-            '  repositories { google(); mavenCentral() }' \
-            '  dependencies { classpath "com.android.tools.build:gradle:8.3.0" }' \
-            '}' \
-            'allprojects { repositories { google(); mavenCentral() } }' \
-            > android-app/build.gradle
+          cat > android-app/build.gradle << 'GRADLE'
+          buildscript {
+            repositories { google(); mavenCentral() }
+            dependencies { classpath "com.android.tools.build:gradle:8.3.2" }
+          }
+          allprojects { repositories { google(); mavenCentral() } }
+          GRADLE
 
           # app/build.gradle
-          printf '%s\n' \
-            'plugins { id "com.android.application" }' \
-            'android {' \
-            '  compileSdkVersion 34' \
-            '  defaultConfig {' \
-            '    applicationId "org.vkax.android"' \
-            '    minSdkVersion 21' \
-            '    targetSdkVersion 34' \
-            '    versionCode 1' \
-            '    versionName "1.0"' \
-            '    ndk { abiFilters "arm64-v8a" }' \
-            '  }' \
-            '  buildTypes { release { minifyEnabled false } }' \
-            '}' \
-            > android-app/app/build.gradle
+          mkdir -p android-app/app/src/main
+          cat > android-app/app/build.gradle << 'GRADLE'
+          plugins { id "com.android.application" }
+          android {
+            namespace "org.vkax.android"
+            compileSdkVersion 34
+            defaultConfig {
+              applicationId "org.vkax.android"
+              minSdkVersion 21
+              targetSdkVersion 34
+              versionCode 1
+              versionName "1.0"
+              ndk { abiFilters "arm64-v8a" }
+            }
+            buildTypes { release { minifyEnabled false } }
+          }
+          GRADLE
 
           # AndroidManifest.xml
-          mkdir -p android-app/app/src/main
-          printf '%s\n' \
-            '<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="org.vkax.android">' \
-            '  <application android:label="VKAX Daemon" android:allowBackup="false">' \
-            '    <activity android:name=".MainActivity">' \
-            '      <intent-filter>' \
-            '        <action android:name="android.intent.action.MAIN" />' \
-            '        <category android:name="android.intent.category.LAUNCHER" />' \
-            '      </intent-filter>' \
-            '    </activity>' \
-            '  </application>' \
-            '</manifest>' \
-            > android-app/app/src/main/AndroidManifest.xml
+          cat > android-app/app/src/main/AndroidManifest.xml << 'XML'
+          <!-- Minimal wrapper; do not escalate privileges; binaries only; — Setvin -->
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="org.vkax.android">
+            <application android:label="VKAX Daemon" android:allowBackup="false">
+              <activity android:name=".MainActivity">
+                <intent-filter>
+                  <action android:name="android.intent.action.MAIN" />
+                  <category android:name="android.intent.category.LAUNCHER" />
+                </intent-filter>
+              </activity>
+            </application>
+          </manifest>
+          XML
 
           # Minimal activity
-          printf '%s\n' \
-            'package org.vkax.android;' \
-            'import android.app.Activity;' \
-            'import android.os.Bundle;' \
-            'public class MainActivity extends Activity {' \
-            '  @Override protected void onCreate(Bundle savedInstanceState) { super.onCreate(savedInstanceState); }' \
-            '}' \
-            > android-app/app/src/main/java/org/vkax/android/MainActivity.java
+          cat > android-app/app/src/main/java/org/vkax/android/MainActivity.java << 'JAVA'
+          // Legacy-friendly stub activity; binaries are delivered via jniLibs; — Setvin
+          package org.vkax.android;
+          import android.app.Activity;
+          import android.os.Bundle;
+          public class MainActivity extends Activity {
+            @Override protected void onCreate(Bundle savedInstanceState) { super.onCreate(savedInstanceState); }
+          }
+          JAVA
 
           # Build the APK
           cd android-app
-          gradle assembleRelease --stacktrace --info
+          /opt/gradle/gradle-8.7/bin/gradle --no-daemon --warning-mode all assembleRelease
           cd ..
           mkdir -p "$COMPRESS_DIR"
           cp android-app/app/build/outputs/apk/release/app-release.apk "$COMPRESS_DIR/${COIN_NAME}-android-aarch64.apk"
