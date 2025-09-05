@@ -142,6 +142,9 @@ jobs:
           BOOST_BUILD_PATH: ${{ env.BOOST_BUILD_PATH }}
         run: |
           set -eux
+          export PATH="${GITHUB_WORKSPACE}/.ccwrap:${PATH}"
+          which aarch64-linux-android21-clang++ || true
+          aarch64-linux-android21-clang++ --version || true
           make -C depends -j"$(nproc)" HOST="$HOST" ANDROID_NDK="$ANDROID_NDK_HOME" ANDROID_API="$ANDROID_API" NO_QT=1 V=1
 
       # ----- CONFIGURE CORE -----
@@ -151,6 +154,8 @@ jobs:
           CONFIG_SITE: ${{ github.workspace }}/depends/${{ env.HOST }}/share/config.site
         run: |
           set -eux
+          export PATH="${GITHUB_WORKSPACE}/.ccwrap:${PATH}"
+          which aarch64-linux-android21-clang++ || true
           export PKG_CONFIG_PATH="${PWD}/depends/${HOST}/lib/pkgconfig"
           ./autogen.sh || true
           ./configure \
