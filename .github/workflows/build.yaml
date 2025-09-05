@@ -1,4 +1,4 @@
-name: VKAX Android Build
+name: VKAX Android APK Build
 
 on:
   workflow_dispatch:
@@ -13,31 +13,35 @@ env:
   LANG: C
 
 jobs:
-  android-aarch64-daemon:
-    name: Android aarch64 (daemon + cli + tx, no Qt)
+  android-apk:
+    name: Android aarch64 (daemon+cli+tx) → APK
     runs-on: ubuntu-22.04
     env:
       HOST: aarch64-linux-android
       ANDROID_API: "21"
 
     steps:
+      # ----- CHECKOUT -----
       - uses: actions/checkout@v4
         with:
           lfs: true
 
+      # ----- JAVA FOR SDK/GRADLE -----
       - name: JDK 11
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "11"
 
+      # ----- HOST TOOLS -----
       - name: Tooling
-        run: |
-          set -eux
-          sudo apt-get update
-          sudo apt-get install -y build-essential automake libtool pkg-config python3 unzip wget cmake ninja-build
+        run: >
+          sudo apt-get update &&
+          sudo apt-get install -y build-essential automake libtool pkg-config
+          python3 unzip wget cmake ninja-build gradle
 
-      - name: Install Android SDK + NDK (r25c)
+      # ----- ANDROID SDK + NDK r25c -----
+      - name: Install Android SDK + NDK
         env:
           ANDROID_SDK_ROOT: ${{ github.workspace }}/android-sdk
         run: |
@@ -53,32 +57,61 @@ jobs:
           echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/25.2.9519653" >> "$GITHUB_ENV"
           echo "$ANDROID_SDK_ROOT/ndk/25.2.9519653/toolchains/llvm/prebuilt/linux-x86_64/bin" >> "$GITHUB_PATH"
 
-      - name: NDK clang shims for Boost
+      # ----- WRAPPER COMPILERS (NO HEREDOCS; BOOST-PROOF) -----
+      - name: Android wrappers + Boost config
         env:
           HOST: ${{ env.HOST }}
           ANDROID_API: ${{ env.ANDROID_API }}
-          ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
         run: |
           set -eux
-          TOOLCHAIN_BIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
-          test -x "$TOOLCHAIN_BIN/${HOST}${ANDROID_API}-clang++"
-          ln -sf "${TOOLCHAIN_BIN}/${HOST}${ANDROID_API}-clang"  "${TOOLCHAIN_BIN}/${HOST}-clang"
-          ln -sf "${TOOLCHAIN_BIN}/${HOST}${ANDROID_API}-clang++" "${TOOLCHAIN_BIN}/${HOST}-clang++"
-          echo "$TOOLCHAIN_BIN" >> "$GITHUB_PATH"
+          LLVM="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64"
+          BIN="$LLVM/bin"
+          SYSROOT="$LLVM/sysroot"
+          ARCH="$HOST"
+          API="$ANDROID_API"
+          test -x "$BIN/${ARCH}${API}-clang++"
+          WRAP="$GITHUB_WORKSPACE/.ccwrap"; mkdir -p "$WRAP"
+
+          # C wrapper (printf lines to avoid YAML heredocs)
+          printf '%s\n' '#!/usr/bin/env bash' \
+            'set -e' \
+            'LLVM="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64"' \
+            'SYSROOT="$LLVM/sysroot"' \
+            'exec "$LLVM/bin/'"${ARCH}${API}-clang"'" --target='"${ARCH}${API}"' --sysroot="$SYSROOT" -D__ANDROID_API__='"${API}"' "$@"' \
+            > "$WRAP/${ARCH}${API}-clang"
+          chmod +x "$WRAP/${ARCH}${API}-clang"
+
+          # C++ wrapper
+          printf '%s\n' '#!/usr/bin/env bash' \
+            'set -e' \
+            'LLVM="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64"' \
+            'SYSROOT="$LLVM/sysroot"' \
+            'INC_CPP="$LLVM/include/c++/v1"' \
+            'exec "$LLVM/bin/'"${ARCH}${API}-clang++"'" --target='"${ARCH}${API}"' --sysroot="$SYSROOT" -D__ANDROID_API__='"${API}"' -nostdinc++ -stdlib=libc++ -isystem "$INC_CPP" -isystem "$SYSROOT/usr/include" "$@"' \
+            > "$WRAP/${ARCH}${API}-clang++"
+          chmod +x "$WRAP/${ARCH}${API}-clang++"
+
+          # Names Boost probes without API suffix
+          ln -sf "$WRAP/${ARCH}${API}-clang"  "$WRAP/${ARCH}-clang"
+          ln -sf "$WRAP/${ARCH}${API}-clang++" "$WRAP/${ARCH}-clang++"
+          echo "$WRAP" >> "$GITHUB_PATH"
+
+          # Toolchain env for autotools and link
           {
-            echo "CC=${HOST}${ANDROID_API}-clang"
-            echo "CXX=${HOST}${ANDROID_API}-clang++"
+            echo "CC=${ARCH}${API}-clang"
+            echo "CXX=${ARCH}${API}-clang++"
             echo "AR=llvm-ar"
             echo "RANLIB=llvm-ranlib"
           } >> "$GITHUB_ENV"
+
+          # Force Boost to use our toolset
           mkdir -p depends "$HOME/.boost-build"
-          cat > depends/user-config.jam <<'EOF'
-using clang : aarch64 : aarch64-linux-android-clang++ : <target-os>android ;
-EOF
+          printf '%s\n' 'using clang : aarch64 : '"${ARCH}"'-clang++ : <target-os>android ;' > depends/user-config.jam
           cp depends/user-config.jam "$HOME/.boost-build/user-config.jam"
           echo "BOOST_BUILD_PATH=$PWD/depends" >> "$GITHUB_ENV"
 
-      - name: Build depends (no Qt)
+      # ----- DEPENDS (NO QT) -----
+      - name: Build depends
         env:
           HOST: ${{ env.HOST }}
           ANDROID_API: ${{ env.ANDROID_API }}
@@ -87,7 +120,8 @@ EOF
           set -eux
           make -C depends -j"$(nproc)" HOST="$HOST" ANDROID_NDK="$ANDROID_NDK_HOME" ANDROID_API="$ANDROID_API" NO_QT=1 V=1
 
-      - name: Configure (daemon + cli + tx)
+      # ----- CONFIGURE CORE -----
+      - name: Configure (vkaxd/cli/tx)
         env:
           HOST: ${{ env.HOST }}
           CONFIG_SITE: ${{ github.workspace }}/depends/${{ env.HOST }}/share/config.site
@@ -102,14 +136,83 @@ EOF
             --without-gui --disable-bench --disable-tests \
             CXXFLAGS="-O2 -fPIC"
 
-      - name: Build + Package (vkaxd, vkax-cli, vkax-tx)
+      # ----- BUILD CORE BINARIES -----
+      - name: Build core
         run: |
           set -eux
           make -j"$(nproc)" src/vkaxd src/vkax-cli src/vkax-tx
-          mkdir -p "$BUILD_DIR" "$COMPRESS_DIR"
-          cp -f src/vkaxd src/vkax-cli src/vkax-tx "$BUILD_DIR/" || true
-          tar -cvzf "$COMPRESS_DIR/${COIN_NAME}-android-aarch64-daemons.tar.gz" -C "$BUILD_DIR" .
+          mkdir -p "$BUILD_DIR"
+          cp -f src/vkaxd src/vkax-cli src/vkax-tx "$BUILD_DIR/"
 
+      # ----- MINIMAL APK WRAPPER (GRADLE) -----
+      - name: Create APK with embedded binaries
+        run: |
+          set -eux
+          mkdir -p android-app/app/src/main/{jniLibs/arm64-v8a,java/org/vkax/android}
+          cp "$BUILD_DIR/vkaxd" "$BUILD_DIR/vkax-cli" "$BUILD_DIR/vkax-tx" android-app/app/src/main/jniLibs/arm64-v8a/
+
+          # settings.gradle
+          printf '%s\n' 'rootProject.name = "VKAXAndroid"' 'include(":app")' > android-app/settings.gradle
+
+          # top-level build.gradle
+          printf '%s\n' \
+            'buildscript {' \
+            '  repositories { google(); mavenCentral() }' \
+            '  dependencies { classpath "com.android.tools.build:gradle:8.3.0" }' \
+            '}' \
+            'allprojects { repositories { google(); mavenCentral() } }' \
+            > android-app/build.gradle
+
+          # app/build.gradle
+          printf '%s\n' \
+            'plugins { id "com.android.application" }' \
+            'android {' \
+            '  compileSdkVersion 34' \
+            '  defaultConfig {' \
+            '    applicationId "org.vkax.android"' \
+            '    minSdkVersion 21' \
+            '    targetSdkVersion 34' \
+            '    versionCode 1' \
+            '    versionName "1.0"' \
+            '    ndk { abiFilters "arm64-v8a" }' \
+            '  }' \
+            '  buildTypes { release { minifyEnabled false } }' \
+            '}' \
+            > android-app/app/build.gradle
+
+          # AndroidManifest.xml
+          mkdir -p android-app/app/src/main
+          printf '%s\n' \
+            '<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="org.vkax.android">' \
+            '  <application android:label="VKAX Daemon" android:allowBackup="false">' \
+            '    <activity android:name=".MainActivity">' \
+            '      <intent-filter>' \
+            '        <action android:name="android.intent.action.MAIN" />' \
+            '        <category android:name="android.intent.category.LAUNCHER" />' \
+            '      </intent-filter>' \
+            '    </activity>' \
+            '  </application>' \
+            '</manifest>' \
+            > android-app/app/src/main/AndroidManifest.xml
+
+          # Minimal activity
+          printf '%s\n' \
+            'package org.vkax.android;' \
+            'import android.app.Activity;' \
+            'import android.os.Bundle;' \
+            'public class MainActivity extends Activity {' \
+            '  @Override protected void onCreate(Bundle savedInstanceState) { super.onCreate(savedInstanceState); }' \
+            '}' \
+            > android-app/app/src/main/java/org/vkax/android/MainActivity.java
+
+          # Build the APK
+          cd android-app
+          gradle assembleRelease --stacktrace --info
+          cd ..
+          mkdir -p "$COMPRESS_DIR"
+          cp android-app/app/build/outputs/apk/release/app-release.apk "$COMPRESS_DIR/${COIN_NAME}-android-aarch64.apk"
+
+      # ----- DIAGNOSTICS -----
       - name: Diagnostics (always)
         if: always()
         run: |
@@ -118,8 +221,9 @@ EOF
           B2=$(find depends -maxdepth 7 -type f -name b2 -print -quit || true)
           if [ -n "$B2" ]; then "$(dirname "$B2")/b2" --debug-configuration -n --version toolset=clang target-os=android || true; fi
 
+      # ----- ARTIFACT -----
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: ${{ env.COIN_NAME }}-android-aarch64-daemons
-          path: ${{ env.COMPRESS_DIR }}/${{ env.COIN_NAME }}-android-aarch64-daemons.tar.gz
+          name: ${{ env.COIN_NAME }}-android-aarch64-apk
+          path: ${{ env.COMPRESS_DIR }}/${{ env.COIN_NAME }}-android-aarch64.apk
