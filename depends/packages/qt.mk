@@ -1,90 +1,131 @@
-name: VKAX macOS Build
-on:
-  workflow_dispatch:
-  push:
-    branches: [ main, v100.11.5-macbuild, dev ]
+package=qt
 
-env:
-  COIN_NAME: vkax
-  BUILD_DIR: vkax-build
-  COMPRESS_DIR: vkax-compress
-  HOST: x86_64-apple-darwin
-  LC_ALL: C
-  LANG: C
-  MACOSX_DEPLOYMENT_TARGET: "11.0"
-  HOMEBREW_NO_AUTO_UPDATE: "1"
-  HOMEBREW_NO_INSTALL_CLEANUP: "1"
+# ---- Version & sources (single tarball) ----
+$(package)_version=5.15.10
+$(package)_download_path=https://download.qt.io/archive/qt/5.15/5.15.10/single
+$(package)_download_file=qt-everywhere-opensource-src-$($(package)_version).tar.xz
+$(package)_file_name=$($(package)_download_file)
+$(package)_sha256_hash=B545CB83C60934ADC9A6BBD27E2AF79E5013DE77D46F5B9F5BB2A3C762BF55CA
 
-jobs:
-  build-macos:
-    name: Build VKAX macOS 13 (Qt 5.15.10, Xcode 14.3.1)
-    runs-on: macos-13
+# ---- deps ----
+$(package)_dependencies=zlib
+ifeq ($(NO_OPENSSL),)
+$(package)_dependencies+=openssl
+endif
 
-    steps:
-      - name: Checkout Source
-        uses: actions/checkout@v4
-        with:
-          lfs: true
+# ---- what we build ----
+$(package)_qt_libs=corelib network widgets gui plugins
 
-      - name: Select Xcode 14.3.1
-        run: sudo xcode-select -s /Applications/Xcode_14.3.1.app/Contents/Developer
+# ---- patches (keep legacy set; must exist in patches/qt) ----
+$(package)_patches = \
+    freetype_back_compat.patch \
+    fix_powerpc_libpng.patch \
+    drop_lrelease_dependency.patch \
+    dont_hardcode_pwd.patch \
+    fix_qt_pkgconfig.patch \
+    fix_configure_mac.patch \
+    fix_no_printer.patch \
+    fix_rcc_determinism.patch \
+    xkb-default.patch \
+    fix_android_qmake_conf.patch \
+    fix_android_jni_static.patch \
+    fix_riscv64_arch.patch \
+    no-xlib.patch \
+    fix_mingw_cross_compile.patch \
+    fix_qpainter_non_determinism.patch \
+    fix_limits_header.patch \
+    mac-qmake.conf
 
-      - name: Print SDKROOT
-        run: echo "SDKROOT=$(xcrun --sdk macosx --show-sdk-path)" >> $GITHUB_ENV
+define $(package)_set_vars
+    $(package)_config_opts += -release -silent -opensource -confirm-license -optimized-tools -static
+    $(package)_config_opts += -prefix $(host_prefix)
+    $(package)_config_opts += -hostprefix $(build_prefix)
+    $(package)_config_opts += -no-compile-examples -nomake examples -nomake tests
+    $(package)_config_opts += -qt-libpng -qt-libjpeg -qt-harfbuzz -system-zlib
+ifeq ($(NO_OPENSSL),)
+    $(package)_config_opts += -openssl-linked
+endif
+    # trim features (Qt 5.15: use -no-feature-* where required)
+    $(package)_config_opts += -no-icu -no-dbus -no-cups -no-gif -no-opengl
+    $(package)_config_opts += -no-feature-sql
+    $(package)_config_opts += -no-feature-printdialog -no-feature-printer -no-feature-printpreviewdialog -no-feature-printpreviewwidget
 
-      - name: Setup Python 3.11 (no Homebrew conflicts)
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
+    # darwin: do NOT disable iconv; force clang mkspec
+    $(package)_config_opts_darwin += -no-dbus -no-opengl -platform macx-clang
 
-      - name: Tooling (no brew python)
-        run: |
-          brew install automake libtool pkg-config gnu-tar coreutils miniupnpc librsvg libnatpmp zeromq
-          python -m pip install -U pip setuptools wheel ds_store mac_alias
+    # Linux (kept for cross builds)
+    $(package)_config_opts_linux  = -qt-xkbcommon-x11 -qt-xcb -no-xcb-xlib -no-feature-xlib
+    $(package)_config_opts_linux += -system-freetype -fontconfig -no-opengl
 
-      - name: Clean stale Qt/depends
-        run: |
-          make -C depends HOST=${HOST} NO_QT=0 clean || true
-          rm -rf depends/work/build/${HOST}/qt* depends/work/download/qt-* || true
-          rm -rf depends/${HOST} || true
+    # Linux ARM cross
+    $(package)_config_opts_arm_linux     = -xplatform linux-g++ -device-option CROSS_COMPILE="$(host)-"
+    $(package)_config_opts_aarch64_linux = -xplatform linux-aarch64-gnu-g++
 
-      - name: Build depends (Qt 5.15.10)
-        env:
-          FALLBACK_DOWNLOAD_PATH: ""
-        run: |
-          echo "Building depends…"
-          make -C depends -j$(sysctl -n hw.ncpu) HOST=${HOST}
+    # Windows / MinGW
+    $(package)_config_opts_mingw32 = -no-opengl -no-dbus -xplatform win32-g++
+endef
 
-      - name: Configure VKAX (GUI on, no tests)
-        env:
-          CONFIG_SITE: ${{ github.workspace }}/depends/${{ env.HOST }}/share/config.site
-        run: |
-          ./autogen.sh || true
-          ./configure \
-            --prefix="${PWD}/depends/${HOST}" \
-            --with-incompatible-bdb \
-            --with-gui=qt5 \
-            --disable-tests \
-            --disable-bench \
-            --without-natpmp --without-miniupnpc=no \
-            CXXFLAGS="-std=c++14"
+# ---- fetch ----
+define $(package)_fetch_cmds
+    $(call fetch_file,$(package),$($(package)_download_path),$($(package)_download_file),$($(package)_file_name),$($(package)_sha256_hash))
+endef
 
-      - name: Build
-        run: |
-          make -j$(sysctl -n hw.ncpu)
-          mkdir -p "${BUILD_DIR}"
-          cp -f src/vkaxd "${BUILD_DIR}/" || true
-          cp -f src/vkax-cli "${BUILD_DIR}/" || true
-          cp -f src/qt/vkax-qt "${BUILD_DIR}/" || true
-          strip "${BUILD_DIR}/"* || true
+# ---- extract ----
+define $(package)_extract_cmds
+    mkdir -p $($(package)_extract_dir) && \
+    tar --no-same-owner --strip-components=1 -xf $($(package)_source) -C $($(package)_extract_dir)
+endef
 
-      - name: Package
-        run: |
-          mkdir -p "${COMPRESS_DIR}"
-          tar -cvzf "${COMPRESS_DIR}/${COIN_NAME}-macos13.tar.gz" -C "${BUILD_DIR}" .
+# ---- preprocess ----
+define $(package)_preprocess_cmds
+    set -e; \
+    for p in $($(package)_patches); do \
+        patch -p1 -d $($(package)_extract_dir) < $($(package)_patch_dir)/$$p || true; \
+    done; \
+    sed -i.old "s|updateqm.commands = \$$$$\$$$$LRELEASE|updateqm.commands = $($(package)_extract_dir)/qttools/bin/lrelease|" \
+        $($(package)_extract_dir)/qttranslations/translations/translations.pro; \
+    mkdir -p $($(package)_extract_dir)/qtbase/mkspecs/macx-clang-linux; \
+    cp -f $($(package)_extract_dir)/qtbase/mkspecs/macx-clang/qplatformdefs.h \
+          $($(package)_extract_dir)/qtbase/mkspecs/macx-clang-linux/; \
+    cp -f $($(package)_patch_dir)/mac-qmake.conf \
+          $($(package)_extract_dir)/qtbase/mkspecs/macx-clang-linux/qmake.conf
+endef
 
-      - name: Upload
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ env.COIN_NAME }}-macos13-build
-          path: ${{ env.COMPRESS_DIR }}/${{ env.COIN_NAME }}-macos13.tar.gz
+# ---- configure (force C locale + SDKROOT to avoid qmake parser failure) ----
+define $(package)_config_cmds
+    export LC_ALL=C; export LANG=C; \
+    export SDKROOT="$$(xcrun --sdk macosx --show-sdk-path 2>/dev/null)"; \
+    export PKG_CONFIG_SYSROOT_DIR=/; \
+    export PKG_CONFIG_LIBDIR=$(host_prefix)/lib/pkgconfig; \
+    export PKG_CONFIG_PATH=$(host_prefix)/share/pkgconfig; \
+    cd $($(package)_extract_dir)/qtbase && \
+    ./configure $($(package)_config_opts) && \
+    echo "host_build: QT_CONFIG ~= s/system-zlib/zlib" >> mkspecs/qconfig.pri && \
+    echo "CONFIG += force_bootstrap" >> mkspecs/qconfig.pri && \
+    cd $($(package)_extract_dir) && \
+    qtbase/bin/qmake -o qttranslations/Makefile qttranslations/qttranslations.pro && \
+    qtbase/bin/qmake -o qttools/src/linguist/lrelease/Makefile qttools/src/linguist/lrelease/lrelease.pro && \
+    qtbase/bin/qmake -o qttools/src/linguist/lupdate/Makefile qttools/src/linguist/lupdate/lupdate.pro
+endef
+
+# ---- build ----
+define $(package)_build_cmds
+    $(MAKE) -C $($(package)_extract_dir)/qtbase/src $(addprefix sub-,$($(package)_qt_libs)) && \
+    $(MAKE) -C $($(package)_extract_dir)/qttools/src/linguist/lrelease && \
+    $(MAKE) -C $($(package)_extract_dir)/qttools/src/linguist/lupdate && \
+    $(MAKE) -C $($(package)_extract_dir)/qttranslations
+endef
+
+# ---- stage ----
+define $(package)_stage_cmds
+    $(MAKE) -C $($(package)_extract_dir)/qtbase/src INSTALL_ROOT=$($(package)_staging_dir) \
+        $(addsuffix -install_subtargets,$(addprefix sub-,$($(package)_qt_libs))) && \
+    $(MAKE) -C $($(package)_extract_dir)/qttools/src/linguist/lrelease INSTALL_ROOT=$($(package)_staging_dir) install_target && \
+    $(MAKE) -C $($(package)_extract_dir)/qttools/src/linguist/lupdate  INSTALL_ROOT=$($(package)_staging_dir) install_target && \
+    $(MAKE) -C $($(package)_extract_dir)/qttranslations               INSTALL_ROOT=$($(package)_staging_dir) install_subtargets
+endef
+
+# ---- tidy ----
+define $(package)_postprocess_cmds
+    rm -rf $($(package)_staging_dir)/lib/cmake
+endef
