@@ -1,10 +1,9 @@
-name: VKAX Android (daemon + cli + tx)
+name: VKAX Android Build
 
 on:
   workflow_dispatch:
   push:
-    branches:
-      - v100.11.5-android
+    branches: [ main, v100.11.5-android, dev ]
 
 env:
   COIN_NAME: vkax
@@ -14,110 +13,129 @@ env:
   LANG: C
 
 jobs:
-  android-aarch64:
-    name: Android aarch64 (no Qt)
+  # ---------------- ANDROID (daemon + cli + tx, no Qt) ----------------
+  android-aarch64-daemon:
+    name: Android aarch64 (daemon + cli + tx, no Qt)
     runs-on: ubuntu-22.04
     env:
       HOST: aarch64-linux-android
       ANDROID_API: "21"
+
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           lfs: true
 
+      - name: JDK 11
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "11"
+
       - name: Tooling
         run: |
-          set -euxo pipefail
           sudo apt-get update
-          sudo apt-get install -y openjdk-11-jdk build-essential automake libtool pkg-config \
-                                  python3 unzip wget cmake ninja-build
-          echo "JAVA_HOME=/usr/lib/jvm/java-11-openjdk-amd64" >> "$GITHUB_ENV"
+          sudo apt-get install -y build-essential automake libtool pkg-config python3 unzip wget cmake ninja-build
 
       - name: Install Android SDK + NDK (r25c)
         env:
           ANDROID_SDK_ROOT: ${{ github.workspace }}/android-sdk
         run: |
-          set -euxo pipefail
+          set -e
           mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools"
           wget -q https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip -O /tmp/clt.zip
           unzip -q /tmp/clt.zip -d "$ANDROID_SDK_ROOT/cmdline-tools"
           mv "$ANDROID_SDK_ROOT/cmdline-tools/cmdline-tools" "$ANDROID_SDK_ROOT/cmdline-tools/latest"
-          # Accept licenses; some CLIs close stdin early, ignore that exit
-          yes | "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$ANDROID_SDK_ROOT" --licenses || true
-          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$ANDROID_SDK_ROOT" \
-            "platform-tools" "platforms;android-${ANDROID_API}" "ndk;25.2.9519653"
-          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> "$GITHUB_ENV"
-          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/25.2.9519653" >> "$GITHUB_ENV"
-          echo "$ANDROID_SDK_ROOT/ndk/25.2.9519653/toolchains/llvm/prebuilt/linux-x86_64/bin" >> "$GITHUB_PATH"
+          yes | "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null
+          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" \
+            "platforms;android-${{ env.ANDROID_API }}" \
+            "ndk;25.2.9519653"
+          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
+          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/25.2.9519653" >> $GITHUB_ENV
+          echo "$ANDROID_SDK_ROOT/ndk/25.2.9519653/toolchains/llvm/prebuilt/linux-x86_64/bin" >> $GITHUB_PATH
 
-      - name: Build depends (NO_QT) with Boost clang fix
+      - name: NDK clang shims for Boost + user-config.jam
         env:
+          ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
           HOST: ${{ env.HOST }}
           ANDROID_API: ${{ env.ANDROID_API }}
-          ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
         run: |
-          set -euxo pipefail
+          set -e
           TOOLCHAIN_BIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
           test -x "$TOOLCHAIN_BIN/${HOST}${ANDROID_API}-clang++"
-          # Shims without API suffix for Boost
-          ln -sf "${TOOLCHAIN_BIN}/${HOST}${ANDROID_API}-clang"   "${TOOLCHAIN_BIN}/${HOST}-clang"
-          ln -sf "${TOOLCHAIN_BIN}/${HOST}${ANDROID_API}-clang++" "${TOOLCHAIN_BIN}/${HOST}-clang++"
-          export PATH="$TOOLCHAIN_BIN:$PATH"
-          export CC="${HOST}${ANDROID_API}-clang"
-          export CXX="${HOST}${ANDROID_API}-clang++"
-          export AR="llvm-ar"
-          export RANLIB="llvm-ranlib"
-          # Force b2 to our compiler
-          BOOST_CFG_DIR="$GITHUB_WORKSPACE/boost-config"
-          mkdir -p "$BOOST_CFG_DIR"
-          printf 'using clang-linux : aarch64 : aarch64-linux-android-clang++ : <compileflags>"-fPIC" <linkflags>"" ;\n' > "$BOOST_CFG_DIR/user-config.jam"
-          export BOOST_BUILD_PATH="$BOOST_CFG_DIR"
-          make -C depends -j"$(nproc)" \
-            HOST="${HOST}" \
-            ANDROID_NDK="${ANDROID_NDK_HOME}" \
-            ANDROID_API="${ANDROID_API}" \
-            ANDROID_TOOLCHAIN_BIN="${TOOLCHAIN_BIN}" \
-            NO_QT=1
 
-      - name: Configure (daemon + cli + tx, no Qt)
+          # Provide the names Boost expects (no API suffix).
+          ln -sf "${TOOLCHAIN_BIN}/${HOST}${ANDROID_API}-clang"  "${TOOLCHAIN_BIN}/${HOST}-clang"
+          ln -sf "${TOOLCHAIN_BIN}/${HOST}${ANDROID_API}-clang++" "${TOOLCHAIN_BIN}/${HOST}-clang++"
+
+          # Toolchain in PATH and classic vars for autotools.
+          export PATH="$TOOLCHAIN_BIN:$PATH"
+          echo "PATH=$PATH" >> $GITHUB_ENV
+          echo "CC=${HOST}${ANDROID_API}-clang" >> $GITHUB_ENV
+          echo "CXX=${HOST}${ANDROID_API}-clang++" >> $GITHUB_ENV
+          echo "AR=llvm-ar" >> $GITHUB_ENV
+          echo "RANLIB=llvm-ranlib" >> $GITHUB_ENV
+
+          # Force Boost to use Android clang via a local user-config.jam
+          mkdir -p depends
+          cat > depends/user-config.jam <<'EOF'
+          using clang : aarch64 : aarch64-linux-android-clang++ :
+              <target-os>android
+              <compileflags>"-D__ANDROID_API__=21 -fPIC"
+              <linkflags>"-fuse-ld=lld"
+          ;
+          EOF
+          echo "BOOST_BUILD_PATH=$PWD/depends" >> $GITHUB_ENV
+
+      - name: Build depends (no Qt)
         env:
           HOST: ${{ env.HOST }}
-          ANDROID_API: ${{ env.ANDROID_API }}
           ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
+          ANDROID_API: ${{ env.ANDROID_API }}
+          BOOST_BUILD_PATH: ${{ env.BOOST_BUILD_PATH }}
+        run: |
+          set -e
+          make -C depends -j"$(nproc)" \
+            HOST=$HOST \
+            ANDROID_NDK=$ANDROID_NDK_HOME \
+            ANDROID_API=$ANDROID_API \
+            NO_QT=1 V=1
+
+      - name: Configure (daemon + cli + tx)
+        env:
+          HOST: ${{ env.HOST }}
+          ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
+          ANDROID_API: ${{ env.ANDROID_API }}
           CONFIG_SITE: ${{ github.workspace }}/depends/${{ env.HOST }}/share/config.site
         run: |
-          set -euxo pipefail
-          TOOLCHAIN_BIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
-          export PATH="$TOOLCHAIN_BIN:$PATH"
-          export CC="${HOST}${ANDROID_API}-clang"
-          export CXX="${HOST}${ANDROID_API}-clang++"
-          export AR="llvm-ar"
-          export RANLIB="llvm-ranlib"
+          set -e
           export PKG_CONFIG_PATH="${PWD}/depends/${HOST}/lib/pkgconfig"
           ./autogen.sh || true
           ./configure \
-            --host="${HOST}" --build="$(gcc -dumpmachine)" \
+            --host=${HOST} --build=$(gcc -dumpmachine) \
             --prefix="${PWD}/depends/${HOST}" \
             --with-incompatible-bdb \
             --without-gui --disable-bench --disable-tests \
             CXXFLAGS="-O2 -fPIC"
 
-      - name: Build
+      - name: Build + Package (vkaxd, vkax-cli, vkax-tx)
         run: |
-          set -euxo pipefail
+          set -e
           make -j"$(nproc)" src/vkaxd src/vkax-cli src/vkax-tx
-
-      - name: Package
-        run: |
-          set -euxo pipefail
           mkdir -p "$BUILD_DIR" "$COMPRESS_DIR"
           cp -f src/vkaxd src/vkax-cli src/vkax-tx "$BUILD_DIR/" || true
-          file "$BUILD_DIR/"* || true
           tar -cvzf "$COMPRESS_DIR/${COIN_NAME}-android-aarch64-daemons.tar.gz" -C "$BUILD_DIR" .
 
-      - name: Upload
-        uses: actions/upload-artifact@v4
+      - name: Boost diagnostics (if something plays dumb)
+        if: always()
+        run: |
+          set -x
+          find depends -maxdepth 6 -type f \( -name bootstrap.log -o -name config.log \) -print || true
+          B2=$(find depends -maxdepth 6 -type f -name b2 -print -quit || true)
+          if [ -n "$B2" ]; then "$(dirname "$B2")/b2" --debug-configuration -n --version || true; fi
+
+      - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: ${{ env.COIN_NAME }}-android-aarch64-daemons
           path: ${{ env.COMPRESS_DIR }}/${{ env.COIN_NAME }}-android-aarch64-daemons.tar.gz
