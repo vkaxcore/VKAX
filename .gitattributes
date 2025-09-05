@@ -1,1 +1,9 @@
+# Existing rule
 src/clientversion.cpp export-subst
+
+# Ensure Makefiles and *.mk use LF (required for GNU make)
+Makefile text eol=lf
+*.mk     text eol=lf
+
+# (optional but strongly recommended)
+*.sh     text eol=lf
