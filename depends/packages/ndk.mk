@@ -1,3 +1,6 @@
+# Ensure the DEPENDS_DIR variable is set to a proper path
+DEPENDS_DIR ?= $(CURDIR)/depends  # Default to `depends` directory in the current working directory
+
 # NDK - Android Native Development Kit (version r23c)
 # Download and install NDK as part of the dependencies
 
