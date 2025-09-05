@@ -11,6 +11,9 @@ $(package)_sha256_hash=e5053c126a47e84726d9f7173a04686a71f9a67a  # SHA256 hash f
 # Define the installation directory where the NDK will be placed
 $(package)_install_dir=$(DEPENDS_DIR)/$(package)-$(package)_version
 
+# Modify the path for the .env file to be inside the project folder
+$(package)_env_file=$(DEPENDS_DIR)/.env
+
 # Download and extract NDK
 define $(package)_download_and_extract
 	$(call download,$(package)_download_path,$(package)_file_name,$(package)_sha256_hash)  # Download the NDK
@@ -21,7 +24,7 @@ endef
 $(package)_add_to_path:
 	@echo "Adding NDK to path..."
 	@export ANDROID_NDK_HOME=$(DEPENDS_DIR)/$(package)-$(package)_version  # Set the NDK home path
-	@echo "ANDROID_NDK_HOME=$(ANDROID_NDK_HOME)" >> $(DEPENDS_DIR)/.env  # Write NDK path to .env for environment variable persistence
+	@echo "ANDROID_NDK_HOME=$(ANDROID_NDK_HOME)" >> $(package)_env_file  # Write NDK path to the correct .env file
 	@export PATH=$(ANDROID_NDK_HOME)/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH  # Add the NDK binaries to the system path
 
 # Create wrapper for NDK toolchain (for cross-compilation)
