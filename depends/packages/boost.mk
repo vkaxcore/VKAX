@@ -1,3 +1,8 @@
+# depends/packages/boost.mk
+# VKAX depends: Boost 1.81.0
+# Android target fix: set target-os=android for b2 and write <target-os>android in user-config on Android only.
+# Minimal, legacy-safe; no other behavior changed. — Setvin
+
 package=boost
 $(package)_version=1_81_0
 $(package)_download_path=https://downloads.sourceforge.net/project/boost/boost/$(subst _,.,$($(package)_version))/
@@ -19,6 +24,7 @@ define $(package)_set_vars
 
   # Platform-specific options
   $(package)_config_opts_linux=target-os=linux threadapi=pthread runtime-link=shared
+  $(package)_config_opts_android=target-os=android threadapi=pthread runtime-link=shared  # crucial: keep NDK headers/tooling
   $(package)_config_opts_darwin=target-os=darwin runtime-link=shared
   $(package)_config_opts_mingw32=target-os=windows binary-format=pe threadapi=win32 runtime-link=static
 
@@ -39,7 +45,7 @@ define $(package)_set_vars
     $(package)_toolset_$(host_os)=gcc
   endif
 
-  # Libraries needed
+  # Libraries needed (match OG + what VKAX uses)
   $(package)_config_libraries=filesystem,thread,date_time,chrono,regex,system
 
   # Compiler flags
@@ -48,32 +54,39 @@ define $(package)_set_vars
   $(package)_cxxflags_android=-fPIC
 endef
 
-# Preprocess commands: generate user-config.jam
+# Generate user-config.jam; on Android, pin <target-os>android so b2 does not retarget to generic linux.
 define $(package)_preprocess_cmds
-  echo "using $($(package)_toolset_$(host_os)) : : $($(package)_cxx) : \
-  <cflags>\"$($(package)_cflags)\" \
-  <cxxflags>\"$($(package)_cxxflags)\" \
-  <compileflags>\"$($(package)_cppflags)\" \
-  <linkflags>\"$($(package)_ldflags)\" \
-  <archiver>\"$($(package)_ar)\" \
-  <striper>\"$(host_STRIP)\" \
-  <ranlib>\"$(host_RANLIB)\" \
-  <rc>\"$(host_WINDRES)\" : ;" > user-config.jam
+  if [ "$(host_os)" = "android" ]; then \
+    echo "using $($(package)_toolset_$(host_os)) : : $($(package)_cxx) : \\" \
+         "<target-os>android \\" \
+         "<cflags>\"$($(package)_cflags)\" <cxxflags>\"$($(package)_cxxflags)\" \\" \
+         "<compileflags>\"$($(package)_cppflags)\" <linkflags>\"$($(package)_ldflags)\" \\" \
+         "<archiver>\"$($(package)_ar)\" <striper>\"$(host_STRIP)\" <ranlib>\"$(host_RANLIB)\" <rc>\"$(host_WINDRES)\" : ;" \
+         > user-config.jam; \
+  else \
+    echo "using $($(package)_toolset_$(host_os)) : : $($(package)_cxx) : \\" \
+         "<cflags>\"$($(package)_cflags)\" <cxxflags>\"$($(package)_cxxflags)\" \\" \
+         "<compileflags>\"$($(package)_cppflags)\" <linkflags>\"$($(package)_ldflags)\" \\" \
+         "<archiver>\"$($(package)_ar)\" <striper>\"$(host_STRIP)\" <ranlib>\"$(host_RANLIB)\" <rc>\"$(host_WINDRES)\" : ;" \
+         > user-config.jam; \
+  fi
 endef
 
-# Configure commands
+# Configure
 define $(package)_config_cmds
   ./bootstrap.sh --without-icu --with-libraries=$($(package)_config_libraries) \
   --with-toolset=$($(package)_toolset_$(host_os)) --with-bjam=b2
 endef
 
-# Build commands
+# Build
+# Wipe bin.v2 on Android to kill stale host settings from previous runs.
 define $(package)_build_cmds
+  if [ "$(host_os)" = "android" ]; then rm -rf bin.v2; fi && \
   b2 -d2 -j$(nproc) -d1 --prefix=$($(package)_staging_prefix_dir) \
   $($(package)_config_opts) toolset=$($(package)_toolset_$(host_os)) stage
 endef
 
-# Stage/install commands
+# Install
 define $(package)_stage_cmds
   b2 -d0 -j$(nproc) --prefix=$($(package)_staging_prefix_dir) \
   $($(package)_config_opts) toolset=$($(package)_toolset_$(host_os)) install
