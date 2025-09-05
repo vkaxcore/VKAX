@@ -1,139 +1,117 @@
 # depends/hosts/android.mk
-# VKAX — Android host mappings for Bitcoin/Dash-style depends.
-# Goal: resolve correct NDK llvm toolchain path and API level for all arches,
-#       so packages see real CC/CXX/AR/RANLIB and absolute SYSROOT.
-# Notes:
-#  - We accept either ANDROID_API or ANDROID_API_LEVEL (default 21).
-#  - We derive ANDROID_TOOLCHAIN_BIN from ANDROID_NDK and host tag.
-#  - We keep legacy $(HOST) use to compose clang triplets, with eabi special-case.
-#  - We DO NOT assume PATH; we hand packages absolute tools to avoid surprises.
-#  - Verbose builds (V=1) will print a short diagnostic of resolved paths.
-#  - Keep variable names "android_*" because depends' int_vars dereferences $(host_os)=android.
-# Signed: Setvin
+# Android NDK (r23c+) host toolchain wiring for Bitcoin/Dash-style depends.
+# Fixes:
+#   - Ensures absolute clang/llvm-* paths (prevents CC="/aarch64-linux-android-clang").
+#   - Always defines API level for -D__ANDROID_API__ and compiler targets.
+#   - Maps type key "aarch64_android" (etc) used by funcs.mk to proper *_CC/CXX/AR/RANLIB/NM/FLAGS.
+#   - Keeps flags minimal and deterministic; no invasive changes to legacy logic elsewhere.
+# Maintainers:
+#   - ANDROID_NDK, ANDROID_NDK_HOME, or ANDROID_NDK must be exported by CI/environment.
+#   - ANDROID_API_LEVEL preferred; falls back to ANDROID_API; default 21 if missing.
 
-# ----------------------------
-# Host tag detection (NDK r23+)
-# ----------------------------
-# Shell uname info for mapping to NDK prebuilt host tag
-UNAME_S ?= $(shell uname -s)
-UNAME_M ?= $(shell uname -m)
+# -------- Resolve NDK + API level deterministically --------
 
-# OS component
-ifeq ($(UNAME_S),Linux)
-  _NDK_HOST_OS := linux
-else ifeq ($(UNAME_S),Darwin)
-  _NDK_HOST_OS := darwin
-else
-  # Covers MSYS2/CYGWIN/MINGW runners; NDK calls this "windows"
-  _NDK_HOST_OS := windows
+ANDROID_NDK       ?= $(ANDROID_NDK_HOME)
+ANDROID_API_LEVEL ?= $(if $(ANDROID_API),$(ANDROID_API),21)
+
+# Canonical toolchain bin dir; required so CC/CXX are absolute (no leading '/').
+# e.g. $ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin
+ifndef ANDROID_TOOLCHAIN_BIN
+ANDROID_TOOLCHAIN_BIN := $(ANDROID_NDK)/toolchains/llvm/prebuilt/linux-x86_64/bin
 endif
 
-# Arch component
-# Normalize common machine strings to NDK tags
-ifeq ($(filter x86_64 amd64,$(UNAME_M)),x86_64)
-  _NDK_HOST_ARCH := x86_64
-else ifeq ($(filter arm64 aarch64,$(UNAME_M)),arm64)
-  _NDK_HOST_ARCH := arm64
-else
-  _NDK_HOST_ARCH := x86_64
-endif
-
-NDK_HOST_TAG ?= $(_NDK_HOST_OS)-$(_NDK_HOST_ARCH)
-
-# --------------------------------------
-# Inputs: ANDROID_NDK and API resolution
-# --------------------------------------
-# Accept old CI env ANDROID_API or newer ANDROID_API_LEVEL
-ANDROID_API_LEVEL ?= $(ANDROID_API)
-ANDROID_API_LEVEL ?= 21
-
-# Toolchain bin path (absolute); do not add trailing slash
-ANDROID_TOOLCHAIN_BIN ?= $(ANDROID_NDK)/toolchains/llvm/prebuilt/$(NDK_HOST_TAG)/bin
-
-# Validate critical inputs early to fail fast with a useful message
-ifeq ($(strip $(ANDROID_NDK)),)
-  $(error ANDROID_NDK is not set; expected e.g. /.../android-ndk-r23c)
-endif
-ifeq ($(wildcard $(ANDROID_TOOLCHAIN_BIN)),)
-  $(error ANDROID_TOOLCHAIN_BIN not found: "$(ANDROID_TOOLCHAIN_BIN)"; check ANDROID_NDK and NDK host tag "$(NDK_HOST_TAG)")
-endif
-
-# -----------------------------------------
-# Compose absolute tool paths per $(HOST)
-# -----------------------------------------
-# $(HOST) is provided by depends top-level, e.g. aarch64-linux-android, armv7a-linux-android, x86_64-linux-android, i686-linux-android
-# ARMv7 needs the "androideabi" suffix per NDK tool naming.
-ifeq ($(HOST),armv7a-linux-android)
-  _HOST_TRIPLE_CC  := $(HOST)eabi$(ANDROID_API_LEVEL)-clang
-  _HOST_TRIPLE_CXX := $(HOST)eabi$(ANDROID_API_LEVEL)-clang++
-else
-  _HOST_TRIPLE_CC  := $(HOST)$(ANDROID_API_LEVEL)-clang
-  _HOST_TRIPLE_CXX := $(HOST)$(ANDROID_API_LEVEL)-clang++
-endif
-
-# Absolute tool binaries
-android_CC     := $(ANDROID_TOOLCHAIN_BIN)/$(_HOST_TRIPLE_CC)
-android_CXX    := $(ANDROID_TOOLCHAIN_BIN)/$(_HOST_TRIPLE_CXX)
-android_AR     := $(ANDROID_TOOLCHAIN_BIN)/llvm-ar
-android_RANLIB := $(ANDROID_TOOLCHAIN_BIN)/llvm-ranlib
-android_NM     := $(ANDROID_TOOLCHAIN_BIN)/llvm-nm
-android_STRIP  := $(ANDROID_TOOLCHAIN_BIN)/llvm-strip
-android_LIBTOOL :=
-
-# -------------------------
-# Sysroot and common flags
-# -------------------------
+# NDK sysroot used by all compiler/linker invocations.
 android_SYSROOT := $(ANDROID_TOOLCHAIN_BIN)/../sysroot
 
-# Initialize flags if not set by outer layers, then append strict sysroot/API
-android_CPPFLAGS ?=
-android_CFLAGS   ?=
-android_CXXFLAGS ?=
-android_LDFLAGS  ?=
+# -------- Shared per-OS (android) defaults --------
 
-android_CPPFLAGS += --sysroot=$(android_SYSROOT) -D__ANDROID_API__=$(ANDROID_API_LEVEL)
-android_CFLAGS   += --sysroot=$(android_SYSROOT) -D__ANDROID_API__=$(ANDROID_API_LEVEL)
-android_CXXFLAGS += --sysroot=$(android_SYSROOT) -D__ANDROID_API__=$(ANDROID_API_LEVEL)
-android_LDFLAGS  += --sysroot=$(android_SYSROOT)
+# LLVM binutils provided by NDK; same for all Android arches.
+android_AR     := $(ANDROID_TOOLCHAIN_BIN)/llvm-ar
+android_RANLIB := $(ANDROID_TOOLCHAIN_BIN)/llvm-ranlib
+android_STRIP  := $(ANDROID_TOOLCHAIN_BIN)/llvm-strip
+android_NM     := $(ANDROID_TOOLCHAIN_BIN)/llvm-nm
 
-# -----------------------------------
-# Expose for depends package resolver
-# -----------------------------------
-# The depends framework dereferences $(host_os)=android variables via int_vars.
-android_PREFIX       ?= /usr
-android_host         ?= $(HOST)
-android_id_string    ?= $(HOST)-api$(ANDROID_API_LEVEL)
-android_prefix       ?= $(android_PREFIX)
+# Common flags injected for every Android target.
+android_CPPFLAGS := --sysroot=$(android_SYSROOT) -D__ANDROID_API__=$(ANDROID_API_LEVEL)
+android_CFLAGS   := --sysroot=$(android_SYSROOT) -D__ANDROID_API__=$(ANDROID_API_LEVEL)
+android_CXXFLAGS := --sysroot=$(android_SYSROOT) -D__ANDROID_API__=$(ANDROID_API_LEVEL)
+android_LDFLAGS  := --sysroot=$(android_SYSROOT)
 
-android_CC           := $(android_CC)
-android_CXX          := $(android_CXX)
-android_AR           := $(android_AR)
-android_RANLIB       := $(android_RANLIB)
-android_NM           := $(android_NM)
-android_LIBTOOL      := $(android_LIBTOOL)
+# Prefix under the staging dir; depends' funcs.mk appends this to per-package staging path.
+# Using /$(host) preserves the canonical layout used by the rest of the framework.
+android_prefix := /$(host)
 
-android_CPPFLAGS     := $(android_CPPFLAGS)
-android_CFLAGS       := $(android_CFLAGS)
-android_CXXFLAGS     := $(android_CXXFLAGS)
-android_LDFLAGS      := $(android_LDFLAGS)
+# Human-readable id string mixed into build-id hashing; helps cache coherence across NDK/API bumps.
+android_id_string := android-ndk=$(notdir $(ANDROID_NDK)) api=$(ANDROID_API_LEVEL)
 
-# Keep PATH additions minimal; packages already get build_prefix/bin first.
-# We do not prepend ANDROID_TOOLCHAIN_BIN to PATH to avoid accidental host tool mixing.
+# -------- Per-arch triplets and toolchains (type key: <arch>_android) --------
+# Note: funcs.mk sets $(package)_type = $(host_arch)_$(host_os), so keys must match that pattern.
 
-# -----------------
-# Verbose diagnostics
-# -----------------
-# Print resolved tool locations when V=1 to aid CI debugging.
-ifeq ($(V),1)
-  $(info [depends/android] HOST=$(HOST))
-  $(info [depends/android] ANDROID_NDK=$(ANDROID_NDK))
-  $(info [depends/android] NDK_HOST_TAG=$(NDK_HOST_TAG))
-  $(info [depends/android] ANDROID_API_LEVEL=$(ANDROID_API_LEVEL))
-  $(info [depends/android] ANDROID_TOOLCHAIN_BIN=$(ANDROID_TOOLCHAIN_BIN))
-  $(info [depends/android] android_CC=$(android_CC))
-  $(info [depends/android] android_CXX=$(android_CXX))
-  $(info [depends/android] android_AR=$(android_AR))
-  $(info [depends/android] android_RANLIB=$(android_RANLIB))
-  $(info [depends/android] android_STRIP=$(android_STRIP))
-  $(info [depends/android] android_SYSROOT=$(android_SYSROOT))
-endif
+# aarch64 (arm64-v8a)
+aarch64_android_host    := aarch64-linux-android
+aarch64_android_CC      := $(ANDROID_TOOLCHAIN_BIN)/$(aarch64_android_host)$(ANDROID_API_LEVEL)-clang
+aarch64_android_CXX     := $(ANDROID_TOOLCHAIN_BIN)/$(aarch64_android_host)$(ANDROID_API_LEVEL)-clang++
+aarch64_android_AR      := $(android_AR)
+aarch64_android_RANLIB  := $(android_RANLIB)
+aarch64_android_NM      := $(android_NM)
+aarch64_android_LIBTOOL :=
+aarch64_android_CFLAGS  := $(android_CFLAGS)
+aarch64_android_CXXFLAGS:= $(android_CXXFLAGS)
+aarch64_android_CPPFLAGS:= $(android_CPPFLAGS)
+aarch64_android_LDFLAGS := $(android_LDFLAGS)
+aarch64_android_prefix  := $(android_prefix)
+aarch64_android_id_string := $(android_id_string)
+
+# armv7a (armeabi-v7a) — uses *androideabi* triple and 'eabi' suffix per NDK.
+armv7a_android_host     := armv7a-linux-androideabi
+armv7a_android_CC       := $(ANDROID_TOOLCHAIN_BIN)/$(armv7a_android_host)$(ANDROID_API_LEVEL)-clang
+armv7a_android_CXX      := $(ANDROID_TOOLCHAIN_BIN)/$(armv7a_android_host)$(ANDROID_API_LEVEL)-clang++
+armv7a_android_AR       := $(android_AR)
+armv7a_android_RANLIB   := $(android_RANLIB)
+armv7a_android_NM       := $(android_NM)
+armv7a_android_LIBTOOL  :=
+armv7a_android_CFLAGS   := $(android_CFLAGS)
+armv7a_android_CXXFLAGS := $(android_CXXFLAGS)
+armv7a_android_CPPFLAGS := $(android_CPPFLAGS)
+armv7a_android_LDFLAGS  := $(android_LDFLAGS)
+armv7a_android_prefix   := $(android_prefix)
+armv7a_android_id_string := $(android_id_string)
+
+# x86_64
+x86_64_android_host     := x86_64-linux-android
+x86_64_android_CC       := $(ANDROID_TOOLCHAIN_BIN)/$(x86_64_android_host)$(ANDROID_API_LEVEL)-clang
+x86_64_android_CXX      := $(ANDROID_TOOLCHAIN_BIN)/$(x86_64_android_host)$(ANDROID_API_LEVEL)-clang++
+x86_64_android_AR       := $(android_AR)
+x86_64_android_RANLIB   := $(android_RANLIB)
+x86_64_android_NM       := $(android_NM)
+x86_64_android_LIBTOOL  :=
+x86_64_android_CFLAGS   := $(android_CFLAGS)
+x86_64_android_CXXFLAGS := $(android_CXXFLAGS)
+x86_64_android_CPPFLAGS := $(android_CPPFLAGS)
+x86_64_android_LDFLAGS  := $(android_LDFLAGS)
+x86_64_android_prefix   := $(android_prefix)
+x86_64_android_id_string := $(android_id_string)
+
+# i686 (x86)
+i686_android_host       := i686-linux-android
+i686_android_CC         := $(ANDROID_TOOLCHAIN_BIN)/$(i686_android_host)$(ANDROID_API_LEVEL)-clang
+i686_android_CXX        := $(ANDROID_TOOLCHAIN_BIN)/$(i686_android_host)$(ANDROID_API_LEVEL)-clang++
+i686_android_AR         := $(android_AR)
+i686_android_RANLIB     := $(android_RANLIB)
+i686_android_NM         := $(android_NM)
+i686_android_LIBTOOL    :=
+i686_android_CFLAGS     := $(android_CFLAGS)
+i686_android_CXXFLAGS   := $(android_CXXFLAGS)
+i686_android_CPPFLAGS   := $(android_CPPFLAGS)
+i686_android_LDFLAGS    := $(android_LDFLAGS)
+i686_android_prefix     := $(android_prefix)
+i686_android_id_string  := $(android_id_string)
+
+# -------- Convenience exports (optional) --------
+# These help external scripts/tools but are not relied upon by funcs.mk resolution.
+export ANDROID_TOOLCHAIN_BIN
+export ANDROID_API_LEVEL
+export ANDROID_NDK
+export ANDROID_SYSROOT := $(android_SYSROOT)
+
+# Signed: Setvin
