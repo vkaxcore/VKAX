@@ -1,6 +1,6 @@
 package=qt
 
-# ---- Version & sources (single tarball) ----
+# ---- Version & sources (Qt 5.15 single tarball) ----
 $(package)_version=5.15.10
 $(package)_download_path=https://download.qt.io/archive/qt/5.15/5.15.10/single
 $(package)_download_file=qt-everywhere-opensource-src-$($(package)_version).tar.xz
@@ -12,6 +12,7 @@ $(package)_dependencies=zlib
 ifeq ($(NO_OPENSSL),)
 $(package)_dependencies+=openssl
 endif
+# Linux build-time deps via depends are still zlib/openssl; system freetype/fontconfig only when building GUI on Linux.
 
 # ---- what we build ----
 $(package)_qt_libs=corelib network widgets gui plugins
@@ -37,6 +38,7 @@ $(package)_patches = \
     mac-qmake.conf
 
 define $(package)_set_vars
+    # Core configure (static, minimal features; keep widgets/gui)
     $(package)_config_opts += -release -silent -opensource -confirm-license -optimized-tools -static
     $(package)_config_opts += -prefix $(host_prefix)
     $(package)_config_opts += -hostprefix $(build_prefix)
@@ -45,12 +47,12 @@ define $(package)_set_vars
 ifeq ($(NO_OPENSSL),)
     $(package)_config_opts += -openssl-linked
 endif
-    # trim features (Qt 5.15: use -no-feature-* where required)
+    # Trim fat; keep GUI usable without GL
     $(package)_config_opts += -no-icu -no-dbus -no-cups -no-gif -no-opengl
     $(package)_config_opts += -no-feature-sql
     $(package)_config_opts += -no-feature-printdialog -no-feature-printer -no-feature-printpreviewdialog -no-feature-printpreviewwidget
 
-    # darwin: do NOT disable iconv; force clang mkspec
+    # Darwin: do NOT disable iconv; force clang mkspec
     $(package)_config_opts_darwin += -no-dbus -no-opengl -platform macx-clang
 
     # Linux (kept for cross builds)
@@ -62,7 +64,24 @@ endif
     $(package)_config_opts_aarch64_linux = -xplatform linux-aarch64-gnu-g++
 
     # Windows / MinGW
-    $(package)_config_opts_mingw32 = -no-opengl -no-dbus -xplatform win32-g++
+    $(package)_config_opts_mingw32 = -no-opengl -no-dbus -xplatform win32-g++ -device-option CROSS_COMPILE="$(host)-"
+
+    # Android (optional; honored when ANDROID_* envs set)
+    $(package)_config_opts_android  = -xplatform android-clang
+    $(package)_config_opts_android += -android-sdk $(ANDROID_SDK)
+    $(package)_config_opts_android += -android-ndk $(ANDROID_NDK)
+    $(package)_config_opts_android += -android-ndk-platform android-$(ANDROID_API_LEVEL)
+    $(package)_config_opts_android += -device-option CROSS_COMPILE="$(host)-"
+    $(package)_config_opts_android += -egl -no-eglfs -no-dbus -opengl es2 -qt-freetype -no-fontconfig
+    $(package)_config_opts_android += -L $(host_prefix)/lib -I $(host_prefix)/include
+    $(package)_config_opts_aarch64_android += -android-arch arm64-v8a
+    $(package)_config_opts_armv7a_android += -android-arch armeabi-v7a
+    $(package)_config_opts_x86_64_android += -android-arch x86_64
+    $(package)_config_opts_i686_android   += -android-arch i686
+
+    # Deterministic rcc
+    $(package)_build_env  = QT_RCC_TEST=1
+    $(package)_build_env += QT_RCC_SOURCE_DATE_OVERRIDE=1
 endef
 
 # ---- fetch ----
@@ -82,19 +101,25 @@ define $(package)_preprocess_cmds
     for p in $($(package)_patches); do \
         patch -p1 -d $($(package)_extract_dir) < $($(package)_patch_dir)/$$p || true; \
     done; \
+    # point lrelease from qttools into translations.pro
     sed -i.old "s|updateqm.commands = \$$$$\$$$$LRELEASE|updateqm.commands = $($(package)_extract_dir)/qttools/bin/lrelease|" \
         $($(package)_extract_dir)/qttranslations/translations/translations.pro; \
+    # custom mac mkspec for cross/macx-clang-linux compatibility
     mkdir -p $($(package)_extract_dir)/qtbase/mkspecs/macx-clang-linux; \
     cp -f $($(package)_extract_dir)/qtbase/mkspecs/macx-clang/qplatformdefs.h \
           $($(package)_extract_dir)/qtbase/mkspecs/macx-clang-linux/; \
     cp -f $($(package)_patch_dir)/mac-qmake.conf \
-          $($(package)_extract_dir)/qtbase/mkspecs/macx-clang-linux/qmake.conf
+          $($(package)_extract_dir)/qtbase/mkspecs/macx-clang-linux/qmake.conf; \
+    # Xcode 15 parser guard: don't hard error on Darwin (we export SDKROOT/QMAKESPEC instead)
+    sed -i.old "s/error(\\\"failed to parse default search paths from compiler output\\\")/!darwin: error(\\\"failed to parse default search paths from compiler output\\\")/g" \
+        $($(package)_extract_dir)/qtbase/mkspecs/features/toolchain.prf
 endef
 
-# ---- configure (force C locale + SDKROOT to avoid qmake parser failure) ----
+# ---- configure (force C locale + SDKROOT so qmake doesn't choke) ----
 define $(package)_config_cmds
     export LC_ALL=C; export LANG=C; \
     export SDKROOT="$$(xcrun --sdk macosx --show-sdk-path 2>/dev/null)"; \
+    export QMAKESPEC=macx-clang; export QMAKE_MACOSX_DEPLOYMENT_TARGET=11.0; \
     export PKG_CONFIG_SYSROOT_DIR=/; \
     export PKG_CONFIG_LIBDIR=$(host_prefix)/lib/pkgconfig; \
     export PKG_CONFIG_PATH=$(host_prefix)/share/pkgconfig; \
@@ -105,7 +130,7 @@ define $(package)_config_cmds
     cd $($(package)_extract_dir) && \
     qtbase/bin/qmake -o qttranslations/Makefile qttranslations/qttranslations.pro && \
     qtbase/bin/qmake -o qttools/src/linguist/lrelease/Makefile qttools/src/linguist/lrelease/lrelease.pro && \
-    qtbase/bin/qmake -o qttools/src/linguist/lupdate/Makefile qttools/src/linguist/lupdate/lupdate.pro
+    qtbase/bin/qmake -o qttools/src/linguist/lupdate/Makefile  qttools/src/linguist/lupdate/lupdate.pro
 endef
 
 # ---- build ----
