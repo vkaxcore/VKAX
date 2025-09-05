@@ -1,4 +1,4 @@
-# qt.mk — Full Final (mac uses SecureTransport; OpenSSL linking only non-mac) — VKAX (Setvin)
+# qt.mk — Full Final (mac uses SecureTransport; OpenSSL linked only on non-mac) — VKAX (Setvin)
 
 package=qt
 
@@ -18,7 +18,7 @@ endif
 # build from qtbase/src; 'plugins' builds platform plugins (cocoa on mac)
 $(package)_qt_libs=corelib network widgets gui plugins
 
-# keep upstream patchset intact
+# keep upstream/Bitcoin patchset intact (names match depends/patches/qt)
 $(package)_patches = \
 	freetype_back_compat.patch \
 	fix_powerpc_libpng.patch \
@@ -49,8 +49,7 @@ define $(package)_set_vars
 	$(package)_config_opts += -qt-libpng -qt-libjpeg -qt-harfbuzz -system-zlib
 
 ifeq ($(NO_OPENSSL),)
-	# OpenSSL is still a depends component for core/daemon everywhere,
-	# but ONLY force Qt's -openssl-linked on non-mac. On mac we use SecureTransport.
+	# OpenSSL for Qt only on non-mac. mac uses SecureTransport.
 ifneq ($(host_os),darwin)
 	$(package)_config_opts += -openssl-linked -I$(host_prefix)/include -L$(host_prefix)/lib
 endif
@@ -62,11 +61,8 @@ endif
 	$(package)_config_opts += -no-feature-printdialog -no-feature-printer -no-feature-printpreviewdialog -no-feature-printpreviewwidget
 
 	# per-OS knobs
-	# mac: use apple SecureTransport and avoid OpenSSL probing; also avoid duplicate flags
 	$(package)_config_opts_darwin += -platform macx-clang -no-dbus -securetransport
-	# linux: keep xcb path, no legacy xlib
 	$(package)_config_opts_linux  = -qt-xkbcommon-x11 -qt-xcb -no-xcb-xlib -no-feature-xlib -system-freetype -fontconfig -no-opengl
-	# mingw32: standard cross spec
 	$(package)_config_opts_mingw32 = -xplatform win32-g++ -no-dbus -no-opengl -device-option CROSS_COMPILE="$(host)-"
 
 	# deterministic rcc
@@ -85,45 +81,55 @@ endef
 
 define $(package)_preprocess_cmds
 	set -e; \
-	for p in $($(package)_patches); do patch -p1 -d $($(package)_extract_dir) < $($(package)_patch_dir)/$$p || true; done; \
-	# ensure lrelease path for translations
+	# Apply patches; fail loud so we don't silently skip required fixes.
+	for p in $($(package)_patches); do \
+		echo "applying $$p"; patch -p1 -d $($(package)_extract_dir) < $($(package)_patch_dir)/$$p; \
+	done; \
+	# Ensure lrelease path for translations
 	sed -i.old "s|updateqm.commands = \$$$$\$$$$LRELEASE|updateqm.commands = $($(package)_extract_dir)/qttools/bin/lrelease|" \
 		$($(package)_extract_dir)/qttranslations/translations/translations.pro; \
-	# provide macx-clang-linux spec to keep depends toolchain happy
+	# Provide macx-clang-linux spec to keep depends toolchain happy
 	mkdir -p $($(package)_extract_dir)/qtbase/mkspecs/macx-clang-linux && \
 	cp -f $($(package)_extract_dir)/qtbase/mkspecs/macx-clang/qplatformdefs.h \
 	      $($(package)_extract_dir)/qtbase/mkspecs/macx-clang-linux/ && \
 	cp -f $($(package)_patch_dir)/mac-qmake.conf \
 	      $($(package)_extract_dir)/qtbase/mkspecs/macx-clang-linux/qmake.conf; \
-	# don't choke on default search path probe when cross-building non-darwin
+	# Don't choke on default search path probe when cross-building non-darwin
 	sed -i.old "s/error(\\\"failed to parse default search paths from compiler output\\\")/!darwin: error(\\\"failed to parse default search paths from compiler output\\\")/g" \
-		$($(package)_extract_dir)/qtbase/mkspecs/features/toolchain.prf
+		$($(package)_extract_dir)/qtbase/mkspecs/features/toolchain.prf; \
+	# Belt-and-suspenders: nuke 'bootstrap-private' from linguist tools if patch set didn’t already.
+	for f in qttools/src/linguist/lrelease/lrelease.pro qttools/src/linguist/lupdate/lupdate.pro; do \
+		if grep -q 'bootstrap-private' "$($(package)_extract_dir)/$$f"; then \
+			sed -i.bak 's/bootstrap-private//g' "$($(package)_extract_dir)/$$f"; \
+		fi; \
+	done
 endef
 
 define $(package)_config_cmds
-	# locale sanity for Qt's configure
+	# Locale and SDK sanity
 	export LC_ALL=C LANG=C; \
-	# Xcode SDK for mac builders
 	export SDKROOT="$$(xcrun --sdk macosx --show-sdk-path 2>/dev/null)"; \
-	# nuke noisy qmake env that breaks reproducibility
+	# Nuke noisy qmake env that breaks reproducibility
 	unset QMAKESPEC XQMAKESPEC QMAKEPATH QMAKEFEATURES QMAKE QMAKE_SPEC QTDIR QT_PLUGIN_PATH QT_QPA_PLATFORM_PLUGIN_PATH PKG_CONFIG_PATH; \
 	# pkg-config through depends
 	export PKG_CONFIG_SYSROOT_DIR=/; \
 	export PKG_CONFIG_LIBDIR=$(host_prefix)/lib/pkgconfig; \
 	export PKG_CONFIG_PATH=$(host_prefix)/share/pkgconfig; \
-	# Only feed Qt OPENSSL_* when we're actually using -openssl-linked (non-mac path).
+	# Only feed Qt OPENSSL_* when using -openssl-linked (non-mac path)
 	if [ -z "$(NO_OPENSSL)" ] && [ "$(host_os)" != "darwin" ]; then \
 		export OPENSSL_INCDIR="$(host_prefix)/include"; \
 		export OPENSSL_LIBS="$(host_prefix)/lib/libssl.a $(host_prefix)/lib/libcrypto.a -lz"; \
 	fi; \
+	# Configure qtbase
 	cd $($(package)_extract_dir)/qtbase && \
 	env -u QMAKESPEC -u XQMAKESPEC -u QMAKEPATH -u QMAKEFEATURES -u QMAKE -u QMAKE_SPEC -u QTDIR -u QT_PLUGIN_PATH -u QT_QPA_PLATFORM_PLUGIN_PATH -u PKG_CONFIG_PATH \
 	./configure $($(package)_config_opts) $($(package)_config_opts_$(host_os)) && \
 	{ echo "host_build: QT_CONFIG ~= s/system-zlib/zlib"; echo "CONFIG += force_bootstrap"; } >> mkspecs/qconfig.pri && \
+	# Generate Makefiles for linguist tools and translations with SDK check silenced
 	cd $($(package)_extract_dir) && \
-	qtbase/bin/qmake -o qttranslations/Makefile qttranslations/qttranslations.pro && \
-	qtbase/bin/qmake -o qttools/src/linguist/lrelease/Makefile qttools/src/linguist/lrelease/lrelease.pro && \
-	qtbase/bin/qmake -o qttools/src/linguist/lupdate/Makefile  qttools/src/linguist/lupdate/lupdate.pro
+	qtbase/bin/qmake CONFIG+=sdk_no_version_check -o qttranslations/Makefile qttranslations/qttranslations.pro && \
+	qtbase/bin/qmake CONFIG+=sdk_no_version_check -o qttools/src/linguist/lrelease/Makefile qttools/src/linguist/lrelease/lrelease.pro && \
+	qtbase/bin/qmake CONFIG+=sdk_no_version_check -o qttools/src/linguist/lupdate/Makefile  qttools/src/linguist/lupdate/lupdate.pro
 endef
 
 define $(package)_build_cmds
