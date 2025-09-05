@@ -13,7 +13,6 @@ env:
   LANG: C
 
 jobs:
-  # ---------------- ANDROID (daemon + cli + tx, no Qt) ----------------
   android-aarch64-daemon:
     name: Android aarch64 (daemon + cli + tx, no Qt)
     runs-on: ubuntu-22.04
@@ -54,37 +53,50 @@ jobs:
           echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/25.2.9519653" >> $GITHUB_ENV
           echo "$ANDROID_SDK_ROOT/ndk/25.2.9519653/toolchains/llvm/prebuilt/linux-x86_64/bin" >> $GITHUB_PATH
 
-      - name: NDK clang shims for Boost + user-config.jam
+      - name: NDK shims + Force Boost to Android sysroot/target
         env:
           ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
           HOST: ${{ env.HOST }}
           ANDROID_API: ${{ env.ANDROID_API }}
         run: |
           set -e
-          TOOLCHAIN_BIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
-          test -x "$TOOLCHAIN_BIN/${HOST}${ANDROID_API}-clang++"
+          NDK_LLVM="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64"
+          BIN="$NDK_LLVM/bin"
+          SYSROOT="$NDK_LLVM/sysroot"
+          API="${ANDROID_API}"
+          ARCH="${HOST}"
+          CXXBIN="$BIN/${ARCH}${API}-clang++"
+          CCBIN="$BIN/${ARCH}${API}-clang"
+          INC_CPP="$NDK_LLVM/include/c++/v1"
+          LIB_A64="$SYSROOT/usr/lib/${ARCH}/${API}"
 
-          # Provide the names Boost expects (no API suffix).
-          ln -sf "${TOOLCHAIN_BIN}/${HOST}${ANDROID_API}-clang"  "${TOOLCHAIN_BIN}/${HOST}-clang"
-          ln -sf "${TOOLCHAIN_BIN}/${HOST}${ANDROID_API}-clang++" "${TOOLCHAIN_BIN}/${HOST}-clang++"
+          test -x "$CXXBIN"
 
-          # Toolchain in PATH and classic vars for autotools.
-          export PATH="$TOOLCHAIN_BIN:$PATH"
-          echo "PATH=$PATH" >> $GITHUB_ENV
-          echo "CC=${HOST}${ANDROID_API}-clang" >> $GITHUB_ENV
-          echo "CXX=${HOST}${ANDROID_API}-clang++" >> $GITHUB_ENV
-          echo "AR=llvm-ar" >> $GITHUB_ENV
-          echo "RANLIB=llvm-ranlib" >> $GITHUB_ENV
+          # Provide the names Boost expects (without API suffix)
+          ln -sf "$CCBIN"  "$BIN/${ARCH}-clang"
+          ln -sf "$CXXBIN" "$BIN/${ARCH}-clang++"
 
-          # Force Boost to use Android clang via a local user-config.jam
+          # Classic vars for autotools users later
+          {
+            echo "PATH=$BIN:$PATH"
+            echo "CC=${ARCH}${API}-clang"
+            echo "CXX=${ARCH}${API}-clang++"
+            echo "AR=llvm-ar"
+            echo "RANLIB=llvm-ranlib"
+          } >> $GITHUB_ENV
+
+          # Boost: hard bind to Android target + sysroot so it never touches /usr/include
           mkdir -p depends
-          cat > depends/user-config.jam <<'EOF'
-          using clang : aarch64 : aarch64-linux-android-clang++ :
-              <target-os>android
-              <compileflags>"-D__ANDROID_API__=21 -fPIC"
-              <linkflags>"-fuse-ld=lld"
-          ;
-          EOF
+          cat > depends/user-config.jam <<EOF
+using clang : aarch64 : $CXXBIN :
+    <target-os>android
+    <compileflags>"--target=${ARCH}${API} --sysroot=$SYSROOT -D__ANDROID_API__=${API} -fPIC -I$SYSROOT/usr/include -I$INC_CPP"
+    <cxxflags>"-stdlib=libc++"
+    <linkflags>"--target=${ARCH}${API} --sysroot=$SYSROOT -L$LIB_A64 -lc++ -lc++abi -llog -landroid -fuse-ld=lld"
+    <archiver>"$BIN/llvm-ar"
+    <ranlib>"$BIN/llvm-ranlib"
+;
+EOF
           echo "BOOST_BUILD_PATH=$PWD/depends" >> $GITHUB_ENV
 
       - name: Build depends (no Qt)
@@ -126,11 +138,13 @@ jobs:
           cp -f src/vkaxd src/vkax-cli src/vkax-tx "$BUILD_DIR/" || true
           tar -cvzf "$COMPRESS_DIR/${COIN_NAME}-android-aarch64-daemons.tar.gz" -C "$BUILD_DIR" .
 
-      - name: Boost diagnostics (if something plays dumb)
+      - name: Boost diagnostics (always collect)
         if: always()
         run: |
           set -x
-          find depends -maxdepth 6 -type f \( -name bootstrap.log -o -name config.log \) -print || true
+          which aarch64-linux-android-clang++ || true
+          aarch64-linux-android-clang++ -v || true
+          find depends -maxdepth 6 -type f \( -name bootstrap.log -o -name config.log \) -print -exec tail -n +1 {} \; || true
           B2=$(find depends -maxdepth 6 -type f -name b2 -print -quit || true)
           if [ -n "$B2" ]; then "$(dirname "$B2")/b2" --debug-configuration -n --version || true; fi
 
