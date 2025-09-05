@@ -2,7 +2,7 @@ package=qt
 
 # ---- Version & sources (Qt 5.15 single tarball) ----
 $(package)_version=5.15.10
-$(package)_download_path=https://download.qt.io/archive/qt/5.15/5.15.10/single
+$(package)_download_path=https://download.qt.io/archive/qt/5.15/5.15/10/single
 $(package)_download_file=qt-everywhere-opensource-src-$($(package)_version).tar.xz
 $(package)_file_name=$($(package)_download_file)
 $(package)_sha256_hash=B545CB83C60934ADC9A6BBD27E2AF79E5013DE77D46F5B9F5BB2A3C762BF55CA
@@ -37,19 +37,22 @@ $(package)_patches = \
 	mac-qmake.conf
 
 define $(package)_set_vars
+	# Core configure (static, minimal features; keep widgets/gui)
 	$(package)_config_opts += -release -silent -opensource -confirm-license -optimized-tools -static
 	$(package)_config_opts += -prefix $(host_prefix)
 	$(package)_config_opts += -hostprefix $(build_prefix)
 	$(package)_config_opts += -no-compile-examples -nomake examples -nomake tests
 	$(package)_config_opts += -qt-libpng -qt-libjpeg -qt-harfbuzz -system-zlib
+ifeq ($(NO_OPENSSL),)
+	# Help Qt find static OpenSSL from depends
+	$(package)_config_opts += -openssl-linked -I$(host_prefix)/include -L$(host_prefix)/lib
+endif
+	# Trim fat; keep GUI usable without GL
 	$(package)_config_opts += -no-icu -no-cups -no-gif -no-opengl
 	# drop Qt PrintSupport features
 	$(package)_config_opts += -no-feature-printdialog -no-feature-printer -no-feature-printpreviewdialog -no-feature-printpreviewwidget
-ifeq ($(NO_OPENSSL),)
-	$(package)_config_opts += -openssl-linked -I$(host_prefix)/include -L$(host_prefix)/lib
-endif
 
-	# macOS
+	# macOS: choose platform via configure flag (do NOT set QMAKESPEC env)
 	$(package)_config_opts_darwin += -platform macx-clang -no-dbus
 
 	# Linux (for later cross builds)
@@ -83,22 +86,25 @@ define $(package)_preprocess_cmds
 	for p in $($(package)_patches); do \
 		patch -p1 -d $($(package)_extract_dir) < $($(package)_patch_dir)/$$p || true; \
 	done; \
+	# point lrelease from qttools into translations.pro
 	sed -i.old "s|updateqm.commands = \$$$$\$$$$LRELEASE|updateqm.commands = $($(package)_extract_dir)/qttools/bin/lrelease|" \
 		$($(package)_extract_dir)/qttranslations/translations/translations.pro; \
+	# custom mac mkspec for cross/macx-clang-linux compatibility (kept for future cross use)
 	mkdir -p $($(package)_extract_dir)/qtbase/mkspecs/macx-clang-linux; \
 	cp -f $($(package)_extract_dir)/qtbase/mkspecs/macx-clang/qplatformdefs.h \
 	      $($(package)_extract_dir)/qtbase/mkspecs/macx-clang-linux/; \
 	cp -f $($(package)_patch_dir)/mac-qmake.conf \
 	      $($(package)_extract_dir)/qtbase/mkspecs/macx-clang-linux/qmake.conf; \
+	# Xcode parser guard
 	sed -i.old "s/error(\\\"failed to parse default search paths from compiler output\\\")/!darwin: error(\\\"failed to parse default search paths from compiler output\\\")/g" \
 		$($(package)_extract_dir)/qtbase/mkspecs/features/toolchain.prf
 endef
 
-# ---- configure (mac OpenSSL wired in env) ----
+# ---- configure (UNSET QMAKE* env first) ----
 define $(package)_config_cmds
 	export LC_ALL=C LANG=C; \
 	export SDKROOT="$$(xcrun --sdk macosx --show-sdk-path 2>/dev/null)"; \
-	export QMAKESPEC=macx-clang QMAKE_MACOSX_DEPLOYMENT_TARGET=11.0; \
+	unset QMAKESPEC XQMAKESPEC QMAKEPATH QMAKEFEATURES; \
 	export PKG_CONFIG_SYSROOT_DIR=/; \
 	export PKG_CONFIG_LIBDIR=$(host_prefix)/lib/pkgconfig; \
 	export PKG_CONFIG_PATH=$(host_prefix)/share/pkgconfig; \
