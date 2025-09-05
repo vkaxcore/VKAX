@@ -29,24 +29,26 @@ jobs:
       - name: Select Xcode 14.3.1
         run: sudo xcode-select -s /Applications/Xcode_14.3.1.app/Contents/Developer
 
-      - name: Print SDKROOT
-        run: echo "SDKROOT=$(xcrun --sdk macosx --show-sdk-path)" >> $GITHUB_ENV
-
-      - name: Tooling (force Python 3.11)
+      - name: Verify Xcode & SDK
         run: |
-          brew update || true
-          brew install automake libtool pkg-config gnu-tar coreutils miniupnpc librsvg libnatpmp zeromq python@3.11
-          # Overwrite any conflicting 3.11 links from framework Python
-          brew link --overwrite --force python@3.11 || true
-          # Expose both the real bin and Homebrew's libexec shims
-          echo "/usr/local/opt/python@3.11/bin" >> $GITHUB_PATH
-          echo "/usr/local/opt/python@3.11/libexec/bin" >> $GITHUB_PATH
-          python3.11 -m pip install -U pip setuptools wheel ds_store mac_alias
+          xcodebuild -version
+          clang -v | head -n 5
+          echo "SDKROOT=$(xcrun --sdk macosx --show-sdk-path)" >> $GITHUB_ENV
+
+      - name: Setup Python 3.11 (no Homebrew python)
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Tooling
+        run: |
+          brew install automake libtool pkg-config gnu-tar coreutils miniupnpc librsvg libnatpmp zeromq
+          python -m pip install -U pip setuptools wheel ds_store mac_alias
 
       - name: Clean stale Qt/depends
         run: |
           make -C depends HOST=${HOST} NO_QT=0 clean || true
-          rm -rf depends/work/build/${HOST}/qt* depends/work/download/qt-* || true
+          rm -rf depends/work/build/${HOST}/qt* depends/work/download/qt-* depends/sources/download-stamps/.stamp_fetched-qt-* || true
           rm -rf depends/${HOST} || true
 
       - name: Build depends (Qt 5.15.10)
@@ -54,7 +56,7 @@ jobs:
           FALLBACK_DOWNLOAD_PATH: ""
         run: |
           echo "Building depends…"
-          make -C depends -j$(sysctl -n hw.ncpu) HOST=${HOST}
+          make -C depends -j"$(sysctl -n hw.ncpu)" HOST=${HOST}
 
       - name: Configure VKAX (GUI on, no tests)
         env:
@@ -72,7 +74,7 @@ jobs:
 
       - name: Build
         run: |
-          make -j$(sysctl -n hw.ncpu)
+          make -j"$(sysctl -n hw.ncpu)"
           mkdir -p "${BUILD_DIR}"
           cp -f src/vkaxd "${BUILD_DIR}/" || true
           cp -f src/vkax-cli "${BUILD_DIR}/" || true
