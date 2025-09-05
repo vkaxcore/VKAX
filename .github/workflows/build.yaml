@@ -2,10 +2,7 @@ name: VKAX macOS Build
 on:
   workflow_dispatch:
   push:
-    branches:
-      - main
-      - v100.11.5-macbuild
-      - dev
+    branches: [ main, v100.11.5-macbuild, dev ]
 
 env:
   COIN_NAME: vkax
@@ -21,42 +18,49 @@ jobs:
       - name: Checkout Source
         uses: actions/checkout@v4
 
-      - name: Install Required Packages
+      - name: Tooling
         run: |
+          brew update
           brew install automake libtool pkg-config miniupnpc librsvg libnatpmp zeromq python@3.13
-          pip3 install -U pip setuptools
-          pip3 install ds_store mac_alias
+          python3 -m pip install -U pip setuptools ds_store mac_alias
 
-      - name: Build Depends
+      - name: Build depends (Qt 5.15.10)
+        env:
+          # Do NOT override with custom mirrors; use upstream.
+          FALLBACK_DOWNLOAD_PATH: ""
         run: |
-          echo "Building depends with 8 threads"
-          export FALLBACK_DOWNLOAD_PATH=https://pool.nowput.org/depends/
-          export CXXFLAGS="-std=c++14"
+          set -euo pipefail
+          echo "Building depends…"
           make -C depends -j8 HOST=x86_64-apple-darwin22.6.0
 
       - name: Configure VKAX
+        env:
+          CONFIG_SITE: ${{ github.workspace }}/depends/x86_64-apple-darwin22.6.0/share/config.site
         run: |
+          set -euo pipefail
           ./autogen.sh
           ./configure \
-            --prefix=`pwd`/depends/x86_64-apple-darwin22.6.0 \
+            --prefix="${PWD}/depends/x86_64-apple-darwin22.6.0" \
             --with-incompatible-bdb \
-            CXXFLAGS="-std=c++14" \
-            --disable-tests
+            --disable-tests \
+            CXXFLAGS="-std=c++14"
 
-      - name: Build Binaries
+      - name: Build
         run: |
+          set -euo pipefail
           make -j8
-          mkdir -p ${BUILD_DIR}
-          cp src/{vkax-cli,vkaxd,qt/vkax-qt} ${BUILD_DIR}/
-          strip ${BUILD_DIR}/*
+          mkdir -p "${BUILD_DIR}"
+          cp src/{vkax-cli,vkaxd,qt/vkax-qt} "${BUILD_DIR}/"
+          strip "${BUILD_DIR}"/*
 
-      - name: Compress Binaries
+      - name: Package
         run: |
-          mkdir -p ${COMPRESS_DIR}
-          tar -cvzf ${COMPRESS_DIR}/${COIN_NAME}-macos13.tar.gz -C ${BUILD_DIR} .
+          set -euo pipefail
+          mkdir -p "${COMPRESS_DIR}"
+          tar -cvzf "${COMPRESS_DIR}/${COIN_NAME}-macos13.tar.gz" -C "${BUILD_DIR}" .
 
-      - name: Upload Artifacts
+      - name: Upload
         uses: actions/upload-artifact@v4
         with:
-          name: ${COIN_NAME}-macos13-build
-          path: ${COMPRESS_DIR}/${COIN_NAME}-macos13.tar.gz
+          name: ${{ env.COIN_NAME }}-macos13-build
+          path: ${{ env.COMPRESS_DIR }}/${{ env.COIN_NAME }}-macos13.tar.gz
