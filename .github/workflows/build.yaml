@@ -11,32 +11,37 @@ env:
   COMPRESS_DIR: vkax-compress
   LC_ALL: C
   LANG: C
+  ANDROID_COMPILE_SDK: '34'     # Gradle needs a modern compileSdk; runtime target for NDK remains 21
 
 jobs:
-  android-aarch64-daemon:
-    name: Android aarch64 (daemon + cli + tx, no Qt)
+  android-aarch64-apk:
+    name: Android aarch64 (daemon+cli+tx → APK)
     runs-on: ubuntu-22.04
     env:
       HOST: aarch64-linux-android
-      ANDROID_API: '21'
+      ANDROID_API: '21'          # NDK target API for arm64
 
     steps:
+      # ------------------- Checkout -------------------
       - uses: actions/checkout@v4
         with:
           lfs: true
 
+      # ------------------- Java for Gradle -------------------
       - name: JDK 11
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '11'
 
+      # ------------------- Host tooling -------------------
       - name: Tooling
         run: |
           set -eux
           sudo apt-get update
           sudo apt-get install -y build-essential automake libtool pkg-config python3 unzip wget cmake ninja-build
 
+      # ------------------- Android SDK/NDK -------------------
       - name: Install Android SDK + NDK (r25c)
         env:
           ANDROID_SDK_ROOT: ${{ github.workspace }}/android-sdk
@@ -48,11 +53,20 @@ jobs:
           mv "$ANDROID_SDK_ROOT/cmdline-tools/cmdline-tools" "$ANDROID_SDK_ROOT/cmdline-tools/latest"
           export PATH="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH"
           yes | sdkmanager --licenses >/dev/null
-          sdkmanager "platform-tools" "platforms;android-${{ env.ANDROID_API }}" "ndk;25.2.9519653"
-          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> "$GITHUB_ENV"
-          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/25.2.9519653" >> "$GITHUB_ENV"
+          # Install runtime NDK API 21, plus modern compile SDK and build-tools for Gradle
+          sdkmanager "platform-tools" \
+                     "platforms;android-${{ env.ANDROID_API }}" \
+                     "ndk;25.2.9519653" \
+                     "platforms;android-${{ env.ANDROID_COMPILE_SDK }}" \
+                     "build-tools;34.0.0"
+          {
+            echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
+            echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/25.2.9519653"
+          } >> "$GITHUB_ENV"
           echo "$ANDROID_SDK_ROOT/ndk/25.2.9519653/toolchains/llvm/prebuilt/linux-x86_64/bin" >> "$GITHUB_PATH"
 
+      # ------------------- NDK clang wrappers + Boost config -------------------
+      # We wrap clang/clang++ to force NDK sysroot + libc++ and block host headers; Boost stops trying /usr/include.
       - name: Android wrappers + Boost config
         env:
           HOST: ${{ env.HOST }}
@@ -73,48 +87,43 @@ jobs:
           WRAP="$GITHUB_WORKSPACE/.ccwrap"
           mkdir -p "$WRAP"
 
+          # C wrapper
           cat > "$WRAP/${ARCH}${API}-clang" <<'EOF'
 #!/usr/bin/env bash
 set -e
-exec "$(dirname "$0")/../ndk-real-c" "$@"
+: "${ANDROID_NDK_HOME:?}"
+: "${HOST:=aarch64-linux-android}"
+: "${ANDROID_API:=21}"
+LLVM="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64"
+BIN="$LLVM/bin"
+SYSROOT="$LLVM/sysroot"
+REAL_C="$BIN/${HOST}${ANDROID_API}-clang"
+args=()
+for a in "$@"; do case "$a" in --target=*|--sysroot=*|-nostdinc++ ) ;; * ) args+=("$a");; esac; done
+exec "$REAL_C" --target="${HOST}${ANDROID_API}" --sysroot="$SYSROOT" -D__ANDROID_API__="${ANDROID_API}" "${args[@]}"
 EOF
+          chmod +x "$WRAP/${ARCH}${API}-clang"
+
+          # C++ wrapper
           cat > "$WRAP/${ARCH}${API}-clang++" <<'EOF'
 #!/usr/bin/env bash
 set -e
-exec "$(dirname "$0")/../ndk-real-cxx" "$@"
-EOF
-          chmod +x "$WRAP/${ARCH}${API}-clang" "$WRAP/${ARCH}${API}-clang++"
-
-          cat > "$WRAP/ndk-real-c" <<'EOF'
-#!/usr/bin/env bash
-set -e
-REAL_C="@REAL_C@"
-SYSROOT="@SYSROOT@"
-ARCH="@ARCH@"
-API="@API@"
+: "${ANDROID_NDK_HOME:?}"
+: "${HOST:=aarch64-linux-android}"
+: "${ANDROID_API:=21}"
+LLVM="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64"
+BIN="$LLVM/bin"
+SYSROOT="$LLVM/sysroot"
+INC_CPP="$LLVM/include/c++/v1"
+REAL_CXX="$BIN/${HOST}${ANDROID_API}-clang++"
 args=()
 for a in "$@"; do case "$a" in --target=*|--sysroot=*|-nostdinc++ ) ;; * ) args+=("$a");; esac; done
-exec "$REAL_C" --target="${ARCH}${API}" --sysroot="$SYSROOT" -D__ANDROID_API__="${API}" "${args[@]}"
-EOF
-          sed -i "s|@REAL_C@|$REAL_C|;s|@SYSROOT@|$SYSROOT|;s|@ARCH@|$ARCH|;s|@API@|$API|" "$WRAP/ndk-real-c"
-          chmod +x "$WRAP/ndk-real-c"
-
-          cat > "$WRAP/ndk-real-cxx" <<'EOF'
-#!/usr/bin/env bash
-set -e
-REAL_CXX="@REAL_CXX@"
-SYSROOT="@SYSROOT@"
-INC_CPP="@INC_CPP@"
-ARCH="@ARCH@"
-API="@API@"
-args=()
-for a in "$@"; do case "$a" in --target=*|--sysroot=*|-nostdinc++ ) ;; * ) args+=("$a");; esac; done
-exec "$REAL_CXX" --target="${ARCH}${API}" --sysroot="$SYSROOT" -D__ANDROID_API__="${API}" -nostdinc++ -stdlib=libc++ \
+exec "$REAL_CXX" --target="${HOST}${ANDROID_API}" --sysroot="$SYSROOT" -D__ANDROID_API__="${ANDROID_API}" -nostdinc++ -stdlib=libc++ \
   -isystem "$INC_CPP" -isystem "$SYSROOT/usr/include" "${args[@]}"
 EOF
-          sed -i "s|@REAL_CXX@|$REAL_CXX|;s|@SYSROOT@|$SYSROOT|;s|@INC_CPP@|$INC_CPP|;s|@ARCH@|$ARCH|;s|@API@|$API|" "$WRAP/ndk-real-cxx"
-          chmod +x "$WRAP/ndk-real-cxx"
+          chmod +x "$WRAP/${ARCH}${API}-clang++"
 
+          # Names Boost probes without API suffix
           ln -sf "$WRAP/${ARCH}${API}-clang"  "$WRAP/${ARCH}-clang"
           ln -sf "$WRAP/${ARCH}${API}-clang++" "$WRAP/${ARCH}-clang++"
           echo "$WRAP" >> "$GITHUB_PATH"
@@ -129,6 +138,7 @@ EOF
             echo "LDFLAGS=-L$LIBDIR -fuse-ld=lld -lc++ -lc++abi -llog -landroid"
           } >> "$GITHUB_ENV"
 
+          # Force Boost toolset via user-config.jam so b2 uses the Android wrappers
           mkdir -p depends "$HOME/.boost-build"
           cat > depends/user-config.jam <<'EOF'
 using clang : aarch64 : aarch64-linux-android-clang++ : <target-os>android ;
@@ -136,14 +146,7 @@ EOF
           cp depends/user-config.jam "$HOME/.boost-build/user-config.jam"
           echo "BOOST_BUILD_PATH=$PWD/depends" >> "$GITHUB_ENV"
 
-      - name: Sanity
-        run: |
-          set -eux
-          which aarch64-linux-android21-clang++
-          aarch64-linux-android21-clang++ -v
-          which aarch64-linux-android-clang++
-          aarch64-linux-android-clang++ -v
-
+      # ------------------- Build depends (no Qt) -------------------
       - name: Build depends (no Qt)
         env:
           HOST: ${{ env.HOST }}
@@ -153,6 +156,7 @@ EOF
           set -eux
           make -C depends -j"$(nproc)" HOST="$HOST" ANDROID_NDK="$ANDROID_NDK_HOME" ANDROID_API="$ANDROID_API" NO_QT=1 V=1
 
+      # ------------------- Configure daemon/cli/tx -------------------
       - name: Configure (daemon + cli + tx)
         env:
           HOST: ${{ env.HOST }}
@@ -168,24 +172,127 @@ EOF
             --without-gui --disable-bench --disable-tests \
             CXXFLAGS="-O2 -fPIC"
 
-      - name: Build + Package (vkaxd, vkax-cli, vkax-tx)
+      # ------------------- Build native binaries -------------------
+      - name: Build vkaxd/cli/tx
         run: |
           set -eux
           make -j"$(nproc)" src/vkaxd src/vkax-cli src/vkax-tx
-          mkdir -p "$BUILD_DIR" "$COMPRESS_DIR"
-          cp -f src/vkaxd src/vkax-cli src/vkax-tx "$BUILD_DIR/" || true
-          tar -cvzf "$COMPRESS_DIR/${COIN_NAME}-android-aarch64-daemons.tar.gz" -C "$BUILD_DIR" .
+          mkdir -p "$BUILD_DIR"
+          cp -f src/vkaxd src/vkax-cli src/vkax-tx "$BUILD_DIR/"
 
-      - name: Diagnostics (always)
-        if: always()
+      # ------------------- Generate tiny Android app and pack binaries as assets -------------------
+      # This creates a minimal Gradle project on-the-fly and assembles a debug APK; it doesn't run the daemon, it only packages it.
+      - name: Create stub app and assembleDebug
+        env:
+          ANDROID_SDK_ROOT: ${{ env.ANDROID_SDK_ROOT }}
+          ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
         run: |
-          set -x
-          find depends -maxdepth 7 -type f \( -name bootstrap.log -o -name config.log -o -name project-config.jam -o -name user-config.jam \) -print -exec sed -n '1,160p' {} \; || true
-          B2=$(find depends -maxdepth 7 -type f -name b2 -print -quit || true)
-          if [ -n "$B2" ]; then "$(dirname "$B2")/b2" --debug-configuration -n --version toolset=clang target-os=android || true; fi
+          set -eux
+          APPDIR="$GITHUB_WORKSPACE/android-apk-stub"
+          mkdir -p "$APPDIR/app/src/main/assets" "$APPDIR/app/src/main/java/org/vkax/app" "$APPDIR/app/src/main/res/layout"
+          printf 'sdk.dir=%s\n' "$ANDROID_SDK_ROOT" > "$APPDIR/local.properties"
 
+          # Root settings/build
+          cat > "$APPDIR/settings.gradle" <<'EOF'
+rootProject.name = "vkax-stub"
+include(":app")
+EOF
+          cat > "$APPDIR/build.gradle" <<'EOF'
+plugins { id "com.android.application" version "7.4.2" apply false }
+EOF
+          cat > "$APPDIR/gradle.properties" <<'EOF'
+org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+android.useAndroidX=true
+EOF
+
+          # App module: compile with modern SDK, minSdk 21; we only package assets.
+          cat > "$APPDIR/app/build.gradle" <<EOF
+plugins { id 'com.android.application' }
+android {
+  namespace 'org.vkax.app'
+  compileSdk ${ANDROID_COMPILE_SDK}
+  defaultConfig {
+    applicationId 'org.vkax.app'
+    minSdk ${ANDROID_API}
+    targetSdk ${ANDROID_COMPILE_SDK}
+    versionCode 1
+    versionName '0.0.1'
+  }
+  buildTypes { debug { debuggable true } release { minifyEnabled false } }
+  packagingOptions { jniLibs.useLegacyPackaging = true }
+}
+dependencies { }
+EOF
+
+          # Simple UI
+          cat > "$APPDIR/app/src/main/AndroidManifest.xml" <<'EOF'
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="org.vkax.app">
+  <application android:label="VKAX" android:allowBackup="false">
+    <activity android:name=".MainActivity">
+      <intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter>
+    </activity>
+  </application>
+</manifest>
+EOF
+          cat > "$APPDIR/app/src/main/res/layout/activity_main.xml" <<'EOF'
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+  android:layout_width="match_parent" android:layout_height="match_parent">
+</FrameLayout>
+EOF
+          cat > "$APPDIR/app/src/main/java/org/vkax/app/MainActivity.java" <<'EOF'
+package org.vkax.app;
+import android.app.Activity; import android.os.Bundle;
+public class MainActivity extends Activity {
+  @Override protected void onCreate(Bundle b){ super.onCreate(b); }
+}
+EOF
+
+          # Drop built binaries as assets (not executable in-app; this is for packaging only)
+          cp -f "$GITHUB_WORKSPACE/$BUILD_DIR/vkaxd"   "$APPDIR/app/src/main/assets/"
+          cp -f "$GITHUB_WORKSPACE/$BUILD_DIR/vkax-cli" "$APPDIR/app/src/main/assets/"
+          cp -f "$GITHUB_WORKSPACE/$BUILD_DIR/vkax-tx"  "$APPDIR/app/src/main/assets/"
+
+          # Gradle wrapper
+          pushd "$APPDIR"
+          curl -sL https://services.gradle.org/distributions/gradle-7.6.4-bin.zip -o gradle.zip
+          mkdir -p gradle/wrapper
+          unzip -q gradle.zip -d /tmp/gradleDist
+          # Minimal wrapper files
+          cat > gradle/wrapper/gradle-wrapper.properties <<'EOF'
+distributionBase=GRADLE_USER_HOME
+distributionPath=wrapper/dists
+distributionUrl=https\://services.gradle.org/distributions/gradle-7.6.4-bin.zip
+zipStoreBase=GRADLE_USER_HOME
+zipStorePath=wrapper/dists
+EOF
+          cat > gradlew <<'EOF'
+#!/usr/bin/env bash
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+exec /tmp/gradleDist/gradle-7.6.4/bin/gradle "$@"
+EOF
+          chmod +x gradlew
+
+          ./gradlew :app:assembleDebug --no-daemon --stacktrace --info
+          popd
+
+          mkdir -p "$COMPRESS_DIR"
+          cp -f "$APPDIR/app/build/outputs/apk/debug/app-debug.apk" "$COMPRESS_DIR/${COIN_NAME}-android-aarch64-debug.apk"
+
+      # ------------------- Upload artifacts -------------------
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: ${{ env.COIN_NAME }}-android-aarch64-daemons
-          path: ${{ env.COMPRESS_DIR }}/${{ env.COIN_NAME }}-android-aarch64-daemons.tar.gz
+          name: ${{ env.COIN_NAME }}-android-aarch64
+          path: |
+            ${{ env.COMPRESS_DIR }}/${{ env.COIN_NAME }}-android-aarch64-debug.apk
+            ${{ env.BUILD_DIR }}/vkaxd
+            ${{ env.BUILD_DIR }}/vkax-cli
+            ${{ env.BUILD_DIR }}/vkax-tx
+
+      # ------------------- Boost/Build diagnostics (always) -------------------
+      - name: Diagnostics
+        if: always()
+        run: |
+          set -x || true
+          find depends -maxdepth 7 -type f \( -name bootstrap.log -o -name config.log -o -name project-config.jam -o -name user-config.jam \) -print || true
