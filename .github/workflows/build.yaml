@@ -33,6 +33,7 @@ jobs:
 
       - name: Tooling
         run: |
+          set -eux
           sudo apt-get update
           sudo apt-get install -y build-essential automake libtool pkg-config python3 unzip wget cmake ninja-build
 
@@ -40,26 +41,26 @@ jobs:
         env:
           ANDROID_SDK_ROOT: ${{ github.workspace }}/android-sdk
         run: |
-          set -e
+          set -eux
           mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools"
           wget -q https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip -O /tmp/clt.zip
           unzip -q /tmp/clt.zip -d "$ANDROID_SDK_ROOT/cmdline-tools"
           mv "$ANDROID_SDK_ROOT/cmdline-tools/cmdline-tools" "$ANDROID_SDK_ROOT/cmdline-tools/latest"
-          yes | "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null
-          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" \
-            "platforms;android-${{ env.ANDROID_API }}" \
-            "ndk;25.2.9519653"
-          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
-          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/25.2.9519653" >> $GITHUB_ENV
+          export PATH="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH"
+          yes | sdkmanager --licenses >/dev/null
+          sdkmanager "platform-tools" "platforms;android-${{ env.ANDROID_API }}" "ndk;25.2.9519653"
+          {
+            echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
+            echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/25.2.9519653"
+          } >> $GITHUB_ENV
           echo "$ANDROID_SDK_ROOT/ndk/25.2.9519653/toolchains/llvm/prebuilt/linux-x86_64/bin" >> $GITHUB_PATH
 
-      - name: Wrapper compilers (strip wrong --target, force Android sysroot)
+      - name: Android wrappers + Boost toolset clamp
         env:
-          ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
           HOST: ${{ env.HOST }}
           ANDROID_API: ${{ env.ANDROID_API }}
         run: |
-          set -euo pipefail
+          set -eux
           LLVM="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64"
           BIN="$LLVM/bin"
           SYSROOT="$LLVM/sysroot"
@@ -69,86 +70,90 @@ jobs:
           REAL_CXX="$BIN/${ARCH}${API}-clang++"
           INC_CPP="$LLVM/include/c++/v1"
           LIBDIR="$SYSROOT/usr/lib/${ARCH}/${API}"
-
           test -x "$REAL_CXX"
 
-          WRAP="$GITHUB_WORKSPACE/.toolwrap"
+          WRAP="$GITHUB_WORKSPACE/.ccwrap"
           mkdir -p "$WRAP"
 
+          # C wrapper: drop any bogus host flags and re-pin target/sysroot
           cat > "$WRAP/${ARCH}${API}-clang" <<EOF
 #!/usr/bin/env bash
-# remove any host-injected --target/--sysroot to stop Boost poisoning includes
 args=()
 for a in "\$@"; do
-  case "\$a" in
-    --target=*) ;;       # drop
-    --sysroot=*) ;;      # drop
-    -nostdinc++ ) ;;     # we'll set our own
-    *) args+=("\$a");;
-  esac
+  case "\$a" in --target=*|--sysroot=*|-nostdinc++ ) ;; * ) args+=("\$a");; esac
 done
 exec "$REAL_C" --target=${ARCH}${API} --sysroot="$SYSROOT" -D__ANDROID_API__=${API} "\${args[@]}"
 EOF
           chmod +x "$WRAP/${ARCH}${API}-clang"
 
+          # C++ wrapper: same, plus libc++ headers
           cat > "$WRAP/${ARCH}${API}-clang++" <<EOF
 #!/usr/bin/env bash
 args=()
 for a in "\$@"; do
-  case "\$a" in
-    --target=*) ;;
-    --sysroot=*) ;;
-    -nostdinc++ ) ;;
-    *) args+=("\$a");;
-  esac
+  case "\$a" in --target=*|--sysroot=*|-nostdinc++ ) ;; * ) args+=("\$a");; esac
 done
 exec "$REAL_CXX" --target=${ARCH}${API} --sysroot="$SYSROOT" -D__ANDROID_API__=${API} -nostdinc++ -stdlib=libc++ \
   -isystem "$INC_CPP" -isystem "$SYSROOT/usr/include" "\${args[@]}"
 EOF
           chmod +x "$WRAP/${ARCH}${API}-clang++"
 
+          # Names Boost probes
           ln -sf "$WRAP/${ARCH}${API}-clang"  "$WRAP/${ARCH}-clang"
           ln -sf "$WRAP/${ARCH}${API}-clang++" "$WRAP/${ARCH}-clang++"
           echo "$WRAP" >> $GITHUB_PATH
 
+          # Env for autotools/linkers
           {
             echo "CC=${ARCH}${API}-clang"
             echo "CXX=${ARCH}${API}-clang++"
             echo "AR=llvm-ar"
             echo "RANLIB=llvm-ranlib"
+            echo "C_INCLUDE_PATH=$SYSROOT/usr/include"
+            echo "CPLUS_INCLUDE_PATH=$INC_CPP:$SYSROOT/usr/include"
             echo "LDFLAGS=-L$LIBDIR -fuse-ld=lld -lc++ -lc++abi -llog -landroid"
           } >> $GITHUB_ENV
 
-          # Make b2 read Android toolchain no matter what
+          # user-config.jam everywhere
           install -d depends "$HOME/.boost-build"
           cat > depends/user-config.jam <<EOF
-using clang : aarch64 : ${ARCH}-clang++ :
-    <target-os>android
-;
+using clang : aarch64 : ${ARCH}-clang++ : <target-os>android ;
 EOF
           cp depends/user-config.jam "$HOME/.boost-build/user-config.jam"
           echo "BOOST_BUILD_PATH=$PWD/depends" >> $GITHUB_ENV
 
+          # b2 flags: force the correct toolset and Android OS to stop clang-linux from inventing arm64-pc-linux
+          B2FLAGS='toolset=clang-aarch64 target-os=android threading=multi link=static runtime-link=static'
+          echo "B2_FLAGS=$B2FLAGS" >> $GITHUB_ENV
+          echo "B2_TOOLSET=clang-aarch64" >> $GITHUB_ENV
+
+      - name: Sanity
+        run: |
+          set -eux
+          which aarch64-linux-android21-clang++
+          aarch64-linux-android21-clang++ -v
+          which aarch64-linux-android-clang++
+          aarch64-linux-android-clang++ -v
+
       - name: Build depends (no Qt)
         env:
           HOST: ${{ env.HOST }}
-          ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
           ANDROID_API: ${{ env.ANDROID_API }}
           BOOST_BUILD_PATH: ${{ env.BOOST_BUILD_PATH }}
+          B2_FLAGS: ${{ env.B2_FLAGS }}
+          B2_TOOLSET: ${{ env.B2_TOOLSET }}
         run: |
-          set -e
+          set -eux
           make -C depends -j"$(nproc)" \
-            HOST=$HOST \
-            ANDROID_NDK=$ANDROID_NDK_HOME \
-            ANDROID_API=$ANDROID_API \
-            NO_QT=1 V=1
+            HOST=$HOST ANDROID_NDK=$ANDROID_NDK_HOME ANDROID_API=$ANDROID_API NO_QT=1 V=1 \
+            B2_FLAGS="$B2_FLAGS" B2_TOOLSET="$B2_TOOLSET"
 
       - name: Configure (daemon + cli + tx)
         env:
           HOST: ${{ env.HOST }}
           CONFIG_SITE: ${{ github.workspace }}/depends/${{ env.HOST }}/share/config.site
         run: |
-          set -e
+          set -eux
           export PKG_CONFIG_PATH="${PWD}/depends/${HOST}/lib/pkgconfig"
           ./autogen.sh || true
           ./configure \
@@ -160,7 +165,7 @@ EOF
 
       - name: Build + Package (vkaxd, vkax-cli, vkax-tx)
         run: |
-          set -e
+          set -eux
           make -j"$(nproc)" src/vkaxd src/vkax-cli src/vkax-tx
           mkdir -p "$BUILD_DIR" "$COMPRESS_DIR"
           cp -f src/vkaxd src/vkax-cli src/vkax-tx "$BUILD_DIR/" || true
@@ -170,13 +175,9 @@ EOF
         if: always()
         run: |
           set -x
-          which aarch64-linux-android21-clang++ || true
-          aarch64-linux-android21-clang++ -v || true
-          which aarch64-linux-android-clang++ || true
-          aarch64-linux-android-clang++ -v || true
-          find depends -maxdepth 6 -type f \( -name bootstrap.log -o -name config.log \) -print -exec tail -n +200 {} \; || true
-          B2=$(find depends -maxdepth 6 -type f -name b2 -print -quit || true)
-          if [ -n "$B2" ]; then "$(dirname "$B2")/b2" --debug-configuration -n --version || true; fi
+          find depends -maxdepth 7 -type f \( -name bootstrap.log -o -name config.log -o -name project-config.jam -o -name user-config.jam \) -print -exec sed -n '1,160p' {} \; || true
+          B2=$(find depends -maxdepth 7 -type f -name b2 -print -quit || true)
+          if [ -n "$B2" ]; then "$(dirname "$B2")/b2" --debug-configuration -n --version toolset=clang-aarch64 target-os=android || true; fi
 
       - uses: actions/upload-artifact@v4
         if: always()
