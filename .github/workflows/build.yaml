@@ -64,12 +64,7 @@ jobs:
           export RANLIB=llvm-ranlib
           BOOST_CFG_DIR="$GITHUB_WORKSPACE/boost-config"
           mkdir -p "$BOOST_CFG_DIR"
-          cat > "$BOOST_CFG_DIR/user-config.jam" <<'JAM'
-using clang-linux
-  : aarch64
-  : aarch64-linux-android-clang++
-  : <compileflags>"-fPIC" <linkflags>"" ;
-JAM
+          printf 'using clang-linux : aarch64 : aarch64-linux-android-clang++ : <compileflags>"-fPIC" <linkflags>"" ;\n' > "$BOOST_CFG_DIR/user-config.jam"
           export BOOST_BUILD_PATH="$BOOST_CFG_DIR"
           make -C depends -j"$(nproc)" HOST=${HOST} ANDROID_NDK=${ANDROID_NDK_HOME} ANDROID_API=${ANDROID_API} ANDROID_TOOLCHAIN_BIN="$TOOLCHAIN_BIN" NO_QT=1
 
