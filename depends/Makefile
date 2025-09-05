@@ -1,4 +1,4 @@
-.NOTPARALLEL :
+# .NOTPARALLEL :
 
 # Pattern rule to print variables, e.g. make print-top_srcdir
 print-%:
@@ -27,6 +27,22 @@ print-%:
 #
 # this means that sub-makes will be invoked as if:
 #   $(MAKE) A=1 blah blah
+#
+# Therefore, when we "seed the autoconf cache"/"override well-known program
+# vars" by setting AR=<blah> in our config.site, either one of two things needs
+# to be true for the build system to work correctly:
+#
+#   1. If we refer to the program by name (e.g. AR=riscv64-gnu-linux-ar), the
+#      tool needs to be available in $PATH at all times.
+#
+#   2. If the tool is _**not**_ expected to be available in $PATH at all times
+#      (such as is the case for our native_cctools binutils tools), it needs to be
+#      referred to by its absolute path, such as would be output by the
+#      AC_PATH_{PROG,TOOL} macros.
+#
+# Minor note: it is also okay to refer to tools by their absolute path even if
+# we expect them to be available in $PATH at all times, more specificity does
+# not hurt.
 MAKEOVERRIDES := $(filter V=%,$(MAKEOVERRIDES))
 SOURCES_PATH ?= $(BASEDIR)/sources
 WORK_PATH = $(BASEDIR)/work
@@ -212,8 +228,8 @@ $(host_prefix)/.stamp_$(final_build_id): $(native_packages) $(packages)
 #      tool needs to be available in $PATH at all times.
 #
 #   2. If the tool is _**not**_ expected to be available in $PATH at all times
-#      (such as is the case for our native_cctools binutils tools), it needs to
-#      be referred to by its absolute path, such as would be output by the
+#      (such as is the case for our native_cctools binutils tools), it needs to be
+#      referred to by its absolute path, such as would be output by the
 #      AC_PATH_{PROG,TOOL} macros.
 #
 # Minor note: it is also okay to refer to tools by their absolute path even if
@@ -243,21 +259,6 @@ $(host_prefix)/share/config.site : check-packages
             -e 's|@debug@|$(DEBUG)|' \
             $< > $@
 	$(AT)touch $@
-
-
-define check_or_remove_cached
-  mkdir -p $(BASE_CACHE)/$(host)/$(package) && cd $(BASE_CACHE)/$(host)/$(package); \
-  $(build_SHA256SUM) -c $($(package)_cached_checksum) >/dev/null 2>/dev/null || \
-  ( rm -f $($(package)_cached_checksum); \
-    if test -f "$($(package)_cached)"; then echo "Checksum mismatch for $(package). Forcing rebuild.."; rm -f $($(package)_cached_checksum) $($(package)_cached); fi )
-endef
-
-define check_or_remove_sources
-  mkdir -p $($(package)_source_dir); cd $($(package)_source_dir); \
-  test -f $($(package)_fetched) && ( $(build_SHA256SUM) -c $($(package)_fetched) >/dev/null 2>/dev/null || \
-    ( echo "Checksum missing or mismatched for $(package) source. Forcing re-download."; \
-      rm -f $($(package)_all_sources) $($(1)_fetched))) || true
-endef
 
 check-packages:
 	@$(foreach package,$(all_packages),$(call check_or_remove_cached,$(package));)
