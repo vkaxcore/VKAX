@@ -8,7 +8,7 @@ env:
   COIN_NAME: vkax
   BUILD_DIR: vkax-build
   COMPRESS_DIR: vkax-compress
-  HOST: x86_64-apple-darwin            # keep stable triplet
+  HOST: x86_64-apple-darwin
   LC_ALL: C
   LANG: C
   MACOSX_DEPLOYMENT_TARGET: "11.0"
@@ -35,7 +35,7 @@ jobs:
           brew update
           brew install automake libtool pkg-config gnu-tar coreutils miniupnpc librsvg libnatpmp zeromq python@3.11
           echo "/usr/local/opt/python@3.11/bin" >> $GITHUB_PATH
-          python3 -m pip install -U pip setuptools ds_store mac_alias
+          python3.11 -m pip install -U pip setuptools wheel ds_store mac_alias
 
       - name: Clean stale Qt/depends
         run: |
@@ -71,7 +71,6 @@ jobs:
           set -euo pipefail
           make -j$(sysctl -n hw.ncpu)
           mkdir -p "${BUILD_DIR}"
-          # copy what exists; GUI may be vkax-qt if enabled
           cp -f src/vkaxd "${BUILD_DIR}/" || true
           cp -f src/vkax-cli "${BUILD_DIR}/" || true
           cp -f src/qt/vkax-qt "${BUILD_DIR}/" || true
