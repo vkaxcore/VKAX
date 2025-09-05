@@ -1,20 +1,11 @@
-# Define utility functions for downloading and extracting
-define download
-    wget -q $(1) -O $(2)
-endef
-
-define extract
-    unzip -q $(1) -d $(2)
-endef
-
-# NDK - Android Native Development Kit (version r21e)
+# NDK - Android Native Development Kit (version r23c)
 # Download and install NDK as part of the dependencies
 
 package=ndk
-$(package)_version=r21e
-$(package)_download_path=https://dl.google.com/android/repository/android-ndk-$(package)_version-linux-x86_64.zip
-$(package)_file_name=android-ndk-$(package)_version-linux-x86_64.zip
-$(package)_sha256_hash=6b734a836566f1f57cd7b457231b3f07581283eb38bb9b11d50008c7ef0b947b
+$(package)_version=r23c
+$(package)_download_path=https://dl.google.com/android/repository/android-ndk-r23c-linux.zip
+$(package)_file_name=android-ndk-r23c-linux.zip
+$(package)_sha256_hash=e5053c126a47e84726d9f7173a04686a71f9a67a
 
 # Define the installation directory
 $(package)_install_dir=$(DEPENDS_DIR)/$(package)-$(package)_version
@@ -28,8 +19,9 @@ endef
 # Add NDK to the build path
 $(package)_add_to_path:
     @echo "Adding NDK to path..."
-    @echo "ANDROID_NDK_HOME=$(DEPENDS_DIR)/$(package)-$(package)_version" >> $(DEPENDS_DIR)/.env
-    @export PATH=$(ANDROID_NDK_HOME)/toolchains/llvm/prebuilt/linux-x86_64/bin:$$PATH
+    @export ANDROID_NDK_HOME=$(DEPENDS_DIR)/$(package)-$(package)_version
+    @echo "ANDROID_NDK_HOME=$(ANDROID_NDK_HOME)" >> $(DEPENDS_DIR)/.env
+    @export PATH=$(ANDROID_NDK_HOME)/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH
 
 # Create NDK wrapper for cross-compilation
 $(package)_create_wrapper:
