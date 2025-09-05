@@ -71,11 +71,19 @@ jobs:
           echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/25.2.9519653" >> "$GITHUB_ENV"
           echo "$ANDROID_SDK_ROOT/ndk/25.2.9519653/toolchains/llvm/prebuilt/linux-x86_64/bin" >> "$GITHUB_PATH"
 
+      # Verify NDK installation
+      - name: Verify NDK installation
+        run: |
+          echo "Listing the contents of the NDK directory..."
+          ls -l $ANDROID_SDK_ROOT/ndk/25.2.9519653/
+
+      # List NDK toolchain binaries to check if clang++ exists
       - name: List NDK toolchain binaries
         run: |
           echo "Checking for clang++ in NDK toolchain..."
           ls -l $ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin | grep aarch64-linux-android21-clang++
 
+      # Print NDK Path and Version for debugging
       - name: Print NDK Path and Version
         run: |
           echo "ANDROID_NDK_HOME=$ANDROID_NDK_HOME"
