@@ -1,7 +1,7 @@
 # depends/packages/boost.mk
 # VKAX depends: Boost 1.81.0
 # Android target fix: set target-os=android for b2 and write <target-os>android in user-config on Android only.
-# Minimal, legacy-safe; no other behavior changed. — Setvin
+# Minimal, legacy-safe; preserve behavior; only change layout to system so autotools finds libboost_* without toolset tags. — Setvin
 
 package=boost
 $(package)_version=1_81_0
@@ -19,12 +19,13 @@ define $(package)_set_vars
   # Build variants
   $(package)_config_opts_release=variant=release
   $(package)_config_opts_debug=variant=debug
-  $(package)_config_opts=--layout=tagged --build-type=complete --user-config=user-config.jam
+  # CHANGED: --layout=tagged -> --layout=system so libs are named libboost_*.a without toolset suffixes; fixes configure detection.
+  $(package)_config_opts=--layout=system --build-type=complete --user-config=user-config.jam
   $(package)_config_opts+=threading=multi link=static -sNO_COMPRESSION=1
 
   # Platform-specific options
   $(package)_config_opts_linux=target-os=linux threadapi=pthread runtime-link=shared
-  $(package)_config_opts_android=target-os=android threadapi=pthread runtime-link=shared  # crucial: keep NDK headers/tooling
+  $(package)_config_opts_android=target-os=android threadapi=pthread runtime-link=shared  # keep NDK behavior; static runtime optional later
   $(package)_config_opts_darwin=target-os=darwin runtime-link=shared
   $(package)_config_opts_mingw32=target-os=windows binary-format=pe threadapi=win32 runtime-link=static
 
@@ -91,3 +92,5 @@ define $(package)_stage_cmds
   b2 -d0 -j$(nproc) --prefix=$($(package)_staging_prefix_dir) \
   $($(package)_config_opts) toolset=$($(package)_toolset_$(host_os)) install
 endef
+
+# Signed: Setvin
