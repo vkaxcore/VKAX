@@ -26,13 +26,16 @@ jobs:
         with:
           lfs: true
 
-      - name: Select Xcode 14.3.1
-        run: sudo xcode-select -s /Applications/Xcode_14.3.1.app/Contents/Developer
-
-      - name: Verify Xcode & SDK
+      - name: Force Xcode 14.3.1 + guard
+        env:
+          DEVELOPER_DIR: /Applications/Xcode_14.3.1.app/Contents/Developer
         run: |
+          sudo xcode-select -s "$DEVELOPER_DIR"
+          echo "$DEVELOPER_DIR/Toolchains/XcodeDefault.xctoolchain/usr/bin" >> $GITHUB_PATH
+          echo "$DEVELOPER_DIR/usr/bin" >> $GITHUB_PATH
           xcodebuild -version
           clang -v | head -n 5
+          test "$(xcodebuild -version | head -1)" = "Xcode 14.3.1"
           echo "SDKROOT=$(xcrun --sdk macosx --show-sdk-path)" >> $GITHUB_ENV
 
       - name: Setup Python 3.11 (no Homebrew python)
@@ -48,12 +51,15 @@ jobs:
       - name: Clean stale Qt/depends
         run: |
           make -C depends HOST=${HOST} NO_QT=0 clean || true
-          rm -rf depends/work/build/${HOST}/qt* depends/work/download/qt-* depends/sources/download-stamps/.stamp_fetched-qt-* || true
+          rm -rf depends/work/build/${HOST}/qt* \
+                 depends/work/download/qt-* \
+                 depends/sources/download-stamps/.stamp_fetched-qt-* || true
           rm -rf depends/${HOST} || true
 
       - name: Build depends (Qt 5.15.10)
         env:
           FALLBACK_DOWNLOAD_PATH: ""
+          QMAKESPEC: macx-clang
         run: |
           echo "Building depends…"
           make -C depends -j"$(sysctl -n hw.ncpu)" HOST=${HOST}
