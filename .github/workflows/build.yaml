@@ -1,5 +1,5 @@
 # .github/workflows/build.yaml
-# VKAX Android APK Build — aarch64; depends-only Boost/BDB4.8/miniupnpc; no host libs. — Setvin
+# VKAX Android APK Build — aarch64; sanitize Makefiles (CRLF/BOM), depends-only Boost/BDB4.8/miniupnpc. — Setvin
 name: VKAX Android APK Build
 
 on:
@@ -38,7 +38,6 @@ jobs:
           sudo apt-get install -y \
             build-essential automake libtool pkg-config \
             python3 unzip wget cmake ninja-build zip curl
-        # IMPORTANT: do NOT install libdb++-dev/libboost-all-dev; we use depends outputs only.
 
       - name: Setup JDK 17
         uses: actions/setup-java@v4
@@ -71,7 +70,28 @@ jobs:
           echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> "$GITHUB_ENV"
           echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/android-ndk-r23c" >> "$GITHUB_ENV"
           echo "$ANDROID_SDK_ROOT/ndk/android-ndk-r23c/toolchains/llvm/prebuilt/linux-x86_64/bin" >> "$GITHUB_PATH"
-          ls -l "$ANDROID_SDK_ROOT/ndk/android-ndk-r23c/toolchains/llvm/prebuilt/linux-x86_64/bin" || true
+
+      - name: Sanitize Makefiles (strip CRLF + BOM)
+        run: |
+          set -eux
+          python3 - <<'PY'
+          import os,sys
+          roots=['depends']
+          files=[]
+          for root in roots:
+            for r,_,fs in os.walk(root):
+              for f in fs:
+                if f.endswith('.mk') or f in ('funcs.mk','sources.mk','rules.mk'):
+                  files.append(os.path.join(r,f))
+          for p in files:
+            with open(p,'rb') as fh: data=fh.read()
+            # strip BOM
+            if data.startswith(b'\xef\xbb\xbf'): data=data[3:]
+            # normalize newlines
+            data=data.replace(b'\r\n',b'\n').replace(b'\r',b'\n')
+            with open(p,'wb') as fh: fh.write(data)
+          print("Sanitized", len(files), "makefiles")
+          PY
 
       - name: Verify NDK toolchain
         run: |
@@ -86,10 +106,9 @@ jobs:
         run: |
           set -eux
           make -C depends -j"$(nproc)" HOST="$HOST" ANDROID_NDK="$ANDROID_NDK_HOME" ANDROID_API="$ANDROID_API" NO_QT=1 V=1
-          # Ensure miniupnpc is present for configure --with-miniupnpc
           make -C depends -j"$(nproc)" HOST="$HOST" ANDROID_NDK="$ANDROID_NDK_HOME" ANDROID_API="$ANDROID_API" miniupnpc V=1
 
-      - name: Configure core (force depends-only paths; BDB 4.8; miniupnpc on)
+      - name: Configure core (depends-only; BDB 4.8; miniupnpc on)
         env:
           HOST: ${{ env.HOST }}
           CONFIG_SITE: ${{ github.workspace }}/depends/${{ env.HOST }}/share/config.site
@@ -187,8 +206,7 @@ jobs:
         if: always()
         run: |
           set -eux
-          ls -l "depends/${HOST}/include/miniupnpc" || true
-          ls -l "depends/${HOST}/lib" | grep -E 'miniupnpc|boost|db' || true
+          ls -l "depends/${HOST}/lib" | grep -E 'boost|db|miniupnpc' || true
           which clang++ || true
           clang++ --version || true
 
