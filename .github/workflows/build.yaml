@@ -1,3 +1,4 @@
+# build.yaml — macOS only — VKAX (Setvin)
 name: VKAX macOS Build
 
 on:
@@ -22,7 +23,8 @@ jobs:
     runs-on: macos-13
     steps:
       - uses: actions/checkout@v4
-        with: { lfs: true }
+        with:
+          lfs: true
 
       - name: Pin Xcode 14.3.1 + SDK
         run: |
@@ -46,6 +48,15 @@ jobs:
           env -u QMAKESPEC -u XQMAKESPEC -u QMAKEPATH -u QMAKEFEATURES -u QMAKE -u QMAKE_SPEC -u QTDIR -u QT_PLUGIN_PATH -u QT_QPA_PLATFORM_PLUGIN_PATH -u PKG_CONFIG_PATH \
             make -C depends -j"$(sysctl -n hw.ncpu)" HOST=${HOST}
 
+      - name: Upload Qt config logs if failed
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qt-config
+          path: |
+            depends/work/build/**/qt/**/qtbase/config.log
+            depends/work/build/**/qt/**/config.summary
+
       - name: Configure VKAX (GUI on, no tests)
         env:
           CONFIG_SITE: ${{ github.workspace }}/depends/${{ env.HOST }}/share/config.site
@@ -66,7 +77,9 @@ jobs:
           cp -f src/vkaxd src/vkax-cli src/qt/vkax-qt "$BUILD_DIR/" || true
           strip "$BUILD_DIR/"* || true
           tar -cvzf "$COMPRESS_DIR/${COIN_NAME}-macos13.tar.gz" -C "$BUILD_DIR" .
-      - uses: actions/upload-artifact@v4
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
         with:
           name: ${{ env.COIN_NAME }}-macos13
           path: ${{ env.COMPRESS_DIR }}/${{ env.COIN_NAME }}-macos13.tar.gz
