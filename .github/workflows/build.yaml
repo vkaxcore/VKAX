@@ -1,72 +1,67 @@
-name: VKAX macOS Build
+name: VKAX Windows (cross via mingw-w64)
 
 on:
   workflow_dispatch:
   push:
-    branches: [ main, v100.11.5-macbuild, dev ]
+    branches:
+      - main
+      - dev
+      - v100.11.5-windows
 
 env:
   COIN_NAME: vkax
   BUILD_DIR: vkax-build
   COMPRESS_DIR: vkax-compress
-  HOST: x86_64-apple-darwin
   LC_ALL: C
   LANG: C
-  MACOSX_DEPLOYMENT_TARGET: "11.0"
-  HOMEBREW_NO_AUTO_UPDATE: "1"
-  HOMEBREW_NO_INSTALL_CLEANUP: "1"
 
 jobs:
-  macos:
-    name: macOS 13 (Qt 5.15.10 static + OpenSSL)
-    runs-on: macos-13
+  windows-cross:
+    name: Windows x86_64 (Qt 5.15.10, cross)
+    runs-on: ubuntu-22.04
+    env:
+      HOST: x86_64-w64-mingw32
     steps:
-      - uses: actions/checkout@v4
-        with: { lfs: true }
-
-      - name: Pin Xcode 14.3.1 + SDK
-        run: |
-          sudo xcode-select -s /Applications/Xcode_14.3.1.app
-          echo "SDKROOT=$(xcrun --sdk macosx --show-sdk-path)" >> $GITHUB_ENV
-          xcodebuild -version
-          clang -v | head -n 5
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - name: Tooling
         run: |
-          brew install automake libtool pkg-config gnu-tar coreutils miniupnpc librsvg libnatpmp zeromq
-          python3 -m pip install -U pip setuptools wheel ds_store mac_alias
-
-      - name: Sanitize Qt/qmake env
-        shell: bash
-        run: |
-          unset QMAKESPEC XQMAKESPEC QMAKEPATH QMAKEFEATURES QMAKE QMAKE_SPEC QTDIR QT_PLUGIN_PATH QT_QPA_PLATFORM_PLUGIN_PATH PKG_CONFIG_PATH
+          sudo apt-get update
+          sudo apt-get install -y automake libtool pkg-config make \
+                                  mingw-w64 binutils-mingw-w64 g++-mingw-w64 \
+                                  zip
 
       - name: Build depends (Qt 5.15.10)
         run: |
-          env -u QMAKESPEC -u XQMAKESPEC -u QMAKEPATH -u QMAKEFEATURES -u QMAKE -u QMAKE_SPEC -u QTDIR -u QT_PLUGIN_PATH -u QT_QPA_PLATFORM_PLUGIN_PATH -u PKG_CONFIG_PATH \
-            make -C depends -j"$(sysctl -n hw.ncpu)" HOST=${HOST}
+          make -C depends -j"$(nproc)" HOST=${HOST}
 
-      - name: Configure VKAX (GUI on, no tests)
+      - name: Configure (cross)
         env:
           CONFIG_SITE: ${{ github.workspace }}/depends/${{ env.HOST }}/share/config.site
         run: |
           ./autogen.sh || true
-          env -u QMAKESPEC -u XQMAKESPEC -u QMAKEPATH -u QMAKEFEATURES -u QMAKE -u QMAKE_SPEC -u QTDIR -u QT_PLUGIN_PATH -u QT_QPA_PLATFORM_PLUGIN_PATH -u PKG_CONFIG_PATH \
           ./configure \
+            --host=${HOST} --build=$(gcc -dumpmachine) \
             --prefix="${PWD}/depends/${HOST}" \
             --with-incompatible-bdb \
             --with-gui=qt5 \
             --disable-tests --disable-bench \
             CXXFLAGS="-std=c++14"
 
-      - name: Build + Package
+      - name: Build
+        run: make -j"$(nproc)"
+
+      - name: Package
         run: |
-          make -j"$(sysctl -n hw.ncpu)"
           mkdir -p "$BUILD_DIR" "$COMPRESS_DIR"
-          cp -f src/vkaxd src/vkax-cli src/qt/vkax-qt "$BUILD_DIR/" || true
-          strip "$BUILD_DIR/"* || true
-          tar -cvzf "$COMPRESS_DIR/${COIN_NAME}-macos13.tar.gz" -C "$BUILD_DIR" .
-      - uses: actions/upload-artifact@v4
+          cp -f src/vkaxd.exe src/vkax-cli.exe src/qt/vkax-qt.exe "$BUILD_DIR/" || true
+          zip -r "$COMPRESS_DIR/${COIN_NAME}-windows-x86_64.zip" "$BUILD_DIR"
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.COIN_NAME }}-macos13
-          path: ${{ env.COMPRESS_DIR }}/${{ env.COIN_NAME }}-macos13.tar.gz
+          name: ${{ env.COIN_NAME }}-windows-x86_64
+          path: ${{ env.COMPRESS_DIR }}/${{ env.COIN_NAME }}-windows-x86_64.zip
