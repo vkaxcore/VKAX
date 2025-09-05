@@ -16,7 +16,7 @@ endif
 # ---- what we build ----
 $(package)_qt_libs=corelib network widgets gui plugins
 
-# ---- patches (kept for compatibility) ----
+# ---- patches (keep legacy set; they must exist in patches/qt) ----
 $(package)_patches = \
     freetype_back_compat.patch \
     fix_powerpc_libpng.patch \
@@ -46,12 +46,12 @@ ifeq ($(NO_OPENSSL),)
     $(package)_config_opts += -openssl-linked
 endif
     # trim features (Qt 5.15: use -no-feature-* where required)
-    $(package)_config_opts += -no-icu -no-dbus -no-cups -no-gif -no-iconv -no-opengl
+    $(package)_config_opts += -no-icu -no-dbus -no-cups -no-gif -no-opengl
     $(package)_config_opts += -no-feature-sql
     $(package)_config_opts += -no-feature-printdialog -no-feature-printer -no-feature-printpreviewdialog -no-feature-printpreviewwidget
 
-    # macOS
-    $(package)_config_opts_darwin += -no-dbus -no-opengl
+    # darwin: DO NOT disable iconv; force clang mkspec
+    $(package)_config_opts_darwin += -no-dbus -no-opengl -platform macx-clang
 
     # Linux (kept for cross builds)
     $(package)_config_opts_linux  = -qt-xkbcommon-x11 -qt-xcb -no-xcb-xlib -no-feature-xlib
@@ -91,8 +91,10 @@ define $(package)_preprocess_cmds
           $($(package)_extract_dir)/qtbase/mkspecs/macx-clang-linux/qmake.conf
 endef
 
-# ---- configure ----
+# ---- configure (force C locale + SDKROOT to avoid qmake parser failure) ----
 define $(package)_config_cmds
+    export LC_ALL=C; export LANG=C; \
+    export SDKROOT="$$(xcrun --sdk macosx --show-sdk-path 2>/dev/null)"; \
     export PKG_CONFIG_SYSROOT_DIR=/; \
     export PKG_CONFIG_LIBDIR=$(host_prefix)/lib/pkgconfig; \
     export PKG_CONFIG_PATH=$(host_prefix)/share/pkgconfig; \
