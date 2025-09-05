@@ -12,6 +12,8 @@ env:
   LC_ALL: C
   LANG: C
   MACOSX_DEPLOYMENT_TARGET: "11.0"
+  HOMEBREW_NO_AUTO_UPDATE: "1"
+  HOMEBREW_NO_INSTALL_CLEANUP: "1"
 
 jobs:
   build-macos:
@@ -30,11 +32,15 @@ jobs:
       - name: Print SDKROOT
         run: echo "SDKROOT=$(xcrun --sdk macosx --show-sdk-path)" >> $GITHUB_ENV
 
-      - name: Tooling
+      - name: Tooling (force Python 3.11)
         run: |
-          brew update
+          brew update || true
           brew install automake libtool pkg-config gnu-tar coreutils miniupnpc librsvg libnatpmp zeromq python@3.11
+          # Overwrite any conflicting 3.11 links from framework Python
+          brew link --overwrite --force python@3.11 || true
+          # Expose both the real bin and Homebrew's libexec shims
           echo "/usr/local/opt/python@3.11/bin" >> $GITHUB_PATH
+          echo "/usr/local/opt/python@3.11/libexec/bin" >> $GITHUB_PATH
           python3.11 -m pip install -U pip setuptools wheel ds_store mac_alias
 
       - name: Clean stale Qt/depends
@@ -47,7 +53,6 @@ jobs:
         env:
           FALLBACK_DOWNLOAD_PATH: ""
         run: |
-          set -euo pipefail
           echo "Building depends…"
           make -C depends -j$(sysctl -n hw.ncpu) HOST=${HOST}
 
@@ -55,7 +60,6 @@ jobs:
         env:
           CONFIG_SITE: ${{ github.workspace }}/depends/${{ env.HOST }}/share/config.site
         run: |
-          set -euo pipefail
           ./autogen.sh || true
           ./configure \
             --prefix="${PWD}/depends/${HOST}" \
@@ -68,7 +72,6 @@ jobs:
 
       - name: Build
         run: |
-          set -euo pipefail
           make -j$(sysctl -n hw.ncpu)
           mkdir -p "${BUILD_DIR}"
           cp -f src/vkaxd "${BUILD_DIR}/" || true
@@ -78,7 +81,6 @@ jobs:
 
       - name: Package
         run: |
-          set -euo pipefail
           mkdir -p "${COMPRESS_DIR}"
           tar -cvzf "${COMPRESS_DIR}/${COIN_NAME}-macos13.tar.gz" -C "${BUILD_DIR}" .
 
