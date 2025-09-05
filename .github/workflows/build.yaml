@@ -3,7 +3,8 @@ name: VKAX Android (daemon + cli + tx)
 on:
   workflow_dispatch:
   push:
-    branches: [ v100.11.5-android ]
+    branches:
+      - v100.11.5-android
 
 env:
   COIN_NAME: vkax
@@ -18,17 +19,17 @@ jobs:
     runs-on: ubuntu-22.04
     env:
       HOST: aarch64-linux-android
-      ANDROID_API: "21"     # 64-bit min API
+      ANDROID_API: "21"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with: { lfs: true }
+        with:
+          lfs: true
 
       - name: Tooling
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential automake libtool pkg-config \
-                                  python3 unzip wget cmake ninja-build
+          sudo apt-get install -y build-essential automake libtool pkg-config python3 unzip wget cmake ninja-build
 
       - name: Install Android SDK + NDK (r25c)
         env:
@@ -40,11 +41,10 @@ jobs:
           unzip -q /tmp/clt.zip -d "$ANDROID_SDK_ROOT/cmdline-tools"
           mv "$ANDROID_SDK_ROOT/cmdline-tools/cmdline-tools" "$ANDROID_SDK_ROOT/cmdline-tools/latest"
           yes | "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null
-          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" \
-            "platforms;android-${ANDROID_API}" "ndk;25.2.9519653"
-          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
-          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/25.2.9519653" >> $GITHUB_ENV
-          echo "$ANDROID_SDK_ROOT/ndk/25.2.9519653/toolchains/llvm/prebuilt/linux-x86_64/bin" >> $GITHUB_PATH
+          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" "platforms;android-${ANDROID_API}" "ndk;25.2.9519653"
+          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/25.2.9519653" >> "$GITHUB_ENV"
+          echo "$ANDROID_SDK_ROOT/ndk/25.2.9519653/toolchains/llvm/prebuilt/linux-x86_64/bin" >> "$GITHUB_PATH"
 
       - name: Build depends (NO_QT) with Boost clang fix
         env:
@@ -55,7 +55,6 @@ jobs:
           set -e
           TOOLCHAIN_BIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
           test -x "$TOOLCHAIN_BIN/${HOST}${ANDROID_API}-clang++"
-          # Provide shims without API suffix (Boost expects ${HOST}-clang++)
           ln -sf "${TOOLCHAIN_BIN}/${HOST}${ANDROID_API}-clang"   "${TOOLCHAIN_BIN}/${HOST}-clang"
           ln -sf "${TOOLCHAIN_BIN}/${HOST}${ANDROID_API}-clang++" "${TOOLCHAIN_BIN}/${HOST}-clang++"
           export PATH="$TOOLCHAIN_BIN:$PATH"
@@ -63,7 +62,6 @@ jobs:
           export CXX="${HOST}${ANDROID_API}-clang++"
           export AR=llvm-ar
           export RANLIB=llvm-ranlib
-          # Force b2 to use our compiler via user-config.jam (no guessing)
           BOOST_CFG_DIR="$GITHUB_WORKSPACE/boost-config"
           mkdir -p "$BOOST_CFG_DIR"
           cat > "$BOOST_CFG_DIR/user-config.jam" <<'JAM'
@@ -73,12 +71,7 @@ using clang-linux
   : <compileflags>"-fPIC" <linkflags>"" ;
 JAM
           export BOOST_BUILD_PATH="$BOOST_CFG_DIR"
-          make -C depends -j"$(nproc)" \
-            HOST=${HOST} \
-            ANDROID_NDK=${ANDROID_NDK_HOME} \
-            ANDROID_API=${ANDROID_API} \
-            ANDROID_TOOLCHAIN_BIN="$TOOLCHAIN_BIN" \
-            NO_QT=1
+          make -C depends -j"$(nproc)" HOST=${HOST} ANDROID_NDK=${ANDROID_NDK_HOME} ANDROID_API=${ANDROID_API} ANDROID_TOOLCHAIN_BIN="$TOOLCHAIN_BIN" NO_QT=1
 
       - name: Configure (daemon + cli + tx, no Qt)
         env:
@@ -96,12 +89,7 @@ JAM
           export RANLIB=llvm-ranlib
           export PKG_CONFIG_PATH="${PWD}/depends/${HOST}/lib/pkgconfig"
           ./autogen.sh || true
-          ./configure \
-            --host=${HOST} --build=$(gcc -dumpmachine) \
-            --prefix="${PWD}/depends/${HOST}" \
-            --with-incompatible-bdb \
-            --without-gui --disable-bench --disable-tests \
-            CXXFLAGS="-O2 -fPIC"
+          ./configure --host=${HOST} --build=$(gcc -dumpmachine) --prefix="${PWD}/depends/${HOST}" --with-incompatible-bdb --without-gui --disable-bench --disable-tests CXXFLAGS="-O2 -fPIC"
 
       - name: Build
         run: |
