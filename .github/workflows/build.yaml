@@ -1,7 +1,6 @@
 # .github/workflows/build.yaml
-# VKAX Android APK build — aarch64; legacy-friendly.
-# v4: Fix libc++ header path (use $LLVM/include/c++/v1), correct arg splitting in wrappers, still strip hostile flags and re-apply Android triple + sysroot.
-# libc++ headers are NOT in $SYSROOT/usr/include/c++/v1 on r25c. — Setvin
+# VKAX Android APK build — aarch64. v5: YAML-safe, fixes Boost retargeting and libc++ headers.
+# Do not edit randomly; wrappers strip hostile flags and re-apply Android triple + sysroot. — Setvin
 
 name: VKAX Android APK Build
 
@@ -19,24 +18,28 @@ env:
 
 jobs:
   android-apk:
-    name: Android aarch64 (daemon+cli+tx) → APK
+    name: Android aarch64 build
     runs-on: ubuntu-22.04
     env:
       HOST: aarch64-linux-android
       ANDROID_API: "21"
+    defaults:
+      run:
+        shell: bash
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
         with:
           lfs: true
 
-      - name: JDK 17
+      - name: Setup JDK 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
 
-      - name: Tooling
+      - name: Host tooling
         run: |
           set -eux
           sudo apt-get update
@@ -44,7 +47,7 @@ jobs:
             build-essential automake libtool pkg-config \
             python3 unzip wget cmake ninja-build zip curl
 
-      - name: Install Gradle 8.7
+      - name: Gradle 8.7
         run: |
           set -eux
           curl -sL https://services.gradle.org/distributions/gradle-8.7-bin.zip -o /tmp/gradle.zip
@@ -52,7 +55,7 @@ jobs:
           sudo unzip -q /tmp/gradle.zip -d /opt/gradle
           echo "/opt/gradle/gradle-8.7/bin" >> "$GITHUB_PATH"
 
-      - name: Install Android SDK + NDK r25c
+      - name: Android SDK and NDK r25c
         env:
           ANDROID_SDK_ROOT: ${{ github.workspace }}/android-sdk
         run: |
@@ -68,7 +71,7 @@ jobs:
           echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/25.2.9519653" >> "$GITHUB_ENV"
           echo "$ANDROID_SDK_ROOT/ndk/25.2.9519653/toolchains/llvm/prebuilt/linux-x86_64/bin" >> "$GITHUB_PATH"
 
-      - name: Android wrappers v3 (generic + triple) and Boost lock-in
+      - name: Create Android wrappers and Boost config
         env:
           HOST: ${{ env.HOST }}
           ANDROID_API: ${{ env.ANDROID_API }}
@@ -83,7 +86,6 @@ jobs:
           test -x "$BIN/${ARCH}${API}-clang++"
           WRAP="$GITHUB_WORKSPACE/.ccwrap"; mkdir -p "$WRAP"
 
-          # Strip conflicting flags coming from b2/toolchains.
           cat > "$WRAP/_strip_flags.sh" << 'SH'
           #!/usr/bin/env bash
           set -e
@@ -93,7 +95,7 @@ jobs:
             if [ "$skip_next" = 1 ]; then skip_next=0; continue; fi
             case "$a" in
               --target=*|-target=*) continue ;;
-              -target) skip_next=1; continue ;;
+              -target)   skip_next=1; continue ;;
               --sysroot=*|-isysroot=*) continue ;;
               -isysroot) skip_next=1; continue ;;
               -stdlib=*) continue ;;
@@ -104,40 +106,33 @@ jobs:
           SH
           chmod +x "$WRAP/_strip_flags.sh"
 
-          mkwrap() {
-            local name="$1"; shift
-            local clangbin="$1"
-            cat > "$WRAP/$name" << 'EOF'
+          make_wrap() {
+            local path="$1"; local driver="$2"
+            cat > "$path" << 'EOF'
           #!/usr/bin/env bash
           set -e
           LLVM="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64"
           SYSROOT="$LLVM/sysroot"
-          INC_CPP="$LLVM/include/c++/v1"  # NDK r25c layout
-DIR="$(dirname "$0")"
-# shellcheck disable=SC2207
-CLEANED=($("$DIR/_strip_flags.sh" "$@"))
-exec "$LLVM/bin/CLANG" "${CLEANED[@]}" --target=TRIPLE --sysroot="$SYSROOT" -nostdinc++ -isystem "$INC_CPP" -isystem "$SYSROOT/usr/include"
+          INC_CPP="$LLVM/include/c++/v1"
+          DIR="$(cd -- "$(dirname "$0")" && pwd)"
+          # shellcheck disable=SC2207
+          CLEANED=($("$DIR/_strip_flags.sh" "$@"))
+          exec "$LLVM/bin/DRIVER" "${CLEANED[@]}" --target=TRIPLE --sysroot="$SYSROOT" -nostdinc++ -isystem "$INC_CPP" -isystem "$SYSROOT/usr/include"
           EOF
-          chmod +x "$WRAP/$name"
-          # Replace placeholders with the requested driver and target triple
-          sed -i "s|CLANG|${clangbin}|g; s|TRIPLE|${ARCH}${API}|g" "$WRAP/$name"
+            sed -i "s|DRIVER|$driver|g; s|TRIPLE|${ARCH}${API}|g" "$path"
+            chmod +x "$path"
           }
 
-          # Triple-specific drivers
-          mkwrap "${ARCH}${API}-clang"   "${ARCH}${API}-clang"
-          mkwrap "${ARCH}${API}-clang++" "${ARCH}${API}-clang++"
+          make_wrap "$WRAP/${ARCH}${API}-clang"   "${ARCH}${API}-clang"
+          make_wrap "$WRAP/${ARCH}${API}-clang++" "${ARCH}${API}-clang++"
           ln -sf "$WRAP/${ARCH}${API}-clang"   "$WRAP/${ARCH}-clang"
           ln -sf "$WRAP/${ARCH}${API}-clang++" "$WRAP/${ARCH}-clang++"
+          make_wrap "$WRAP/clang"  "clang"
+          make_wrap "$WRAP/clang++" "clang++"
 
-          # Generic names to catch Boost calling plain clang++.
-          mkwrap "clang"  "clang"
-          mkwrap "clang++" "clang++"
-
-          # Make wrappers win in every following step.
           echo "$WRAP" >> "$GITHUB_PATH"
           export PATH="$WRAP:$PATH"
 
-          # Toolchain env for autotools and anything else.
           {
             echo "CC=clang"
             echo "CXX=clang++"
@@ -145,7 +140,6 @@ exec "$LLVM/bin/CLANG" "${CLEANED[@]}" --target=TRIPLE --sysroot="$SYSROOT" -nos
             echo "RANLIB=llvm-ranlib"
           } >> "$GITHUB_ENV"
 
-          # Force Boost to our compiler via user-config; target-os=android.
           mkdir -p depends "$HOME/.boost-build"
           cat > depends/user-config.jam <<JAM
           using clang : aarch64 : $WRAP/${ARCH}-clang++ : <target-os>android ;
@@ -153,13 +147,12 @@ exec "$LLVM/bin/CLANG" "${CLEANED[@]}" --target=TRIPLE --sysroot="$SYSROOT" -nos
           cp depends/user-config.jam "$HOME/.boost-build/user-config.jam"
           echo "BOOST_BUILD_PATH=$PWD/depends" >> "$GITHUB_ENV"
 
-          # Sanity
-which clang++
-clang++ -v || true
-which ${HOST}${ANDROID_API}-clang++ || true
-${HOST}${ANDROID_API}-clang++ -v || true
+          which clang++
+          clang++ -v || true
+          which ${ARCH}${API}-clang++ || true
+          ${ARCH}${API}-clang++ -v || true
 
-      - name: Build depends
+      - name: Build depends (no Qt)
         env:
           HOST: ${{ env.HOST }}
           ANDROID_API: ${{ env.ANDROID_API }}
@@ -170,7 +163,7 @@ ${HOST}${ANDROID_API}-clang++ -v || true
           clang++ --target=${HOST}${ANDROID_API} -v || true
           make -C depends -j"$(nproc)" HOST="$HOST" ANDROID_NDK="$ANDROID_NDK_HOME" ANDROID_API="$ANDROID_API" NO_QT=1 V=1
 
-      - name: Configure (vkaxd/cli/tx)
+      - name: Configure core
         env:
           HOST: ${{ env.HOST }}
           CONFIG_SITE: ${{ github.workspace }}/depends/${{ env.HOST }}/share/config.site
@@ -192,7 +185,7 @@ ${HOST}${ANDROID_API}-clang++ -v || true
           mkdir -p "$BUILD_DIR"
           cp -f src/vkaxd src/vkax-cli src/vkax-tx "$BUILD_DIR/"
 
-      - name: Create APK with embedded binaries
+      - name: Create APK
         run: |
           set -eux
           mkdir -p android-app/app/src/main/{jniLibs/arm64-v8a,java/org/vkax/android}
@@ -230,7 +223,6 @@ ${HOST}${ANDROID_API}-clang++ -v || true
           GRADLE
 
           cat > android-app/app/src/main/AndroidManifest.xml << 'XML'
-          <!-- Minimal, binaries via jniLibs. — Setvin -->
           <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="org.vkax.android">
             <application android:label="VKAX Daemon" android:allowBackup="false">
               <activity android:name=".MainActivity">
@@ -244,7 +236,6 @@ ${HOST}${ANDROID_API}-clang++ -v || true
           XML
 
           cat > android-app/app/src/main/java/org/vkax/android/MainActivity.java << 'JAVA'
-          // Stub activity; keep app footprint trivial. — Setvin
           package org.vkax.android;
           import android.app.Activity;
           import android.os.Bundle;
@@ -259,7 +250,7 @@ ${HOST}${ANDROID_API}-clang++ -v || true
           mkdir -p "$COMPRESS_DIR"
           cp android-app/app/build/outputs/apk/release/app-release.apk "$COMPRESS_DIR/${COIN_NAME}-android-aarch64.apk"
 
-      - name: Diagnostics (always)
+      - name: Diagnostics
         if: always()
         run: |
           set -x
@@ -267,7 +258,8 @@ ${HOST}${ANDROID_API}-clang++ -v || true
           which clang++ || true
           clang++ --version || true
 
-      - uses: actions/upload-artifact@v4
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
         if: always()
         with:
           name: ${{ env.COIN_NAME }}-android-aarch64-apk
