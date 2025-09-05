@@ -1,0 +1,11 @@
+// build.gradle for NDK
+apply plugin: 'com.android.ndk-build'
+
+android {
+    ndkVersion '23.1.7779620' // Specify the NDK version here
+    compileSdkVersion 30 // Adjust to your target SDK version
+}
+
+dependencies {
+    // You can add any necessary dependencies here
+}
