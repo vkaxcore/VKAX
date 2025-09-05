@@ -28,20 +28,23 @@ jobs:
 
       - name: Tooling
         run: |
+          set -euxo pipefail
           sudo apt-get update
-          sudo apt-get install -y build-essential automake libtool pkg-config python3 unzip wget cmake ninja-build
+          sudo apt-get install -y build-essential automake libtool pkg-config \
+                                  python3 unzip wget cmake ninja-build
 
       - name: Install Android SDK + NDK (r25c)
         env:
           ANDROID_SDK_ROOT: ${{ github.workspace }}/android-sdk
         run: |
-          set -e
+          set -euxo pipefail
           mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools"
           wget -q https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip -O /tmp/clt.zip
           unzip -q /tmp/clt.zip -d "$ANDROID_SDK_ROOT/cmdline-tools"
           mv "$ANDROID_SDK_ROOT/cmdline-tools/cmdline-tools" "$ANDROID_SDK_ROOT/cmdline-tools/latest"
           yes | "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null
-          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" "platforms;android-${ANDROID_API}" "ndk;25.2.9519653"
+          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" \
+            "platforms;android-${ANDROID_API}" "ndk;25.2.9519653"
           echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> "$GITHUB_ENV"
           echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/25.2.9519653" >> "$GITHUB_ENV"
           echo "$ANDROID_SDK_ROOT/ndk/25.2.9519653/toolchains/llvm/prebuilt/linux-x86_64/bin" >> "$GITHUB_PATH"
@@ -52,21 +55,28 @@ jobs:
           ANDROID_API: ${{ env.ANDROID_API }}
           ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
         run: |
-          set -e
+          set -euxo pipefail
           TOOLCHAIN_BIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
           test -x "$TOOLCHAIN_BIN/${HOST}${ANDROID_API}-clang++"
+          # Shim compiler names Boost expects (no API suffix)
           ln -sf "${TOOLCHAIN_BIN}/${HOST}${ANDROID_API}-clang"   "${TOOLCHAIN_BIN}/${HOST}-clang"
           ln -sf "${TOOLCHAIN_BIN}/${HOST}${ANDROID_API}-clang++" "${TOOLCHAIN_BIN}/${HOST}-clang++"
           export PATH="$TOOLCHAIN_BIN:$PATH"
           export CC="${HOST}${ANDROID_API}-clang"
           export CXX="${HOST}${ANDROID_API}-clang++"
-          export AR=llvm-ar
-          export RANLIB=llvm-ranlib
+          export AR="llvm-ar"
+          export RANLIB="llvm-ranlib"
+          # Force b2 to our compiler
           BOOST_CFG_DIR="$GITHUB_WORKSPACE/boost-config"
           mkdir -p "$BOOST_CFG_DIR"
           printf 'using clang-linux : aarch64 : aarch64-linux-android-clang++ : <compileflags>"-fPIC" <linkflags>"" ;\n' > "$BOOST_CFG_DIR/user-config.jam"
           export BOOST_BUILD_PATH="$BOOST_CFG_DIR"
-          make -C depends -j"$(nproc)" HOST=${HOST} ANDROID_NDK=${ANDROID_NDK_HOME} ANDROID_API=${ANDROID_API} ANDROID_TOOLCHAIN_BIN="$TOOLCHAIN_BIN" NO_QT=1
+          make -C depends -j"$(nproc)" \
+            HOST="${HOST}" \
+            ANDROID_NDK="${ANDROID_NDK_HOME}" \
+            ANDROID_API="${ANDROID_API}" \
+            ANDROID_TOOLCHAIN_BIN="${TOOLCHAIN_BIN}" \
+            NO_QT=1
 
       - name: Configure (daemon + cli + tx, no Qt)
         env:
@@ -75,23 +85,30 @@ jobs:
           ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
           CONFIG_SITE: ${{ github.workspace }}/depends/${{ env.HOST }}/share/config.site
         run: |
-          set -e
+          set -euxo pipefail
           TOOLCHAIN_BIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
           export PATH="$TOOLCHAIN_BIN:$PATH"
           export CC="${HOST}${ANDROID_API}-clang"
           export CXX="${HOST}${ANDROID_API}-clang++"
-          export AR=llvm-ar
-          export RANLIB=llvm-ranlib
+          export AR="llvm-ar"
+          export RANLIB="llvm-ranlib"
           export PKG_CONFIG_PATH="${PWD}/depends/${HOST}/lib/pkgconfig"
           ./autogen.sh || true
-          ./configure --host=${HOST} --build=$(gcc -dumpmachine) --prefix="${PWD}/depends/${HOST}" --with-incompatible-bdb --without-gui --disable-bench --disable-tests CXXFLAGS="-O2 -fPIC"
+          ./configure \
+            --host="${HOST}" --build="$(gcc -dumpmachine)" \
+            --prefix="${PWD}/depends/${HOST}" \
+            --with-incompatible-bdb \
+            --without-gui --disable-bench --disable-tests \
+            CXXFLAGS="-O2 -fPIC"
 
       - name: Build
         run: |
+          set -euxo pipefail
           make -j"$(nproc)" src/vkaxd src/vkax-cli src/vkax-tx
 
       - name: Package
         run: |
+          set -euxo pipefail
           mkdir -p "$BUILD_DIR" "$COMPRESS_DIR"
           cp -f src/vkaxd src/vkax-cli src/vkax-tx "$BUILD_DIR/" || true
           file "$BUILD_DIR/"* || true
