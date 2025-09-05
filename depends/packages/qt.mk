@@ -81,7 +81,7 @@ endef
 
 define $(package)_preprocess_cmds
 	set -e; \
-	# Apply patches; fail loud so we don't silently skip required fixes.
+	# Apply patches; fail loud so we don’t silently skip required fixes.
 	for p in $($(package)_patches); do \
 		echo "applying $$p"; patch -p1 -d $($(package)_extract_dir) < $($(package)_patch_dir)/$$p; \
 	done; \
@@ -94,10 +94,10 @@ define $(package)_preprocess_cmds
 	      $($(package)_extract_dir)/qtbase/mkspecs/macx-clang-linux/ && \
 	cp -f $($(package)_patch_dir)/mac-qmake.conf \
 	      $($(package)_extract_dir)/qtbase/mkspecs/macx-clang-linux/qmake.conf; \
-	# Don't choke on default search path probe when cross-building non-darwin
+	# Don’t choke on default search path probe when cross-building non-darwin
 	sed -i.old "s/error(\\\"failed to parse default search paths from compiler output\\\")/!darwin: error(\\\"failed to parse default search paths from compiler output\\\")/g" \
 		$($(package)_extract_dir)/qtbase/mkspecs/features/toolchain.prf; \
-	# Belt-and-suspenders: nuke 'bootstrap-private' from linguist tools if patch set didn’t already.
+	# Belt-and-suspenders: neuter qttools’ private bootstrap demand if patch set lags.
 	for f in qttools/src/linguist/lrelease/lrelease.pro qttools/src/linguist/lupdate/lupdate.pro; do \
 		if grep -q 'bootstrap-private' "$($(package)_extract_dir)/$$f"; then \
 			sed -i.bak 's/bootstrap-private//g' "$($(package)_extract_dir)/$$f"; \
@@ -124,8 +124,8 @@ define $(package)_config_cmds
 	cd $($(package)_extract_dir)/qtbase && \
 	env -u QMAKESPEC -u XQMAKESPEC -u QMAKEPATH -u QMAKEFEATURES -u QMAKE -u QMAKE_SPEC -u QTDIR -u QT_PLUGIN_PATH -u QT_QPA_PLATFORM_PLUGIN_PATH -u PKG_CONFIG_PATH \
 	./configure $($(package)_config_opts) $($(package)_config_opts_$(host_os)) && \
-	{ echo "host_build: QT_CONFIG ~= s/system-zlib/zlib"; echo "CONFIG += force_bootstrap"; } >> mkspecs/qconfig.pri && \
-	# Generate Makefiles for linguist tools and translations with SDK check silenced
+	{ echo "host_build: QT_CONFIG ~= s/system-zlib/zlib"; echo "CONFIG += force_bootstrap"; } >> mkspecs/qconfig.pri; \
+	# Generate Makefiles for linguist tools and translations; silence SDK version nag
 	cd $($(package)_extract_dir) && \
 	qtbase/bin/qmake CONFIG+=sdk_no_version_check -o qttranslations/Makefile qttranslations/qttranslations.pro && \
 	qtbase/bin/qmake CONFIG+=sdk_no_version_check -o qttools/src/linguist/lrelease/Makefile qttools/src/linguist/lrelease/lrelease.pro && \
