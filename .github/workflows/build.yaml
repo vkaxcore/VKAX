@@ -1,39 +1,42 @@
+# VKAX Android APK Build — aarch64. v5: YAML-safe, fixes Boost retargeting and libc++ headers.
+# This workflow defines the steps for building the VKAX APK for Android (aarch64) using the specified NDK version and tools.
+
 name: VKAX Android APK Build
 
 on:
-  workflow_dispatch:
+  workflow_dispatch:  # This allows manual triggering of the workflow.
   push:
-    branches: [ main, v100.11.5-android, dev ]
+    branches: [ main, v100.11.5-android, dev ]  # Trigger the build on specific branches.
 
 env:
-  COIN_NAME: vkax
-  BUILD_DIR: vkax-build
-  COMPRESS_DIR: vkax-compress
-  LC_ALL: C
-  LANG: C
+  COIN_NAME: vkax  # Coin name to be used in the final APK.
+  BUILD_DIR: vkax-build  # Directory to store built files.
+  COMPRESS_DIR: vkax-compress  # Directory to store compressed files (APK).
+  LC_ALL: C  # Set the locale to C.
+  LANG: C  # Set the language to C.
 
 jobs:
   android-apk:
-    name: Android aarch64 build
-    runs-on: ubuntu-22.04
+    name: Android aarch64 build  # Job name
+    runs-on: ubuntu-22.04  # Specify the runner environment for the job.
     env:
-      HOST: aarch64-linux-android
-      ANDROID_API: "21"
+      HOST: aarch64-linux-android  # Set the target architecture.
+      ANDROID_API: "21"  # Set the target Android API level.
     defaults:
       run:
-        shell: bash
+        shell: bash  # Use bash for executing commands.
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v4  # Checkout the repository's code.
         with:
-          lfs: true
+          lfs: true  # Enable large file support.
 
       - name: Setup JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v4  # Setup the JDK environment.
         with:
-          distribution: temurin
-          java-version: "17"
+          distribution: temurin  # Use Temurin JDK distribution.
+          java-version: "17"  # Specify Java version.
 
       - name: Host tooling
         run: |
@@ -42,6 +45,7 @@ jobs:
           sudo apt-get install -y \
             build-essential automake libtool pkg-config \
             python3 unzip wget cmake ninja-build zip curl
+        # Install necessary host tools for building dependencies and the APK.
 
       - name: Gradle 8.7
         run: |
@@ -50,10 +54,11 @@ jobs:
           sudo mkdir -p /opt/gradle
           sudo unzip -q /tmp/gradle.zip -d /opt/gradle
           echo "/opt/gradle/gradle-8.7/bin" >> "$GITHUB_PATH"
+        # Install Gradle 8.7.
 
       - name: Install Android SDK and NDK r23c
         env:
-          ANDROID_SDK_ROOT: ${{ github.workspace }}/android-sdk
+          ANDROID_SDK_ROOT: ${{ github.workspace }}/android-sdk  # Set SDK root location.
         run: |
           set -eux
           # Set up SDK tools
@@ -107,6 +112,7 @@ jobs:
           which clang++
           clang++ --target=${HOST}${ANDROID_API} -v || true
           make -C depends -j"$(nproc)" HOST="$HOST" ANDROID_NDK="$ANDROID_NDK_HOME" ANDROID_API="$ANDROID_API" NO_QT=1 V=1
+        # This step builds external dependencies required by the project.
 
       # Configure and build the core (vkaxd, vkax-cli, vkax-tx)
       - name: Configure core
@@ -123,6 +129,7 @@ jobs:
             --with-incompatible-bdb \
             --without-gui --disable-bench --disable-tests \
             CXXFLAGS="-O2 -fPIC"
+        # Configure the build system for the core binaries.
 
       - name: Build core
         run: |
@@ -130,6 +137,7 @@ jobs:
           make -j"$(nproc)" src/vkaxd src/vkax-cli src/vkax-tx
           mkdir -p "$BUILD_DIR"
           cp -f src/vkaxd src/vkax-cli src/vkax-tx "$BUILD_DIR/"
+        # Build the core components of the VKAX project (vkaxd, vkax-cli, vkax-tx).
 
       # Create the APK and copy the binaries
       - name: Create APK
@@ -196,20 +204,23 @@ jobs:
           cd ..
           mkdir -p "$COMPRESS_DIR"
           cp android-app/app/build/outputs/apk/release/app-release.apk "$COMPRESS_DIR/${COIN_NAME}-android-aarch64.apk"
+        # Create the APK for the Android app and copy it to the designated directory.
 
       # Diagnostics step for debugging purposes
       - name: Diagnostics
-        if: always()
+        if: always()  # Ensure this step runs even if the build fails.
         run: |
           set -x
           find depends -maxdepth 7 -type f \( -name bootstrap.log -o -name config.log -o -name project-config.jam -o -name user-config.jam \) -print || true
           which clang++ || true
           clang++ --version || true
+        # Run diagnostics to check for any issues during the build.
 
       # Upload APK artifact
       - name: Upload artifact
         uses: actions/upload-artifact@v4
-        if: always()
+        if: always()  # Ensure this step runs even if the build fails.
         with:
-          name: ${{ env.COIN_NAME }}-android-aarch64-apk
-          path: ${{ env.COMPRESS_DIR }}/${{ env.COIN_NAME }}-android-aarch64.apk
+          name: ${{ env.COIN_NAME }}-android-aarch64-apk  # Name of the uploaded artifact.
+          path: ${{ env.COMPRESS_DIR }}/${{ env.COIN_NAME }}-android-aarch64.apk  # Path to the APK.
+        # Upload the generated APK as an artifact for further use.
