@@ -1,11 +1,10 @@
-PACKAGE=qt
+package=qt
 
-# ---- Version & sources (use single tarball) ----
+# ---- Version & sources (single tarball) ----
 $(package)_version=5.15.10
 $(package)_download_path=https://download.qt.io/archive/qt/5.15/5.15.10/single
 $(package)_download_file=qt-everywhere-opensource-src-$($(package)_version).tar.xz
-$(package)_file_name=$(package)_download_file
-# keep your hash; update if checksum fails
+$(package)_file_name=$($(package)_download_file)
 $(package)_sha256_hash=B545CB83C60934ADC9A6BBD27E2AF79E5013DE77D46F5B9F5BB2A3C762BF55CA
 
 # ---- deps ----
@@ -17,7 +16,7 @@ endif
 # ---- what we build ----
 $(package)_qt_libs=corelib network widgets gui plugins
 
-# ---- patches you already carry (mostly no-ops for 5.15 but harmless) ----
+# ---- patches (kept for compatibility) ----
 $(package)_patches = \
     freetype_back_compat.patch \
     fix_powerpc_libpng.patch \
@@ -38,8 +37,7 @@ $(package)_patches = \
     mac-qmake.conf
 
 define $(package)_set_vars
-    $(package)_config_opts += -release -silent -opensource -optimized-tools -static
-    $(package)_config_opts += -confirm-license
+    $(package)_config_opts += -release -silent -opensource -confirm-license -optimized-tools -static
     $(package)_config_opts += -prefix $(host_prefix)
     $(package)_config_opts += -hostprefix $(build_prefix)
     $(package)_config_opts += -no-compile-examples -nomake examples -nomake tests
@@ -47,19 +45,17 @@ define $(package)_set_vars
 ifeq ($(NO_OPENSSL),)
     $(package)_config_opts += -openssl-linked
 endif
-    # common feature trims to match legacy builds
-    $(package)_config_opts += -no-icu -no-dbus -no-sql -no-cups -no-gif -no-iconv
-    $(package)_config_opts += -no-opengl
+    $(package)_config_opts += -no-icu -no-dbus -no-sql -no-cups -no-gif -no-iconv -no-opengl
 
     # macOS
-    $(package)_config_opts_darwin += -no-opengl -no-dbus
+    $(package)_config_opts_darwin += -no-dbus -no-opengl
 
-    # Linux (kept for later cross builds)
+    # Linux (kept for cross builds)
     $(package)_config_opts_linux  = -qt-xkbcommon-x11 -qt-xcb -no-xcb-xlib -no-feature-xlib
     $(package)_config_opts_linux += -system-freetype -fontconfig -no-opengl
 
     # Linux ARM cross
-    $(package)_config_opts_arm_linux = -xplatform linux-g++ -device-option CROSS_COMPILE="$(host)-"
+    $(package)_config_opts_arm_linux     = -xplatform linux-g++ -device-option CROSS_COMPILE="$(host)-"
     $(package)_config_opts_aarch64_linux = -xplatform linux-aarch64-gnu-g++
 
     # Windows / MinGW
@@ -71,10 +67,10 @@ define $(package)_fetch_cmds
     $(call fetch_file,$(package),$($(package)_download_path),$($(package)_download_file),$($(package)_file_name),$($(package)_sha256_hash))
 endef
 
-# ---- extract (single tarball contains qtbase/qttools/qttranslations, etc.) ----
+# ---- extract (single tarball ships qtbase/qttools/qttranslations, etc.) ----
 define $(package)_extract_cmds
     mkdir -p $($(package)_extract_dir) && \
-    tar --no-same-owner -xf $($(package)_source) -C $($(package)_extract_dir)
+    tar --no-same-owner --strip-components=1 -xf $($(package)_source) -C $($(package)_extract_dir)
 endef
 
 # ---- preprocess ----
@@ -83,9 +79,11 @@ define $(package)_preprocess_cmds
     for p in $($(package)_patches); do \
         patch -p1 -d $($(package)_extract_dir) < $($(package)_patch_dir)/$$p || true; \
     done; \
-    mkdir -p $($(package)_extract_dir)/qtbase/mkspecs/macx-clang-linux && \
+    sed -i.old "s|updateqm.commands = \$$$$\$$$$LRELEASE|updateqm.commands = $($(package)_extract_dir)/qttools/bin/lrelease|" \
+        $($(package)_extract_dir)/qttranslations/translations/translations.pro; \
+    mkdir -p $($(package)_extract_dir)/qtbase/mkspecs/macx-clang-linux; \
     cp -f $($(package)_extract_dir)/qtbase/mkspecs/macx-clang/qplatformdefs.h \
-          $($(package)_extract_dir)/qtbase/mkspecs/macx-clang-linux/ && \
+          $($(package)_extract_dir)/qtbase/mkspecs/macx-clang-linux/; \
     cp -f $($(package)_patch_dir)/mac-qmake.conf \
           $($(package)_extract_dir)/qtbase/mkspecs/macx-clang-linux/qmake.conf
 endef
