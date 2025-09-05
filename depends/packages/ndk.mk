@@ -1,3 +1,12 @@
+# Define utility functions for downloading and extracting
+define download
+    wget -q $(1) -O $(2)
+endef
+
+define extract
+    unzip -q $(1) -d $(2)
+endef
+
 # NDK - Android Native Development Kit (version r21e)
 # Download and install NDK as part of the dependencies
 
@@ -19,9 +28,8 @@ endef
 # Add NDK to the build path
 $(package)_add_to_path:
     @echo "Adding NDK to path..."
-    @export ANDROID_NDK_HOME=$(DEPENDS_DIR)/$(package)-$(package)_version
-    @echo "ANDROID_NDK_HOME=$(ANDROID_NDK_HOME)" >> $(DEPENDS_DIR)/.env
-    @export PATH=$(ANDROID_NDK_HOME)/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH
+    @echo "ANDROID_NDK_HOME=$(DEPENDS_DIR)/$(package)-$(package)_version" >> $(DEPENDS_DIR)/.env
+    @export PATH=$(ANDROID_NDK_HOME)/toolchains/llvm/prebuilt/linux-x86_64/bin:$$PATH
 
 # Create NDK wrapper for cross-compilation
 $(package)_create_wrapper:
