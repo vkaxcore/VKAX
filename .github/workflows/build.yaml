@@ -1,7 +1,7 @@
 # .github/workflows/build.yaml
 # VKAX Android APK build — aarch64; legacy-friendly.
-# v3: Intercept ALL compiler calls (generic clang/clang++ and NDK triples), strip hostile flags, re-apply Android triple + sysroot.
-# libc++ headers pulled from $SYSROOT/usr/include/c++/v1 (NDK r25c layout). — Setvin
+# v4: Fix libc++ header path (use $LLVM/include/c++/v1), correct arg splitting in wrappers, still strip hostile flags and re-apply Android triple + sysroot.
+# libc++ headers are NOT in $SYSROOT/usr/include/c++/v1 on r25c. — Setvin
 
 name: VKAX Android APK Build
 
@@ -106,18 +106,21 @@ jobs:
 
           mkwrap() {
             local name="$1"; shift
+            local clangbin="$1"
             cat > "$WRAP/$name" << 'EOF'
           #!/usr/bin/env bash
           set -e
           LLVM="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64"
           SYSROOT="$LLVM/sysroot"
-          INC_CPP="$SYSROOT/usr/include/c++/v1"  # NDK r25c layout
-          CLEANED=( $("$(dirname "$0")/_strip_flags.sh" "$@") )
-          exec "$LLVM/bin/CLANG" "${CLEANED[@]}" --target=TRIPLE --sysroot="$SYSROOT" -nostdinc++ -isystem "$INC_CPP" -isystem "$SYSROOT/usr/include"
+          INC_CPP="$LLVM/include/c++/v1"  # NDK r25c layout
+DIR="$(dirname "$0")"
+# shellcheck disable=SC2207
+CLEANED=($("$DIR/_strip_flags.sh" "$@"))
+exec "$LLVM/bin/CLANG" "${CLEANED[@]}" --target=TRIPLE --sysroot="$SYSROOT" -nostdinc++ -isystem "$INC_CPP" -isystem "$SYSROOT/usr/include"
           EOF
           chmod +x "$WRAP/$name"
-          # Replace placeholders
-          sed -i "s|CLANG|$2|g; s|TRIPLE|${ARCH}${API}|g" "$WRAP/$name"
+          # Replace placeholders with the requested driver and target triple
+          sed -i "s|CLANG|${clangbin}|g; s|TRIPLE|${ARCH}${API}|g" "$WRAP/$name"
           }
 
           # Triple-specific drivers
@@ -151,8 +154,10 @@ jobs:
           echo "BOOST_BUILD_PATH=$PWD/depends" >> "$GITHUB_ENV"
 
           # Sanity
-          which clang++
-          clang++ -v || true
+which clang++
+clang++ -v || true
+which ${HOST}${ANDROID_API}-clang++ || true
+${HOST}${ANDROID_API}-clang++ -v || true
 
       - name: Build depends
         env:
