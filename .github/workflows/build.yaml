@@ -1,6 +1,3 @@
-# VKAX Android APK build — aarch64. v5: YAML-safe, fixes Boost retargeting and libc++ headers.
-# Do not edit randomly; wrappers strip hostile flags and re-apply Android triple + sysroot. — Setvin
-
 name: VKAX Android APK Build
 
 on:
@@ -99,3 +96,120 @@ jobs:
           ls $ANDROID_NDK_HOME
           clang++ --version || true
 
+      # Build depends (including libraries like Boost, OpenSSL, etc., without Qt)
+      - name: Build depends (no Qt)
+        env:
+          HOST: ${{ env.HOST }}
+          ANDROID_API: ${{ env.ANDROID_API }}
+          BOOST_BUILD_PATH: ${{ env.BOOST_BUILD_PATH }}
+        run: |
+          set -eux
+          which clang++
+          clang++ --target=${HOST}${ANDROID_API} -v || true
+          make -C depends -j"$(nproc)" HOST="$HOST" ANDROID_NDK="$ANDROID_NDK_HOME" ANDROID_API="$ANDROID_API" NO_QT=1 V=1
+
+      # Configure and build the core (vkaxd, vkax-cli, vkax-tx)
+      - name: Configure core
+        env:
+          HOST: ${{ env.HOST }}
+          CONFIG_SITE: ${{ github.workspace }}/depends/${{ env.HOST }}/share/config.site
+        run: |
+          set -eux
+          export PKG_CONFIG_PATH="${PWD}/depends/${HOST}/lib/pkgconfig"
+          ./autogen.sh || true
+          ./configure \
+            --host="${HOST}" --build="$(gcc -dumpmachine)" \
+            --prefix="${PWD}/depends/${HOST}" \
+            --with-incompatible-bdb \
+            --without-gui --disable-bench --disable-tests \
+            CXXFLAGS="-O2 -fPIC"
+
+      - name: Build core
+        run: |
+          set -eux
+          make -j"$(nproc)" src/vkaxd src/vkax-cli src/vkax-tx
+          mkdir -p "$BUILD_DIR"
+          cp -f src/vkaxd src/vkax-cli src/vkax-tx "$BUILD_DIR/"
+
+      # Create the APK and copy the binaries
+      - name: Create APK
+        run: |
+          set -eux
+          mkdir -p android-app/app/src/main/{jniLibs/arm64-v8a,java/org/vkax/android}
+          cp "$BUILD_DIR/vkaxd" "$BUILD_DIR/vkax-cli" "$BUILD_DIR/vkax-tx" android-app/app/src/main/jniLibs/arm64-v8a/
+
+          cat > android-app/settings.gradle << 'GRADLE'
+          rootProject.name = "VKAXAndroid"
+          include(":app")
+          GRADLE
+
+          cat > android-app/build.gradle << 'GRADLE'
+          buildscript {
+            repositories { google(); mavenCentral() }
+            dependencies { classpath "com.android.tools.build:gradle:8.3.2" }
+          }
+          allprojects { repositories { google(); mavenCentral() } }
+          GRADLE
+
+          mkdir -p android-app/app/src/main
+          cat > android-app/app/build.gradle << 'GRADLE'
+          plugins { id "com.android.application" }
+          android {
+            namespace "org.vkax.android"
+            compileSdkVersion 34
+            defaultConfig {
+              applicationId "org.vkax.android"
+              minSdkVersion 21
+              targetSdkVersion 34
+              versionCode 1
+              versionName "1.0"
+              ndk { abiFilters "arm64-v8a" }
+            }
+            buildTypes { release { minifyEnabled false } }
+          }
+          GRADLE
+
+          cat > android-app/app/src/main/AndroidManifest.xml << 'XML'
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="org.vkax.android">
+            <application android:label="VKAX Daemon" android:allowBackup="false">
+              <activity android:name=".MainActivity">
+                <intent-filter>
+                  <action android:name="android.intent.action.MAIN" />
+                  <category android:name="android.intent.category.LAUNCHER" />
+                </intent-filter>
+              </activity>
+            </application>
+          </manifest>
+          XML
+
+          cat > android-app/app/src/main/java/org/vkax/android/MainActivity.java << 'JAVA'
+          package org.vkax.android;
+          import android.app.Activity;
+          import android.os.Bundle;
+          public class MainActivity extends Activity {
+            @Override protected void onCreate(Bundle savedInstanceState) { super.onCreate(savedInstanceState); }
+          }
+          JAVA
+
+          cd android-app
+          /opt/gradle/gradle-8.7/bin/gradle --no-daemon --warning-mode all assembleRelease
+          cd ..
+          mkdir -p "$COMPRESS_DIR"
+          cp android-app/app/build/outputs/apk/release/app-release.apk "$COMPRESS_DIR/${COIN_NAME}-android-aarch64.apk"
+
+      # Diagnostics step for debugging purposes
+      - name: Diagnostics
+        if: always()
+        run: |
+          set -x
+          find depends -maxdepth 7 -type f \( -name bootstrap.log -o -name config.log -o -name project-config.jam -o -name user-config.jam \) -print || true
+          which clang++ || true
+          clang++ --version || true
+
+      # Upload APK artifact
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ${{ env.COIN_NAME }}-android-aarch64-apk
+          path: ${{ env.COMPRESS_DIR }}/${{ env.COIN_NAME }}-android-aarch64.apk
