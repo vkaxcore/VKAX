@@ -6,43 +6,6 @@ print-%:
 
 # When invoking a sub-make, keep only the command line variable definitions
 # matching the pattern in the filter function.
-#
-# e.g. invoking:
-#   $ make A=1 C=1 print-MAKEOVERRIDES print-MAKEFLAGS
-#
-# with the following in the Makefile:
-#   MAKEOVERRIDES := $(filter A=% B=%,$(MAKEOVERRIDES))
-#
-# will print:
-#   MAKEOVERRIDES = A=1
-#   MAKEFLAGS = -- A=1
-#
-# this is because as the GNU make manual says:
-#   The command line variable definitions really appear in the variable
-#   MAKEOVERRIDES, and MAKEFLAGS contains a reference to this variable.
-#
-# and since the GNU make manual also says:
-#   variables defined on the command line are passed to the sub-make through
-#   MAKEFLAGS
-#
-# this means that sub-makes will be invoked as if:
-#   $(MAKE) A=1 blah blah
-#
-# Therefore, when we "seed the autoconf cache"/"override well-known program
-# vars" by setting AR=<blah> in our config.site, either one of two things needs
-# to be true for the build system to work correctly:
-#
-#   1. If we refer to the program by name (e.g. AR=riscv64-gnu-linux-ar), the
-#      tool needs to be available in $PATH at all times.
-#
-#   2. If the tool is _**not**_ expected to be available in $PATH at all times
-#      (such as is the case for our native_cctools binutils tools), it needs to be
-#      referred to by its absolute path, such as would be output by the
-#      AC_PATH_{PROG,TOOL} macros.
-#
-# Minor note: it is also okay to refer to tools by their absolute path even if
-# we expect them to be available in $PATH at all times, more specificity does
-# not hurt.
 MAKEOVERRIDES := $(filter V=%,$(MAKEOVERRIDES))
 SOURCES_PATH ?= $(BASEDIR)/sources
 WORK_PATH = $(BASEDIR)/work
@@ -119,9 +82,7 @@ AT_$(V):=
 AT_:=@
 AT:=$(AT_$(V))
 
-all: install
-
-# Include the NDK package
+# Install NDK as part of dependencies
 include packages/ndk.mk
 
 # Add NDK to the list of packages to install
@@ -130,7 +91,6 @@ packages += $(ndk_packages)
 # Ensure NDK is part of all packages to download/install
 all_packages = $(packages) $(native_packages) $(ndk_packages)
 
-# Make sure the NDK gets installed
 install: check-packages $(host_prefix)/share/config.site
 	$(MAKE) -s $(foreach package,$(all_packages),$(package)_install;)
 
@@ -139,6 +99,7 @@ download-one: check-sources $(all_sources)
 	$(AT)mkdir -p $(WORK_PATH)/download/$(package)
 	$(AT)cd $(WORK_PATH)/download/$(package); $(MAKE) $(package)_download_and_extract
 
+# Including host and builder-specific settings
 include hosts/$(host_os).mk
 include hosts/default.mk
 include builders/$(build_os).mk
@@ -219,22 +180,6 @@ $(host_prefix)/.stamp_$(final_build_id): $(native_packages) $(packages)
 # program name expansion step, and works because the user implicitly indicates
 # with CC=clang that clang will be available in $PATH at all times, and is most
 # likely part of the user's system.
-#
-# Therefore, when we "seed the autoconf cache"/"override well-known program
-# vars" by setting AR=<blah> in our config.site, either one of two things needs
-# to be true for the build system to work correctly:
-#
-#   1. If we refer to the program by name (e.g. AR=riscv64-gnu-linux-ar), the
-#      tool needs to be available in $PATH at all times.
-#
-#   2. If the tool is _**not**_ expected to be available in $PATH at all times
-#      (such as is the case for our native_cctools binutils tools), it needs to be
-#      referred to by its absolute path, such as would be output by the
-#      AC_PATH_{PROG,TOOL} macros.
-#
-# Minor note: it is also okay to refer to tools by their absolute path even if
-# we expect them to be available in $PATH at all times, more specificity does
-# not hurt.
 $(host_prefix)/share/config.site : check-packages
 	$(AT)@mkdir -p $(@D)
 	$(AT)sed -e 's|@HOST@|$(host)|' \
@@ -276,7 +221,6 @@ clean:
 	@rm -rf $(WORK_PATH) $(BASE_CACHE) $(BUILD)
 
 install: check-packages $(host_prefix)/share/config.site
-
 
 download-one: check-sources $(all_sources)
 
