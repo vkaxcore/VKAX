@@ -1,9 +1,9 @@
-name: VKAX Multi-OS Build
+name: VKAX Android (daemon + cli + tx)
 
 on:
   workflow_dispatch:
   push:
-    branches: [ main, v100.11.5-macbuild, dev ]
+    branches: [ v100.11.5-android ]
 
 env:
   COIN_NAME: vkax
@@ -13,22 +13,22 @@ env:
   LANG: C
 
 jobs:
-
-  # ---------------- ANDROID (daemon + cli + tx, no Qt) ----------------
-  android-daemon:
-    name: Android aarch64 (daemon + cli + tx, no Qt)
+  android-aarch64:
+    name: Android aarch64 (no Qt)
     runs-on: ubuntu-22.04
     env:
       HOST: aarch64-linux-android
-      ANDROID_API: "21"
+      ANDROID_API: "21"     # 64-bit min API
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
         with: { lfs: true }
 
       - name: Tooling
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential automake libtool pkg-config python3 unzip wget cmake ninja-build
+          sudo apt-get install -y build-essential automake libtool pkg-config \
+                                  python3 unzip wget cmake ninja-build
 
       - name: Install Android SDK + NDK (r25c)
         env:
@@ -46,7 +46,7 @@ jobs:
           echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/25.2.9519653" >> $GITHUB_ENV
           echo "$ANDROID_SDK_ROOT/ndk/25.2.9519653/toolchains/llvm/prebuilt/linux-x86_64/bin" >> $GITHUB_PATH
 
-      - name: Build depends (no Qt) — NDK clang shims for Boost
+      - name: Build depends (NO_QT) with Boost clang fix
         env:
           HOST: ${{ env.HOST }}
           ANDROID_API: ${{ env.ANDROID_API }}
@@ -55,15 +55,24 @@ jobs:
           set -e
           TOOLCHAIN_BIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
           test -x "$TOOLCHAIN_BIN/${HOST}${ANDROID_API}-clang++"
-          # Boost expects ${HOST}-clang(++) without API suffix; provide shims.
+          # Provide shims without API suffix (Boost expects ${HOST}-clang++)
           ln -sf "${TOOLCHAIN_BIN}/${HOST}${ANDROID_API}-clang"   "${TOOLCHAIN_BIN}/${HOST}-clang"
           ln -sf "${TOOLCHAIN_BIN}/${HOST}${ANDROID_API}-clang++" "${TOOLCHAIN_BIN}/${HOST}-clang++"
           export PATH="$TOOLCHAIN_BIN:$PATH"
-          # Export toolchain so depends/boost picks up the right compilers.
           export CC="${HOST}${ANDROID_API}-clang"
           export CXX="${HOST}${ANDROID_API}-clang++"
           export AR=llvm-ar
           export RANLIB=llvm-ranlib
+          # Force b2 to use our compiler via user-config.jam (no guessing)
+          BOOST_CFG_DIR="$GITHUB_WORKSPACE/boost-config"
+          mkdir -p "$BOOST_CFG_DIR"
+          cat > "$BOOST_CFG_DIR/user-config.jam" <<'JAM'
+using clang-linux
+  : aarch64
+  : aarch64-linux-android-clang++
+  : <compileflags>"-fPIC" <linkflags>"" ;
+JAM
+          export BOOST_BUILD_PATH="$BOOST_CFG_DIR"
           make -C depends -j"$(nproc)" \
             HOST=${HOST} \
             ANDROID_NDK=${ANDROID_NDK_HOME} \
@@ -71,13 +80,14 @@ jobs:
             ANDROID_TOOLCHAIN_BIN="$TOOLCHAIN_BIN" \
             NO_QT=1
 
-      - name: Configure (daemon only, plus cli and tx)
+      - name: Configure (daemon + cli + tx, no Qt)
         env:
           HOST: ${{ env.HOST }}
           ANDROID_API: ${{ env.ANDROID_API }}
           ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
           CONFIG_SITE: ${{ github.workspace }}/depends/${{ env.HOST }}/share/config.site
         run: |
+          set -e
           TOOLCHAIN_BIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
           export PATH="$TOOLCHAIN_BIN:$PATH"
           export CC="${HOST}${ANDROID_API}-clang"
@@ -93,15 +103,19 @@ jobs:
             --without-gui --disable-bench --disable-tests \
             CXXFLAGS="-O2 -fPIC"
 
-      - name: Build + Package (vkaxd, vkax-cli, vkax-tx)
+      - name: Build
         run: |
           make -j"$(nproc)" src/vkaxd src/vkax-cli src/vkax-tx
+
+      - name: Package
+        run: |
           mkdir -p "$BUILD_DIR" "$COMPRESS_DIR"
           cp -f src/vkaxd src/vkax-cli src/vkax-tx "$BUILD_DIR/" || true
           file "$BUILD_DIR/"* || true
           tar -cvzf "$COMPRESS_DIR/${COIN_NAME}-android-aarch64-daemons.tar.gz" -C "$BUILD_DIR" .
-      - uses: actions/upload-artifact@v4
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
         with:
           name: ${{ env.COIN_NAME }}-android-aarch64-daemons
           path: ${{ env.COMPRESS_DIR }}/${{ env.COIN_NAME }}-android-aarch64-daemons.tar.gz
-
