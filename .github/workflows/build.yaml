@@ -1,4 +1,5 @@
-name: VKAX macOS Build
+name: VKAX Multi-OS Build
+
 on:
   workflow_dispatch:
   push:
@@ -8,30 +9,27 @@ env:
   COIN_NAME: vkax
   BUILD_DIR: vkax-build
   COMPRESS_DIR: vkax-compress
-  HOST: x86_64-apple-darwin
   LC_ALL: C
   LANG: C
-  MACOSX_DEPLOYMENT_TARGET: "11.0"
-  HOMEBREW_NO_AUTO_UPDATE: "1"
-  HOMEBREW_NO_INSTALL_CLEANUP: "1"
 
 jobs:
-  build-macos:
-    name: Build VKAX macOS 13 (Qt 5.15.10)
+  # ---------------- MACOS (Qt GUI, static OpenSSL) ----------------
+  macos:
+    name: macOS 13 (Qt 5.15.10)
     runs-on: macos-13
-
+    env:
+      HOST: x86_64-apple-darwin
+      MACOSX_DEPLOYMENT_TARGET: "11.0"
     steps:
-      - name: Checkout Source
-        uses: actions/checkout@v4
-        with:
-          lfs: true
+      - uses: actions/checkout@v4
+        with: { lfs: true }
 
-      - name: Pin Xcode 14.3.1
+      - name: Pin Xcode 14.3.1 + SDK
         run: |
           sudo xcode-select -s /Applications/Xcode_14.3.1.app
+          echo "SDKROOT=$(xcrun --sdk macosx --show-sdk-path)" >> $GITHUB_ENV
           xcodebuild -version
           clang -v | head -n 5
-          echo "SDKROOT=$(xcrun --sdk macosx --show-sdk-path)" >> $GITHUB_ENV
 
       - name: Tooling
         run: |
@@ -42,21 +40,9 @@ jobs:
         shell: bash
         run: |
           unset QMAKESPEC XQMAKESPEC QMAKEPATH QMAKEFEATURES QMAKE QMAKE_SPEC QTDIR QT_PLUGIN_PATH QT_QPA_PLATFORM_PLUGIN_PATH PKG_CONFIG_PATH
-          echo "Env sanitized."
-
-      - name: Clean stale depends
-        run: |
-          make -C depends HOST=${HOST} NO_QT=0 clean || true
-          rm -rf depends/work/build/${HOST}/qt* \
-                 depends/work/download/qt-* \
-                 depends/sources/download-stamps/.stamp_fetched-qt-* || true
-          rm -rf depends/${HOST} || true
 
       - name: Build depends (Qt 5.15.10)
-        env:
-          HOST: ${{ env.HOST }}
         run: |
-          echo "Building depends…"
           env -u QMAKESPEC -u XQMAKESPEC -u QMAKEPATH -u QMAKEFEATURES -u QMAKE -u QMAKE_SPEC -u QTDIR -u QT_PLUGIN_PATH -u QT_QPA_PLATFORM_PLUGIN_PATH -u PKG_CONFIG_PATH \
             make -C depends -j"$(sysctl -n hw.ncpu)" HOST=${HOST}
 
@@ -73,22 +59,174 @@ jobs:
             --disable-tests --disable-bench \
             CXXFLAGS="-std=c++14"
 
-      - name: Build
+      - name: Build + Package
         run: |
           make -j"$(sysctl -n hw.ncpu)"
-          mkdir -p "${BUILD_DIR}"
-          cp -f src/vkaxd "${BUILD_DIR}/" || true
-          cp -f src/vkax-cli "${BUILD_DIR}/" || true
-          cp -f src/qt/vkax-qt "${BUILD_DIR}/" || true
-          strip "${BUILD_DIR}/"* || true
-
-      - name: Package
-        run: |
-          mkdir -p "${COMPRESS_DIR}"
-          tar -cvzf "${COMPRESS_DIR}/${COIN_NAME}-macos13.tar.gz" -C "${BUILD_DIR}" .
-
-      - name: Upload
-        uses: actions/upload-artifact@v4
+          mkdir -p "$BUILD_DIR" "$COMPRESS_DIR"
+          cp -f src/vkaxd src/vkax-cli src/qt/vkax-qt "$BUILD_DIR/" || true
+          strip "$BUILD_DIR/"* || true
+          tar -cvzf "$COMPRESS_DIR/${COIN_NAME}-macos13.tar.gz" -C "$BUILD_DIR" .
+      - uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.COIN_NAME }}-macos13-build
+          name: ${{ env.COIN_NAME }}-macos13
           path: ${{ env.COMPRESS_DIR }}/${{ env.COIN_NAME }}-macos13.tar.gz
+
+  # ---------------- LINUX (Qt GUI, native) ----------------
+  linux:
+    name: Ubuntu 22.04 (Qt 5.15.10)
+    runs-on: ubuntu-22.04
+    env:
+      HOST: x86_64-pc-linux-gnu
+    steps:
+      - uses: actions/checkout@v4
+        with: { lfs: true }
+
+      - name: Tooling
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential automake libtool pkg-config g++ make \
+            libevent-dev libminiupnpc-dev libnatpmp-dev librsvg2-bin libzmq3-dev
+
+      - name: Build depends
+        run: make -C depends -j"$(nproc)" HOST=${HOST}
+
+      - name: Configure
+        env:
+          CONFIG_SITE: ${{ github.workspace }}/depends/${{ env.HOST }}/share/config.site
+        run: |
+          ./autogen.sh || true
+          ./configure \
+            --prefix="${PWD}/depends/${HOST}" \
+            --with-incompatible-bdb \
+            --with-gui=qt5 \
+            --disable-tests --disable-bench \
+            CXXFLAGS="-std=c++14"
+
+      - name: Build + Package
+        run: |
+          make -j"$(nproc)"
+          mkdir -p "$BUILD_DIR" "$COMPRESS_DIR"
+          cp -f src/vkaxd src/vkax-cli src/qt/vkax-qt "$BUILD_DIR/" || true
+          strip "$BUILD_DIR/"* || true
+          tar -cvzf "$COMPRESS_DIR/${COIN_NAME}-linux.tar.gz" -C "$BUILD_DIR" .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.COIN_NAME }}-linux
+          path: ${{ env.COMPRESS_DIR }}/${{ env.COIN_NAME }}-linux.tar.gz
+
+  # ---------------- WINDOWS (cross, mingw-w64) ----------------
+  windows:
+    name: Windows (cross via mingw-w64)
+    runs-on: ubuntu-22.04
+    env:
+      HOST: x86_64-w64-mingw32
+    steps:
+      - uses: actions/checkout@v4
+        with: { lfs: true }
+
+      - name: Tooling
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y automake libtool pkg-config make \
+            mingw-w64 binutils-mingw-w64 g++-mingw-w64 \
+            zip
+
+      - name: Build depends (cross)
+        run: make -C depends -j"$(nproc)" HOST=${HOST}
+
+      - name: Configure (cross)
+        env:
+          CONFIG_SITE: ${{ github.workspace }}/depends/${{ env.HOST }}/share/config.site
+        run: |
+          ./autogen.sh || true
+          ./configure \
+            --host=${HOST} --build=$(gcc -dumpmachine) \
+            --prefix="${PWD}/depends/${HOST}" \
+            --with-incompatible-bdb \
+            --with-gui=qt5 \
+            --disable-tests --disable-bench \
+            CXXFLAGS="-std=c++14"
+
+      - name: Build + Package
+        run: |
+          make -j"$(nproc)"
+          mkdir -p "$BUILD_DIR" "$COMPRESS_DIR"
+          cp -f src/vkaxd.exe src/vkax-cli.exe src/qt/vkax-qt.exe "$BUILD_DIR/" || true
+          zip -r "$COMPRESS_DIR/${COIN_NAME}-windows.zip" "$BUILD_DIR"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.COIN_NAME }}-windows
+          path: ${{ env.COMPRESS_DIR }}/${{ env.COIN_NAME }}-windows.zip
+
+
+  # ---------------- ANDROID (daemon only, no Qt) ----------------
+  android-daemon:
+    name: Android aarch64 (daemon only)
+    runs-on: ubuntu-22.04
+    env:
+      HOST: aarch64-linux-android
+      ANDROID_API: "21"
+    steps:
+      - uses: actions/checkout@v4
+        with: { lfs: true }
+
+      - name: Tooling
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential automake libtool pkg-config python3 unzip wget
+
+      - name: Install Android SDK + NDK (r25c)
+        env:
+          ANDROID_SDK_ROOT: ${{ github.workspace }}/android-sdk
+        run: |
+          mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools"
+          wget -q https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip -O /tmp/clt.zip
+          unzip -q /tmp/clt.zip -d "$ANDROID_SDK_ROOT/cmdline-tools"
+          mv "$ANDROID_SDK_ROOT/cmdline-tools/cmdline-tools" "$ANDROID_SDK_ROOT/cmdline-tools/latest"
+          yes | "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null
+          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" \
+            "platforms;android-${ANDROID_API}" "ndk;25.2.9519653"
+          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
+          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/25.2.9519653" >> $GITHUB_ENV
+          echo "$ANDROID_SDK_ROOT/ndk/25.2.9519653/toolchains/llvm/prebuilt/linux-x86_64/bin" >> $GITHUB_PATH
+
+      - name: Build depends (no Qt)
+        env:
+          HOST: ${{ env.HOST }}
+          ANDROID_API: ${{ env.ANDROID_API }}
+          ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
+        run: |
+          make -C depends -j"$(nproc)" \
+            HOST=${HOST} ANDROID_NDK=${ANDROID_NDK_HOME} ANDROID_API=${ANDROID_API} NO_QT=1
+
+      - name: Configure vkaxd (daemon only)
+        env:
+          HOST: ${{ env.HOST }}
+          ANDROID_API: ${{ env.ANDROID_API }}
+          ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
+          CONFIG_SITE: ${{ github.workspace }}/depends/${{ env.HOST }}/share/config.site
+        run: |
+          export CC="${HOST}${ANDROID_API}-clang"
+          export CXX="${HOST}${ANDROID_API}-clang++"
+          export AR="llvm-ar"
+          export RANLIB="llvm-ranlib"
+          export PKG_CONFIG_PATH="${PWD}/depends/${HOST}/lib/pkgconfig"
+          ./autogen.sh || true
+          ./configure \
+            --host=${HOST} --build=$(gcc -dumpmachine) \
+            --prefix="${PWD}/depends/${HOST}" \
+            --with-incompatible-bdb \
+            --without-gui --disable-bench --disable-tests \
+            CXXFLAGS="-O2 -fPIC"
+
+      - name: Build + Package vkaxd
+        run: |
+          make -j"$(nproc)"
+          mkdir -p "$BUILD_DIR" "$COMPRESS_DIR"
+          cp -f src/vkaxd "$BUILD_DIR/" || true
+          file "$BUILD_DIR/vkaxd" || true
+          tar -cvzf "$COMPRESS_DIR/${COIN_NAME}-android-aarch64-daemon.tar.gz" -C "$BUILD_DIR" .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.COIN_NAME }}-android-aarch64-daemon
+          path: ${{ env.COMPRESS_DIR }}/${{ env.COIN_NAME }}-android-aarch64-daemon.tar.gz
