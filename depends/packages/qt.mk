@@ -121,7 +121,7 @@ endef
 define $(package)_config_cmds
 	export LC_ALL=C LANG=C; \
 	export SDKROOT="$$(xcrun --sdk macosx --show-sdk-path 2>/dev/null)"; \
-	unset QMAKESPEC XQMAKESPEC QMAKEPATH QMAKEFEATURES QMAKE QMAKE_SPEC QTDIR; \
+	unset QMAKESPEC XQMAKESPEC QMAKEPATH QMAKEFEATURES QMAKE QMAKE_SPEC QTDIR QT_PLUGIN_PATH QT_QPA_PLATFORM_PLUGIN_PATH PKG_CONFIG_PATH; \
 	export PKG_CONFIG_SYSROOT_DIR=/; \
 	export PKG_CONFIG_LIBDIR=$(host_prefix)/lib/pkgconfig; \
 	export PKG_CONFIG_PATH=$(host_prefix)/share/pkgconfig; \
@@ -130,6 +130,7 @@ define $(package)_config_cmds
 		export OPENSSL_LIBS="-L$(host_prefix)/lib -lssl -lcrypto"; \
 	fi; \
 	cd $($(package)_extract_dir)/qtbase && \
+	env -u QMAKESPEC -u XQMAKESPEC -u QMAKEPATH -u QMAKEFEATURES -u QMAKE -u QMAKE_SPEC -u QTDIR -u QT_PLUGIN_PATH -u QT_QPA_PLATFORM_PLUGIN_PATH -u PKG_CONFIG_PATH \
 	./configure $($(package)_config_opts) && \
 	{ echo "host_build: QT_CONFIG ~= s/system-zlib/zlib"; echo "CONFIG += force_bootstrap"; } >> mkspecs/qconfig.pri && \
 	cd $($(package)_extract_dir) && \
