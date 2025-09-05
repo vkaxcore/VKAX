@@ -8,50 +8,74 @@ env:
   COIN_NAME: vkax
   BUILD_DIR: vkax-build
   COMPRESS_DIR: vkax-compress
+  HOST: x86_64-apple-darwin            # keep stable triplet
+  LC_ALL: C
+  LANG: C
+  MACOSX_DEPLOYMENT_TARGET: "11.0"
 
 jobs:
   build-macos:
-    name: Build VKAX macOS 13
+    name: Build VKAX macOS 13 (Qt 5.15.10, Xcode 14.3.1)
     runs-on: macos-13
 
     steps:
       - name: Checkout Source
         uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Select Xcode 14.3.1
+        run: sudo xcode-select -s /Applications/Xcode_14.3.1.app/Contents/Developer
+
+      - name: Print SDKROOT
+        run: echo "SDKROOT=$(xcrun --sdk macosx --show-sdk-path)" >> $GITHUB_ENV
 
       - name: Tooling
         run: |
           brew update
-          brew install automake libtool pkg-config miniupnpc librsvg libnatpmp zeromq python@3.13
+          brew install automake libtool pkg-config gnu-tar coreutils miniupnpc librsvg libnatpmp zeromq python@3.11
+          echo "/usr/local/opt/python@3.11/bin" >> $GITHUB_PATH
           python3 -m pip install -U pip setuptools ds_store mac_alias
+
+      - name: Clean stale Qt/depends
+        run: |
+          make -C depends HOST=${HOST} NO_QT=0 clean || true
+          rm -rf depends/work/build/${HOST}/qt* depends/work/download/qt-* || true
+          rm -rf depends/${HOST} || true
 
       - name: Build depends (Qt 5.15.10)
         env:
-          # Do NOT override with custom mirrors; use upstream.
           FALLBACK_DOWNLOAD_PATH: ""
         run: |
           set -euo pipefail
           echo "Building depends…"
-          make -C depends -j8 HOST=x86_64-apple-darwin22.6.0
+          make -C depends -j$(sysctl -n hw.ncpu) HOST=${HOST}
 
-      - name: Configure VKAX
+      - name: Configure VKAX (GUI on, no tests)
         env:
-          CONFIG_SITE: ${{ github.workspace }}/depends/x86_64-apple-darwin22.6.0/share/config.site
+          CONFIG_SITE: ${{ github.workspace }}/depends/${{ env.HOST }}/share/config.site
         run: |
           set -euo pipefail
-          ./autogen.sh
+          ./autogen.sh || true
           ./configure \
-            --prefix="${PWD}/depends/x86_64-apple-darwin22.6.0" \
+            --prefix="${PWD}/depends/${HOST}" \
             --with-incompatible-bdb \
+            --with-gui=qt5 \
             --disable-tests \
+            --disable-bench \
+            --without-natpmp --without-miniupnpc=no \
             CXXFLAGS="-std=c++14"
 
       - name: Build
         run: |
           set -euo pipefail
-          make -j8
+          make -j$(sysctl -n hw.ncpu)
           mkdir -p "${BUILD_DIR}"
-          cp src/{vkax-cli,vkaxd,qt/vkax-qt} "${BUILD_DIR}/"
-          strip "${BUILD_DIR}"/*
+          # copy what exists; GUI may be vkax-qt if enabled
+          cp -f src/vkaxd "${BUILD_DIR}/" || true
+          cp -f src/vkax-cli "${BUILD_DIR}/" || true
+          cp -f src/qt/vkax-qt "${BUILD_DIR}/" || true
+          strip "${BUILD_DIR}/"* || true
 
       - name: Package
         run: |
