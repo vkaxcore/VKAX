@@ -53,76 +53,80 @@ jobs:
           echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/25.2.9519653" >> $GITHUB_ENV
           echo "$ANDROID_SDK_ROOT/ndk/25.2.9519653/toolchains/llvm/prebuilt/linux-x86_64/bin" >> $GITHUB_PATH
 
-      - name: Wrapper compilers (force Android sysroot/target everywhere)
+      - name: Wrapper compilers (strip wrong --target, force Android sysroot)
         env:
           ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
           HOST: ${{ env.HOST }}
           ANDROID_API: ${{ env.ANDROID_API }}
         run: |
           set -euo pipefail
-          NDK_LLVM="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64"
-          BIN="$NDK_LLVM/bin"
-          SYSROOT="$NDK_LLVM/sysroot"
+          LLVM="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64"
+          BIN="$LLVM/bin"
+          SYSROOT="$LLVM/sysroot"
           ARCH="${HOST}"
           API="${ANDROID_API}"
-          REAL_CLANG="$BIN/${ARCH}${API}-clang"
-          REAL_CLANGXX="$BIN/${ARCH}${API}-clang++"
-          INC_CPP="$NDK_LLVM/include/c++/v1"
-          LIB_A64="$SYSROOT/usr/lib/${ARCH}/${API}"
+          REAL_C="$BIN/${ARCH}${API}-clang"
+          REAL_CXX="$BIN/${ARCH}${API}-clang++"
+          INC_CPP="$LLVM/include/c++/v1"
+          LIBDIR="$SYSROOT/usr/lib/${ARCH}/${API}"
 
-          test -x "$REAL_CLANGXX"
+          test -x "$REAL_CXX"
 
-          WRAP="$GITHUB_WORKSPACE/toolwrap"
+          WRAP="$GITHUB_WORKSPACE/.toolwrap"
           mkdir -p "$WRAP"
 
-          mkwrap() {
-            local name="$1" ; shift
-            cat > "$WRAP/$name" <<EOF
-#!/usr/bin/env bash
-exec "$@" --target=${ARCH}${API} --sysroot="$SYSROOT" -D__ANDROID_API__=${API} "\$@"
-EOF
-            chmod +x "$WRAP/$name"
-          }
-
-          # C compiler wrapper
           cat > "$WRAP/${ARCH}${API}-clang" <<EOF
 #!/usr/bin/env bash
-exec "$REAL_CLANG" --target=${ARCH}${API} --sysroot="$SYSROOT" -D__ANDROID_API__=${API} "\$@"
+# remove any host-injected --target/--sysroot to stop Boost poisoning includes
+args=()
+for a in "\$@"; do
+  case "\$a" in
+    --target=*) ;;       # drop
+    --sysroot=*) ;;      # drop
+    -nostdinc++ ) ;;     # we'll set our own
+    *) args+=("\$a");;
+  esac
+done
+exec "$REAL_C" --target=${ARCH}${API} --sysroot="$SYSROOT" -D__ANDROID_API__=${API} "\${args[@]}"
 EOF
           chmod +x "$WRAP/${ARCH}${API}-clang"
 
-          # C++ compiler wrapper (adds libc++)
           cat > "$WRAP/${ARCH}${API}-clang++" <<EOF
 #!/usr/bin/env bash
-exec "$REAL_CLANGXX" --target=${ARCH}${API} --sysroot="$SYSROOT" -D__ANDROID_API__=${API} -stdlib=libc++ -I"$INC_CPP" -I"$SYSROOT/usr/include" "\$@"
+args=()
+for a in "\$@"; do
+  case "\$a" in
+    --target=*) ;;
+    --sysroot=*) ;;
+    -nostdinc++ ) ;;
+    *) args+=("\$a");;
+  esac
+done
+exec "$REAL_CXX" --target=${ARCH}${API} --sysroot="$SYSROOT" -D__ANDROID_API__=${API} -nostdinc++ -stdlib=libc++ \
+  -isystem "$INC_CPP" -isystem "$SYSROOT/usr/include" "\${args[@]}"
 EOF
           chmod +x "$WRAP/${ARCH}${API}-clang++"
 
-          # Names Boost sometimes probes
           ln -sf "$WRAP/${ARCH}${API}-clang"  "$WRAP/${ARCH}-clang"
           ln -sf "$WRAP/${ARCH}${API}-clang++" "$WRAP/${ARCH}-clang++"
-
-          # Prepend wrappers to PATH so they shadow NDK bins
           echo "$WRAP" >> $GITHUB_PATH
 
-          # Classic vars for autotools and our makefiles
           {
             echo "CC=${ARCH}${API}-clang"
             echo "CXX=${ARCH}${API}-clang++"
             echo "AR=llvm-ar"
             echo "RANLIB=llvm-ranlib"
-            echo "C_INCLUDE_PATH=$SYSROOT/usr/include"
-            echo "CPLUS_INCLUDE_PATH=$INC_CPP:$SYSROOT/usr/include"
-            echo "LDFLAGS=-L$LIB_A64 -fuse-ld=lld"
+            echo "LDFLAGS=-L$LIBDIR -fuse-ld=lld -lc++ -lc++abi -llog -landroid"
           } >> $GITHUB_ENV
 
-          # Also hand Boost a user-config as a backup
-          mkdir -p depends
+          # Make b2 read Android toolchain no matter what
+          install -d depends "$HOME/.boost-build"
           cat > depends/user-config.jam <<EOF
 using clang : aarch64 : ${ARCH}-clang++ :
     <target-os>android
 ;
 EOF
+          cp depends/user-config.jam "$HOME/.boost-build/user-config.jam"
           echo "BOOST_BUILD_PATH=$PWD/depends" >> $GITHUB_ENV
 
       - name: Build depends (no Qt)
