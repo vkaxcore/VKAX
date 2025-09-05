@@ -55,7 +55,7 @@ jobs:
           sudo unzip -q /tmp/gradle.zip -d /opt/gradle
           echo "/opt/gradle/gradle-8.7/bin" >> "$GITHUB_PATH"
 
-      - name: Android SDK and NDK r25c
+      - name: Install Android SDK and NDK r25c
         env:
           ANDROID_SDK_ROOT: ${{ github.workspace }}/android-sdk
         run: |
@@ -82,8 +82,10 @@ jobs:
           SYSROOT="$LLVM/sysroot"
           ARCH="$HOST"
           API="$ANDROID_API"
+
           test -x "$BIN/${ARCH}${API}-clang++"
           WRAP="$GITHUB_WORKSPACE/.ccwrap"; mkdir -p "$WRAP"
+
           cat > "$WRAP/_strip_flags.sh" << 'SH'
           #!/usr/bin/env bash
           set -e
@@ -93,7 +95,7 @@ jobs:
             if [ "$skip_next" = 1 ]; then skip_next=0; continue; fi
             case "$a" in
               --target=*|-target=*) continue ;;
-              -target) skip_next=1; continue ;;
+              -target)   skip_next=1; continue ;;
               --sysroot=*|-isysroot=*) continue ;;
               -isysroot) skip_next=1; continue ;;
               -stdlib=*) continue ;;
@@ -103,7 +105,7 @@ jobs:
           printf '%s\n' "${out[@]}"
           SH
           chmod +x "$WRAP/_strip_flags.sh"
-          
+
           make_wrap() {
             local path="$1"; local driver="$2"
             cat > "$path" << 'EOF'
