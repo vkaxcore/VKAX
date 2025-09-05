@@ -65,7 +65,7 @@ jobs:
           unzip -q /tmp/clt.zip -d "$ANDROID_SDK_ROOT/cmdline-tools"
           mv "$ANDROID_SDK_ROOT/cmdline-tools/cmdline-tools" "$ANDROID_SDK_ROOT/cmdline-tools/latest"
           export PATH="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH"
-          yes | sdkmanager --licenses >/dev/null
+          sdkmanager --licenses || true
           sdkmanager "platform-tools" "platforms;android-${{ env.ANDROID_API }}" "ndk;25.2.9519653"
           echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> "$GITHUB_ENV"
           echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/25.2.9519653" >> "$GITHUB_ENV"
@@ -82,10 +82,8 @@ jobs:
           SYSROOT="$LLVM/sysroot"
           ARCH="$HOST"
           API="$ANDROID_API"
-
           test -x "$BIN/${ARCH}${API}-clang++"
           WRAP="$GITHUB_WORKSPACE/.ccwrap"; mkdir -p "$WRAP"
-
           cat > "$WRAP/_strip_flags.sh" << 'SH'
           #!/usr/bin/env bash
           set -e
@@ -95,7 +93,7 @@ jobs:
             if [ "$skip_next" = 1 ]; then skip_next=0; continue; fi
             case "$a" in
               --target=*|-target=*) continue ;;
-              -target)   skip_next=1; continue ;;
+              -target) skip_next=1; continue ;;
               --sysroot=*|-isysroot=*) continue ;;
               -isysroot) skip_next=1; continue ;;
               -stdlib=*) continue ;;
@@ -105,7 +103,7 @@ jobs:
           printf '%s\n' "${out[@]}"
           SH
           chmod +x "$WRAP/_strip_flags.sh"
-
+          
           make_wrap() {
             local path="$1"; local driver="$2"
             cat > "$path" << 'EOF'
