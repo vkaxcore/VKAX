@@ -1,7 +1,7 @@
 # .github/workflows/build.yaml
-# VKAX Android APK build — aarch64; legacy-friendly. 
-# Hardened wrappers STRIP any incoming --target/-target/-isysroot and re-apply correct Android triple + sysroot + libc++ includes.
-# This neuters Boost b2 retargeting and fixes missing <cstddef>. — Setvin
+# VKAX Android APK build — aarch64; legacy-friendly.
+# v3: Intercept ALL compiler calls (generic clang/clang++ and NDK triples), strip hostile flags, re-apply Android triple + sysroot.
+# libc++ headers pulled from $SYSROOT/usr/include/c++/v1 (NDK r25c layout). — Setvin
 
 name: VKAX Android APK Build
 
@@ -68,7 +68,7 @@ jobs:
           echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/25.2.9519653" >> "$GITHUB_ENV"
           echo "$ANDROID_SDK_ROOT/ndk/25.2.9519653/toolchains/llvm/prebuilt/linux-x86_64/bin" >> "$GITHUB_PATH"
 
-      - name: Android wrappers (strip hostile flags) + Boost lock-in
+      - name: Android wrappers v3 (generic + triple) and Boost lock-in
         env:
           HOST: ${{ env.HOST }}
           ANDROID_API: ${{ env.ANDROID_API }}
@@ -83,7 +83,7 @@ jobs:
           test -x "$BIN/${ARCH}${API}-clang++"
           WRAP="$GITHUB_WORKSPACE/.ccwrap"; mkdir -p "$WRAP"
 
-          # Small helper to purge conflicting flags.
+          # Strip conflicting flags coming from b2/toolchains.
           cat > "$WRAP/_strip_flags.sh" << 'SH'
           #!/usr/bin/env bash
           set -e
@@ -96,7 +96,7 @@ jobs:
               -target) skip_next=1; continue ;;
               --sysroot=*|-isysroot=*) continue ;;
               -isysroot) skip_next=1; continue ;;
-              -stdlib=*) continue ;; # avoid clang's unused warning
+              -stdlib=*) continue ;;
             esac
             out+=("$a")
           done
@@ -104,56 +104,55 @@ jobs:
           SH
           chmod +x "$WRAP/_strip_flags.sh"
 
-          # C wrapper.
-          cat > "$WRAP/${ARCH}${API}-clang" << 'EOF'
+          mkwrap() {
+            local name="$1"; shift
+            cat > "$WRAP/$name" << 'EOF'
           #!/usr/bin/env bash
           set -e
           LLVM="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64"
           SYSROOT="$LLVM/sysroot"
-          ARCH="${HOST}"
-          API="${API}"
+          INC_CPP="$SYSROOT/usr/include/c++/v1"  # NDK r25c layout
           CLEANED=( $("$(dirname "$0")/_strip_flags.sh" "$@") )
-          exec "$LLVM/bin/${HOST}${API}-clang" "${CLEANED[@]}" --target=${HOST}${API} --sysroot="$SYSROOT"
+          exec "$LLVM/bin/CLANG" "${CLEANED[@]}" --target=TRIPLE --sysroot="$SYSROOT" -nostdinc++ -isystem "$INC_CPP" -isystem "$SYSROOT/usr/include"
           EOF
-          sed -i "s/\${HOST}/${ARCH}/g; s/\${API}/${API}/g" "$WRAP/${ARCH}${API}-clang"
-          chmod +x "$WRAP/${ARCH}${API}-clang"
+          chmod +x "$WRAP/$name"
+          # Replace placeholders
+          sed -i "s|CLANG|$2|g; s|TRIPLE|${ARCH}${API}|g" "$WRAP/$name"
+          }
 
-          # C++ wrapper.
-          cat > "$WRAP/${ARCH}${API}-clang++" << 'EOF'
-          #!/usr/bin/env bash
-          set -e
-          LLVM="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64"
-          SYSROOT="$LLVM/sysroot"
-          INC_CPP="$LLVM/include/c++/v1"
-          ARCH="${HOST}"
-          API="${API}"
-          CLEANED=( $("$(dirname "$0")/_strip_flags.sh" "$@") )
-          exec "$LLVM/bin/${HOST}${API}-clang++" "${CLEANED[@]}" --target=${HOST}${API} --sysroot="$SYSROOT" -nostdinc++ -isystem "$INC_CPP" -isystem "$SYSROOT/usr/include"
-          EOF
-          sed -i "s/\${HOST}/${ARCH}/g; s/\${API}/${API}/g" "$WRAP/${ARCH}${API}-clang++"
-          chmod +x "$WRAP/${ARCH}${API}-clang++"
-
-          # Probes without API suffix; wrappers must win on PATH.
-          ln -sf "$WRAP/${ARCH}${API}-clang"  "$WRAP/${ARCH}-clang"
+          # Triple-specific drivers
+          mkwrap "${ARCH}${API}-clang"   "${ARCH}${API}-clang"
+          mkwrap "${ARCH}${API}-clang++" "${ARCH}${API}-clang++"
+          ln -sf "$WRAP/${ARCH}${API}-clang"   "$WRAP/${ARCH}-clang"
           ln -sf "$WRAP/${ARCH}${API}-clang++" "$WRAP/${ARCH}-clang++"
+
+          # Generic names to catch Boost calling plain clang++.
+          mkwrap "clang"  "clang"
+          mkwrap "clang++" "clang++"
+
+          # Make wrappers win in every following step.
           echo "$WRAP" >> "$GITHUB_PATH"
           export PATH="$WRAP:$PATH"
 
-          # Toolchain env for autotools.
+          # Toolchain env for autotools and anything else.
           {
-            echo "CC=${ARCH}${API}-clang"
-            echo "CXX=${ARCH}${API}-clang++"
+            echo "CC=clang"
+            echo "CXX=clang++"
             echo "AR=llvm-ar"
             echo "RANLIB=llvm-ranlib"
           } >> "$GITHUB_ENV"
 
-          # Force Boost to our compiler; target-os=android.
+          # Force Boost to our compiler via user-config; target-os=android.
           mkdir -p depends "$HOME/.boost-build"
           cat > depends/user-config.jam <<JAM
           using clang : aarch64 : $WRAP/${ARCH}-clang++ : <target-os>android ;
           JAM
           cp depends/user-config.jam "$HOME/.boost-build/user-config.jam"
           echo "BOOST_BUILD_PATH=$PWD/depends" >> "$GITHUB_ENV"
+
+          # Sanity
+          which clang++
+          clang++ -v || true
 
       - name: Build depends
         env:
@@ -162,9 +161,8 @@ jobs:
           BOOST_BUILD_PATH: ${{ env.BOOST_BUILD_PATH }}
         run: |
           set -eux
-          export PATH="${GITHUB_WORKSPACE}/.ccwrap:${PATH}"
-          which aarch64-linux-android21-clang++
-          aarch64-linux-android21-clang++ -v || true
+          which clang++
+          clang++ --target=${HOST}${ANDROID_API} -v || true
           make -C depends -j"$(nproc)" HOST="$HOST" ANDROID_NDK="$ANDROID_NDK_HOME" ANDROID_API="$ANDROID_API" NO_QT=1 V=1
 
       - name: Configure (vkaxd/cli/tx)
@@ -173,7 +171,6 @@ jobs:
           CONFIG_SITE: ${{ github.workspace }}/depends/${{ env.HOST }}/share/config.site
         run: |
           set -eux
-          export PATH="${GITHUB_WORKSPACE}/.ccwrap:${PATH}"
           export PKG_CONFIG_PATH="${PWD}/depends/${HOST}/lib/pkgconfig"
           ./autogen.sh || true
           ./configure \
@@ -262,10 +259,8 @@ jobs:
         run: |
           set -x
           find depends -maxdepth 7 -type f \( -name bootstrap.log -o -name config.log -o -name project-config.jam -o -name user-config.jam \) -print || true
-          # Prefer to run the b2 we built for host tools, if it exists.
-          B2=$(command -v b2 || true)
-          [ -z "$B2" ] && B2=$(find depends -type f -name b2 -perm -111 -print -quit || true)
-          if [ -n "$B2" ]; then "$B2" --debug-configuration -n --version toolset=clang target-os=android || true; fi
+          which clang++ || true
+          clang++ --version || true
 
       - uses: actions/upload-artifact@v4
         if: always()
