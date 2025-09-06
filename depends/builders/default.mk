@@ -55,5 +55,5 @@ $(eval $(call add_build_flags_func,LDFLAGS))
 # Notes:
 # - Ensure this file uses LF endings (no CRLF), or GNU make may emit
 #   "*** missing separator" at $(eval ...) lines.
-# - Variables build, build_arch, build_os are set by the top-level workflow.
+# - Variables build, build_arch, build_os are set by the workflow before "make -C depends".
 # ============================================
