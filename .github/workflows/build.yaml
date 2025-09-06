@@ -97,13 +97,15 @@ jobs:
 
           # Boost user-config.jam for Android (write Boost-specific config)
           mkdir -p depends "$HOME/.boost-build"
+          
+          # Write user-config.jam for Boost
           cat > depends/user-config.jam <<EOF
 using clang : aarch64
   : ${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android${ANDROID_API}-clang++
   : <target-os>android <architecture>arm <address-model>64 ;
 EOF
 
-          # Copy the user-config.jam to the correct Boost directory
+          # Move the generated user-config.jam to the correct Boost directory
           cp depends/user-config.jam "$HOME/.boost-build/user-config.jam"
           
           # Export Boost build path as an environment variable
