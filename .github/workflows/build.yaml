@@ -1,177 +1,140 @@
-name: VKAX Ubuntu Build Test
+name: VKAX Android Build
 
 on:
+  workflow_dispatch:
   push:
-    branches:
-      - main
-      - v100.11.5
-      - develop
-  pull_request:
-    branches:
-      - develop
+    branches: [ main, v100.11.5-android, dev ]
 
 env:
   COIN_NAME: vkax
   BUILD_DIR: vkax-build
-  TEST_LOG_ARTIFACT_DIR: test-logs
-  RELEASE_BRANCH: main
+  COMPRESS_DIR: vkax-compress
+  LC_ALL: C
+  LANG: C
 
 jobs:
-  # -------------------------
-  # Step 1: Determine version
-  # -------------------------
-  get-version:
-    runs-on: ubuntu-latest
-    outputs:
-      version: ${{ steps.select-version.outputs.version }}
-    steps:
-      - uses: actions/checkout@v4
-      - name: Read version from build.properties
-        id: versions
-        uses: christian-draeger/read-properties@1.1.1
-        with:
-          path: build.properties
-          properties: 'release-version snapshot-version'
-      - name: Choose version
-        id: select-version
-        run: |
-          if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]] || [[ "$GITHUB_REF" == *develop ]]; then
-            version=${{ steps.versions.outputs.snapshot-version }}
-          else
-            version=${{ steps.versions.outputs.release-version }}
-          fi
-          echo "version=$version" >> $GITHUB_OUTPUT
-          echo "$version" > version.txt
-      - uses: actions/upload-artifact@v4
-        with:
-          name: version
-          path: version.txt
-
-  # -------------------------
-  # Step 2: Setup dependencies
-  # -------------------------
-  setup-dependencies:
-    runs-on: ubuntu-latest
-    outputs:
-      deps-script: ${{ steps.save-script.outputs.deps-script }}
-    steps:
-      - uses: actions/checkout@v4
-      - name: Create install-deps.sh
-        id: save-script
-        run: |
-          cat <<'EOF' > install-deps.sh
-          #!/bin/bash
-          set -e
-          sudo apt-get update -y
-          sudo apt-get install -y build-essential libtool autotools-dev automake pkg-config python3 bsdmainutils cmake curl zip unzip
-          if [[ "$1" == "windows" ]]; then
-            sudo apt-get install -y g++-mingw-w64-x86-64 gcc-mingw-w64-x86-64
-            sudo update-alternatives --set x86_64-w64-mingw32-gcc /usr/bin/x86_64-w64-mingw32-gcc-posix
-            sudo update-alternatives --set x86_64-w64-mingw32-g++ /usr/bin/x86_64-w64-mingw32-g++-posix
-          elif [[ "$1" == "arm64" ]]; then
-            sudo apt-get install -y g++-aarch64-linux-gnu
-          fi
-          EOF
-          chmod +x install-deps.sh
-          echo "deps-script=install-deps.sh" >> $GITHUB_OUTPUT
-      - uses: actions/upload-artifact@v4
-        with:
-          name: install-deps
-          path: install-deps.sh
-
-  # -------------------------
-  # Step 3: Cache depends + ccache
-  # -------------------------
-  cache-depends:
-    runs-on: ubuntu-latest
-    needs: setup-dependencies
-    steps:
-      - name: Cache depends folder
-        uses: actions/cache@v3
-        with:
-          path: depends
-          key: depends-${{ runner.os }}-${{ hashFiles('build.properties') }}
-      - name: Cache ccache
-        uses: actions/cache@v3
-        with:
-          path: |
-            ~/.ccache
-          key: ccache-${{ runner.os }}-${{ hashFiles('**/*.cpp','**/*.h') }}
-
-  # -------------------------
-  # Step 4: Ubuntu matrix build
-  # -------------------------
-  build-ubuntu:
+  android-aarch64-daemon:
+    name: Android aarch64 (daemon + cli + tx, no Qt)
     runs-on: ubuntu-22.04
-    needs: [get-version, setup-dependencies, cache-depends]
-    strategy:
-      matrix:
-        arch: [x86_64, arm64]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
-        with:
-          name: install-deps
-      - run: bash install-deps.sh ${{ matrix.arch }}
-      - name: Build depends
-        run: |
-          if [[ "${{ matrix.arch }}" == "x86_64" ]]; then
-            make -C depends -j$(nproc)
-          else
-            make -C depends -j$(nproc) HOST=aarch64-linux-gnu
-          fi
-      - name: Configure
-        run: |
-          if [[ "${{ matrix.arch }}" == "x86_64" ]]; then
-            PREFIX=$(pwd)/depends/x86_64-pc-linux-gnu
-          else
-            PREFIX=$(pwd)/depends/aarch64-linux-gnu
-          fi
-          ./autogen.sh
-          ./configure --prefix=$PREFIX --with-boost-libdir=$PREFIX/lib
-      - run: make -j$(nproc)
-      - run: |
-          mkdir -p $BUILD_DIR
-          mv src/{vkax-cli,vkaxd,qt/vkax-qt} $BUILD_DIR/ || true
-          strip $BUILD_DIR/* || true
-      - name: Archive build
-        run: |
-          if [[ "${{ matrix.arch }}" == "x86_64" ]]; then
-            tar -czf ${COIN_NAME}-ubuntu-${{ needs.get-version.outputs.version }}.tar.gz $BUILD_DIR
-            sha256sum ${COIN_NAME}-ubuntu-${{ needs.get-version.outputs.version }}.tar.gz > ${COIN_NAME}-ubuntu-${{ needs.get-version.outputs.version }}.sha256
-          else
-            tar -czf ${COIN_NAME}-arm64-${{ needs.get-version.outputs.version }}.tar.gz $BUILD_DIR
-            sha256sum ${COIN_NAME}-arm64-${{ needs.get-version.outputs.version }}.tar.gz > ${COIN_NAME}-arm64-${{ needs.get-version.outputs.version }}.sha256
-          fi
-      - uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.arch }}-ubuntu-${{ needs.get-version.outputs.version }}
-          path: |
-            ${{ matrix.arch == 'x86_64' && format('{0}-ubuntu-{1}.tar.gz\n{0}-ubuntu-{1}.sha256', env.COIN_NAME, needs.get-version.outputs.version) || format('{0}-arm64-{1}.tar.gz\n{0}-arm64-{1}.sha256', env.COIN_NAME, needs.get-version.outputs.version) }}
+    env:
+      HOST: aarch64-linux-android
+      ANDROID_API: "21"
 
-  # -------------------------
-  # Step 5: Test builds
-  # -------------------------
-  test-builds:
-    runs-on: ubuntu-22.04
-    needs: build-ubuntu
     steps:
+      # Step 1: Checkout the repository
       - uses: actions/checkout@v4
-      - name: Create test logs dir
-        run: mkdir -p $TEST_LOG_ARTIFACT_DIR
-      - uses: actions/download-artifact@v4
         with:
-          name: x86_64-ubuntu-${{ needs.get-version.outputs.version }}
-          path: ubuntu-x86_64
-      - uses: actions/download-artifact@v4
+          lfs: true
+
+      # Step 2: Set up JDK 11
+      - name: Set up JDK 11
+        uses: actions/setup-java@v4
         with:
-          name: arm64-ubuntu-${{ needs.get-version.outputs.version }}
-          path: ubuntu-arm64
-      - name: Run CLI --version tests
+          distribution: temurin
+          java-version: "11"
+
+      # Step 3: Install necessary tooling
+      - name: Install Tooling
         run: |
-          ./ubuntu-x86_64/vkax-cli --version > $TEST_LOG_ARTIFACT_DIR/ubuntu-x86_64.log || true
-          ./ubuntu-arm64/vkax-cli --version > $TEST_LOG_ARTIFACT_DIR/ubuntu-arm64.log || true
+          set -eux
+          sudo apt-get update
+          sudo apt-get install -y build-essential automake libtool pkg-config python3 unzip wget cmake ninja-build
+
+      # Step 4: Install Android SDK and NDK (r25c)
+      - name: Install Android SDK + NDK (r25c)
+        env:
+          ANDROID_SDK_ROOT: ${{ github.workspace }}/android-sdk
+        run: |
+          set -eux
+          # Install SDK Tools
+          if [ ! -d "$ANDROID_SDK_ROOT" ]; then
+            mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools"
+            wget -q https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip -O /tmp/clt.zip
+            unzip -q /tmp/clt.zip -d "$ANDROID_SDK_ROOT/cmdline-tools"
+            mv "$ANDROID_SDK_ROOT/cmdline-tools/cmdline-tools" "$ANDROID_SDK_ROOT/cmdline-tools/latest"
+            export PATH="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH"
+            yes | sdkmanager --licenses >/dev/null
+            sdkmanager "platform-tools" "platforms;android-${{ env.ANDROID_API }}" "ndk;25.2.9519653"
+          else
+            echo "Android SDK/NDK already installed."
+          fi
+          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/25.2.9519653" >> "$GITHUB_ENV"
+          echo "$ANDROID_SDK_ROOT/ndk/25.2.9519653/toolchains/llvm/prebuilt/linux-x86_64/bin" >> "$GITHUB_PATH"
+
+      # Step 5: Set up NDK clang toolchain for Boost
+      - name: Set up NDK clang toolchain for Boost
+        env:
+          HOST: ${{ env.HOST }}
+          ANDROID_API: ${{ env.ANDROID_API }}
+          ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
+        run: |
+          set -eux
+          TOOLCHAIN_BIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          test -x "$TOOLCHAIN_BIN/${HOST}${ANDROID_API}-clang++"
+          ln -sf "${TOOLCHAIN_BIN}/${HOST}${ANDROID_API}-clang"  "${TOOLCHAIN_BIN}/${HOST}-clang"
+          ln -sf "${TOOLCHAIN_BIN}/${HOST}${ANDROID_API}-clang++" "${TOOLCHAIN_BIN}/${HOST}-clang++"
+          echo "$TOOLCHAIN_BIN" >> "$GITHUB_PATH"
+          {
+            echo "CC=${HOST}${ANDROID_API}-clang"
+            echo "CXX=${HOST}${ANDROID_API}-clang++"
+            echo "AR=llvm-ar"
+            echo "RANLIB=llvm-ranlib"
+          } >> "$GITHUB_ENV"
+          mkdir -p depends "$HOME/.boost-build"
+          cat > depends/user-config.jam <<'EOF'
+using clang : aarch64 : $(ANDROID_NDK_HOME)/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android$(ANDROID_API)-clang++ : <target-os>android ;
+EOF
+          cp depends/user-config.jam "$HOME/.boost-build/user-config.jam"
+          echo "BOOST_BUILD_PATH=$PWD/depends" >> "$GITHUB_ENV"
+
+      # Step 6: Build dependencies (no Qt)
+      - name: Build dependencies (no Qt)
+        env:
+          HOST: ${{ env.HOST }}
+          ANDROID_API: ${{ env.ANDROID_API }}
+          BOOST_BUILD_PATH: ${{ env.BOOST_BUILD_PATH }}
+        run: |
+          set -eux
+          make -C depends -j"$(nproc)" HOST="$HOST" ANDROID_NDK="$ANDROID_NDK_HOME" ANDROID_API="$ANDROID_API" NO_QT=1 V=1
+
+      # Step 7: Configure for daemon + cli + tx
+      - name: Configure (daemon + cli + tx)
+        env:
+          HOST: ${{ env.HOST }}
+          CONFIG_SITE: ${{ github.workspace }}/depends/${{ env.HOST }}/share/config.site
+        run: |
+          set -eux
+          export PKG_CONFIG_PATH="${PWD}/depends/${HOST}/lib/pkgconfig"
+          ./autogen.sh || true
+          ./configure \
+            --host="${HOST}" --build="$(gcc -dumpmachine)" \
+            --prefix="${PWD}/depends/${HOST}" \
+            --with-incompatible-bdb \
+            --without-gui --disable-bench --disable-tests \
+            CXXFLAGS="-O2 -fPIC"
+
+      # Step 8: Build and package the binaries (vkaxd, vkax-cli, vkax-tx)
+      - name: Build and Package (vkaxd, vkax-cli, vkax-tx)
+        run: |
+          set -eux
+          make -j"$(nproc)" src/vkaxd src/vkax-cli src/vkax-tx
+          mkdir -p "$BUILD_DIR" "$COMPRESS_DIR"
+          cp -f src/vkaxd src/vkax-cli src/vkax-tx "$BUILD_DIR/" || true
+          tar -czvf "$COMPRESS_DIR/${COIN_NAME}-android-aarch64-daemons.tar.gz" -C "$BUILD_DIR" .
+
+      # Step 9: Diagnostics (always)
+      - name: Diagnostics (always)
+        if: always()  # Ensure this step always runs
+        run: |
+          set -x
+          find depends -maxdepth 7 -type f \( -name bootstrap.log -o -name config.log -o -name project-config.jam -o -name user-config.jam \) -print || true
+          B2=$(find depends -maxdepth 7 -type f -name b2 -print -quit || true)
+          if [ -n "$B2" ]; then "$(dirname "$B2")/b2" --debug-configuration -n --version toolset=clang target-os=android || true; fi
+
+      # Step 10: Upload the build artifact
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
-          name: test-logs-${{ needs.get-version.outputs.version }}
-          path: $TEST_LOG_ARTIFACT_DIR
+          name: ${{ env.COIN_NAME }}-android-aarch64-daemons
+          path: ${{ env.COMPRESS_DIR }}/${{ env.COIN_NAME }}-android-aarch64-daemons.tar.gz
