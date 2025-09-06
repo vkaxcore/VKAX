@@ -1,4 +1,4 @@
-# .NOTPARALLEL: Avoid parallel build issues for certain targets.
+# .NOTPARALLEL : Avoid parallel build issues for certain targets.
 
 # Define variables
 MAKEOVERRIDES := $(filter V=%,$(MAKEOVERRIDES))
@@ -136,19 +136,23 @@ endef
 
 check-packages:
 	@$(foreach package,$(all_packages),$(call check_or_remove_cached,$(package));)
+check-sources:
+	@$(foreach package,$(all_packages),$(call check_or_remove_sources,$(package));)
 
-# Clean the build environment
+$(host_prefix)/share/config.site: check-packages
+
+check-packages: check-sources
+
 clean-all: clean
 	@rm -rf $(SOURCES_PATH) x86_64* i686* mips* arm* aarch64* riscv32* riscv64*
 
 clean:
 	@rm -rf $(WORK_PATH) $(BASE_CACHE) $(BUILD)
 
-# Installation rule
 install: check-packages $(host_prefix)/share/config.site
 
-# Package downloads
 download-one: check-sources $(all_sources)
+
 download-osx:
 	@$(MAKE) -s HOST=x86_64-apple-darwin download-one
 download-linux:
@@ -157,7 +161,6 @@ download-win:
 	@$(MAKE) -s HOST=x86_64-w64-mingw32 download-one
 download: download-osx download-linux download-win
 
-# Add stages for all packages
 $(foreach package,$(all_packages),$(eval $(call ext_add_stages,$(package))))
 
-.PHONY: install clean clean-all download-one download-osx download-linux download-win download check-packages check-sources
+.PHONY: install cached clean clean-all download-one download-osx download-linux download-win download check-packages check-sources
