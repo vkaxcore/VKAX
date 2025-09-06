@@ -1,7 +1,7 @@
 # File: depends/hosts/android.mk
-# Android NDK toolchain wiring for VKAX depends (Bitcoin/Dash style).
-# Intent: absolute tool paths, RELATIVE install prefix (no writes to /), legacy-safe; do not touch consensus.
-# Maintainers: Setvin  |  Summary: fixes /aarch64-linux-android mkdir perms error by making prefix relative and exporting host_prefix.
+# Director: Setvin
+# Intent: RELATIVE install prefix to prevent writes to '/', absolute tool paths, legacy-safe; fixes mkdir '/aarch64-linux-android' perms.
+# Notes: funcs.mk will rm/mkdir/cd into $(host_prefix); keep this relative.
 
 UNAME_S ?= $(shell uname -s)
 UNAME_M ?= $(shell uname -m)
@@ -59,7 +59,7 @@ android_CXXFLAGS := --sysroot=$(android_SYSROOT) -D__ANDROID_API__=$(ANDROID_API
 android_LDFLAGS  := --sysroot=$(android_SYSROOT)
 
 # Staging prefix/id (MUST be relative; funcs.mk rm/mkdir/cd into this)
-android_prefix    := $(host)   # critical: no leading slash, prevents /aarch64-linux-android
+android_prefix    := $(host)   # critical: no leading slash
 android_id_string := android-ndk=$(notdir $(ANDROID_NDK)) api=$(ANDROID_API_LEVEL)
 
 # Guard against accidental absolute prefix
@@ -154,4 +154,4 @@ ifeq ($(V),1)
   $(info [depends/android] host_prefix=$(host_prefix))
 endif
 
-# Signed: Setvin
+# Summary: relative android_prefix + host_prefix fix permission error; rest unchanged.  Signed: Setvin
