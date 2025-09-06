@@ -46,7 +46,6 @@ jobs:
           ANDROID_SDK_ROOT: ${{ github.workspace }}/android-sdk
         run: |
           set -eux
-          # Install SDK Tools
           if [ ! -d "$ANDROID_SDK_ROOT" ]; then
             mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools"
             wget -q https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip -O /tmp/clt.zip
