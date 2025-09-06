@@ -3,7 +3,6 @@
 # Intent: Core dependency build orchestration for VKAX "depends" with legacy layout preserved.
 # Master fix: safe Android prefix; quoted PKG_CONFIG_* and PATH; filter Qt on Android; and
 #             robust default configure logic with OpenSSL special-case (uses perl ./Configure).
-
 AT ?= @
 
 # --- Android prefix safety -----------------------------------------------------
@@ -58,7 +57,6 @@ ifeq ($(host_os),android)
     export ANDROID_API:=$(ANDROID_API_LEVEL)
   endif
 
-  # Android build is daemon/cli/tx only.
   NO_QT ?= 1
 endif
 
@@ -161,7 +159,7 @@ $(1)_set_vars ?=
 all_sources+=$$($(1)_fetched)
 endef
 
-# --- Attach build config and create a robust default configure path ------------
+# --- Attach build config + robust default configure path (no 'ifeq' inside) ---
 define int_config_attach_build_config
 $(eval $(call $(1)_set_vars,$(1)))
 $(1)_cflags+=$($(1)_cflags_$(release_type))
@@ -206,9 +204,8 @@ $(1)_config_env+=PATH="$(build_prefix)/bin:$(PATH)"
 $(1)_build_env+=PATH="$(build_prefix)/bin:$(PATH)"
 $(1)_stage_env+=PATH="$(build_prefix)/bin:$(PATH)"
 
-# Autoconf line (used by default path below if ./configure exists)
+# Autoconf (generic)
 $(1)_autoconf=./configure --host=$($($(1)_type)_host) --disable-dependency-tracking --prefix=$($($(1)_type)_prefix) $$($(1)_config_opts) CC="$$($(1)_cc)" CXX="$$($(1)_cxx)"
-
 ifneq ($($(1)_nm),)
 $(1)_autoconf += NM="$$($(1)_nm)"
 endif
@@ -231,41 +228,13 @@ ifneq ($($(1)_ldflags),)
 $(1)_autoconf += LDFLAGS="$$($(1)_ldflags)"
 endif
 
-# --- Robust default configure command -----------------------------------------
-# If a package recipe didn't provide $(1)_config_cmds, choose a smart default:
-#   * Use ./configure when present (Autotools)
-#   * For OpenSSL, prefer 'perl ./Configure <target> no-shared' (static) to avoid the
-#     infamous "Usage: Configure ..." error you hit when calling ./configure.
-ifeq ($($(1)_config_cmds),)
-  ifeq ($(1),openssl)
-    # Minimal target mapping that works across 1.0.x on Android toolchains
-    $(1)_ossl_target := linux-generic64
-    ifeq ($(host_arch),armv7a)
-      $(1)_ossl_target := linux-armv4
-    endif
-    ifeq ($(host_arch),x86_64)
-      $(1)_ossl_target := linux-x86_64
-    endif
-    ifeq ($(host_arch),i686)
-      $(1)_ossl_target := linux-elf
-    endif
-    $(1)_config_cmds = \
-      if test -f ./Configure; then \
-        AR="$$($(1)_ar)" RANLIB="$$($(1)_ranlib)" CC="$$($(1)_cc)" perl ./Configure $$($(1)_ossl_target) no-shared no-asm --prefix=$$($$($(1)_type)_prefix) --openssldir=$$($$($(1)_type)_prefix)/ssl; \
-      elif test -x ./config; then \
-        AR="$$($(1)_ar)" RANLIB="$$($(1)_ranlib)" CC="$$($(1)_cc)" ./config no-shared no-asm --prefix=$$($$($(1)_type)_prefix) --openssldir=$$($$($(1)_type)_prefix)/ssl; \
-      else \
-        echo "error: OpenSSL Configure script not found"; exit 1; \
-      fi
-  else
-    $(1)_config_cmds = \
-      if test -x ./configure; then \
-        $$($(1)_autoconf); \
-      else \
-        echo "note: no ./configure for $(1), skipping"; \
-      fi
-  endif
-endif
+# OpenSSL target map + default command (no directive conditionals)
+$(1)_ossl_target := $(if $(filter armv7a,$(host_arch)),linux-armv4,$(if $(filter x86_64,$(host_arch)),linux-x86_64,$(if $(filter i686,$(host_arch)),linux-elf,linux-generic64)))
+$(1)_generic_config_cmd  := if test -x ./configure; then $($(1)_autoconf); else echo "note: no ./configure for $(1), skipping"; fi
+$(1)_openssl_config_cmd  := if test -f ./Configure; then AR="$($(1)_ar)" RANLIB="$($(1)_ranlib)" CC="$($(1)_cc)" perl ./Configure $($(1)_ossl_target) no-shared no-asm --prefix=$($($(1)_type)_prefix) --openssldir=$($($(1)_type)_prefix)/ssl; elif test -x ./config; then AR="$($(1)_ar)" RANLIB="$($(1)_ranlib)" CC="$($(1)_cc)" ./config no-shared no-asm --prefix=$($($(1)_type)_prefix) --openssldir=$($($(1)_type)_prefix)/ssl; else echo "error: OpenSSL Configure script not found"; exit 1; fi
+
+# Only set a default if none provided; choose OpenSSL path for the openssl package
+$(1)_config_cmds := $(if $($(1)_config_cmds),$($(1)_config_cmds),$(if $(filter openssl,$(1)),$($(1)_openssl_config_cmd),$($(1)_generic_config_cmd)))
 endef
 
 # --- Build steps ---------------------------------------------------------------
