@@ -19,7 +19,7 @@ env:
   COMPRESS_DIR: vkax-compress  # Directory for compressed artifacts
   LC_ALL: C  # Set locale for consistent behavior across machines
   LANG: C
-  ANDROID_API: "25"  # Android API level to target
+  ANDROID_API: "25"  # Android API level to target, changed from 21 to 25
   HOST: aarch64-linux-android  # Set the host for cross-compiling
 
 jobs:
@@ -79,26 +79,28 @@ jobs:
           set -eux
           TOOLCHAIN_BIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
           
-          # Check if clang++ exists for the correct API level
-          if [ ! -x "$TOOLCHAIN_BIN/${HOST}${ANDROID_API}-clang++" ]; then
-            echo "clang++ for API level ${ANDROID_API} not found"
-            exit 1
+          # Check if clang++ for the correct API level exists
+          if [ ! -x "$TOOLCHAIN_BIN/aarch64-linux-android${ANDROID_API}-clang++" ]; then
+            echo "clang++ for API level $ANDROID_API not found, using clang-3.5 as fallback."
+            
+            # Check if clang-3.5 exists and symlink it if needed
+            if [ -x "/usr/bin/clang-3.5" ] && [ -x "/usr/bin/clang++-3.5" ]; then
+              sudo ln -sf /usr/bin/clang-3.5 /usr/bin/clang
+              sudo ln -sf /usr/bin/clang++-3.5 /usr/bin/clang++
+            else
+              echo "clang-3.5 not found, make sure it's installed or download the correct NDK version."
+              exit 1
+            fi
           fi
           
-          # Create symlinks for clang and clang++
-          ln -sf "${TOOLCHAIN_BIN}/${HOST}${ANDROID_API}-clang"  "${TOOLCHAIN_BIN}/${HOST}-clang"
-          ln -sf "${TOOLCHAIN_BIN}/${HOST}${ANDROID_API}-clang++" "${TOOLCHAIN_BIN}/${HOST}-clang++"
-          
-          # Add toolchain binary directory to PATH for later steps
+          # Set environment variables for the build process
           echo "$TOOLCHAIN_BIN" >> "$GITHUB_PATH"
-          
-          # Set environment variables for Boost to use the Android NDK toolchain
           echo "CC=${HOST}${ANDROID_API}-clang" >> "$GITHUB_ENV"
           echo "CXX=${HOST}${ANDROID_API}-clang++" >> "$GITHUB_ENV"
           echo "AR=llvm-ar" >> "$GITHUB_ENV"
           echo "RANLIB=llvm-ranlib" >> "$GITHUB_ENV"
 
-          # Boost user-config.jam for Android
+          # Configure Boost to use the Android NDK toolchain
           mkdir -p depends "$HOME/.boost-build"
           
           # Create user-config.jam dynamically using echo
