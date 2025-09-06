@@ -19,7 +19,7 @@ env:
   COMPRESS_DIR: vkax-compress  # Directory for compressed artifacts
   LC_ALL: C  # Set locale for consistent behavior across machines
   LANG: C
-  ANDROID_API: "25"  # Android API level to target, changed from 21 to 25
+  ANDROID_API: "25"  # Android API level to target
   HOST: aarch64-linux-android  # Set the host for cross-compiling
 
 jobs:
@@ -81,9 +81,12 @@ jobs:
           
           # Check if clang++ for the correct API level exists
           if [ ! -x "$TOOLCHAIN_BIN/aarch64-linux-android${ANDROID_API}-clang++" ]; then
-            echo "clang++ for API level $ANDROID_API not found, using clang-3.5 as fallback."
-            
-            # Check if clang-3.5 exists and symlink it if needed
+            echo "clang++ for API level $ANDROID_API not found, attempting to install clang-3.5 as fallback."
+
+            # Install clang-3.5 if missing (for fallback purposes)
+            sudo apt-get install clang-3.5
+
+            # Check again if clang-3.5 exists and create symlinks
             if [ -x "/usr/bin/clang-3.5" ] && [ -x "/usr/bin/clang++-3.5" ]; then
               sudo ln -sf /usr/bin/clang-3.5 /usr/bin/clang
               sudo ln -sf /usr/bin/clang++-3.5 /usr/bin/clang++
