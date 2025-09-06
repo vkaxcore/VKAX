@@ -1,18 +1,19 @@
 # depends/hosts/android.mk
-# Android NDK toolchain wiring for depends (VKAX / Bitcoin / Dash style).
-# Intent:
-#   - Produce absolute CC/CXX/AR/RANLIB/NM paths (no leading "/" errors).
-#   - Always define API level for compiler target and -D__ANDROID_API__.
-#   - Provide per-type keys (<arch>_android_*) required by funcs.mk:
+# Android NDK toolchain wiring for VKAX depends (Bitcoin/Dash style).
+# Purpose:
+#   - Provide absolute CC/CXX/AR/RANLIB/NM from the NDK LLVM toolchain (no bogus leading "/").
+#   - Always set the API level for compiler targets and -D__ANDROID_API__.
+#   - Define per-type keys (<arch>_android_*) required by depends/funcs.mk:
 #       *_host, *_CC, *_CXX, *_AR, *_RANLIB, *_NM, *_CPPFLAGS, *_CFLAGS, *_CXXFLAGS, *_LDFLAGS, *_prefix, *_id_string
-#   - Keep everything minimal/deterministic to avoid destabilizing legacy build logic.
-# Maintainers:
-#   - Export ANDROID_NDK (or ANDROID_NDK_HOME) and ANDROID_API (or ANDROID_API_LEVEL) in CI.
-#   - Host tag is auto-detected; no hardcoded linux-x86_64 assumptions.
+#   - Minimal/deterministic flags; no invasive changes to legacy logic.
+# Requirements:
+#   - ANDROID_NDK (or ANDROID_NDK_HOME) must be exported by CI/environment.
+#   - ANDROID_API_LEVEL preferred; falls back to ANDROID_API; default 21.
+#   - $(HOST) comes from top-level depends (e.g. aarch64-linux-android).
 # Signed: Setvin
 
 # ----------------------------
-# Detect NDK host tag r23+ API
+# Detect NDK host tag (r23+)
 # ----------------------------
 UNAME_S ?= $(shell uname -s)
 UNAME_M ?= $(shell uname -m)
@@ -42,9 +43,8 @@ NDK_HOST_TAG ?= $(_NDK_HOST_OS)-$(_NDK_HOST_ARCH)
 ANDROID_NDK       ?= $(ANDROID_NDK_HOME)
 ANDROID_API_LEVEL ?= $(if $(ANDROID_API),$(ANDROID_API),21)
 
-# Fail fast on missing NDK
 ifeq ($(strip $(ANDROID_NDK)),)
-  $(error ANDROID_NDK is not set; expected e.g. /.../android-ndk-r23c)
+  $(error ANDROID_NDK is not set; expected e.g. /path/to/android-ndk-r23c)
 endif
 
 # Canonical toolchain bin dir (absolute; no trailing slash)
@@ -59,7 +59,7 @@ android_SYSROOT := $(ANDROID_TOOLCHAIN_BIN)/../sysroot
 # -----------------------------------------
 # Compose absolute tool paths for $(HOST)
 # -----------------------------------------
-# $(HOST) comes from top-level make (e.g. aarch64-linux-android, armv7a-linux-android, x86_64-linux-android, i686-linux-android).
+# Special-case armv7a which uses *androideabi* triple with "eabi" suffix in the legacy HOST form.
 ifeq ($(HOST),armv7a-linux-android)
   _HOST_TRIPLE_CC  := $(HOST)eabi$(ANDROID_API_LEVEL)-clang
   _HOST_TRIPLE_CXX := $(HOST)eabi$(ANDROID_API_LEVEL)-clang++
@@ -68,6 +68,7 @@ else
   _HOST_TRIPLE_CXX := $(HOST)$(ANDROID_API_LEVEL)-clang++
 endif
 
+# Absolute tool binaries (shared defaults)
 android_CC      := $(ANDROID_TOOLCHAIN_BIN)/$(_HOST_TRIPLE_CC)
 android_CXX     := $(ANDROID_TOOLCHAIN_BIN)/$(_HOST_TRIPLE_CXX)
 android_AR      := $(ANDROID_TOOLCHAIN_BIN)/llvm-ar
@@ -76,15 +77,13 @@ android_NM      := $(ANDROID_TOOLCHAIN_BIN)/llvm-nm
 android_STRIP   := $(ANDROID_TOOLCHAIN_BIN)/llvm-strip
 android_LIBTOOL :=
 
-# -------------------------
-# Common flags (all arches)
-# -------------------------
+# Common flags injected for every Android target
 android_CPPFLAGS := --sysroot=$(android_SYSROOT) -D__ANDROID_API__=$(ANDROID_API_LEVEL)
 android_CFLAGS   := --sysroot=$(android_SYSROOT) -D__ANDROID_API__=$(ANDROID_API_LEVEL)
 android_CXXFLAGS := --sysroot=$(android_SYSROOT) -D__ANDROID_API__=$(ANDROID_API_LEVEL)
 android_LDFLAGS  := --sysroot=$(android_SYSROOT)
 
-# Staging prefix under $(host_prefix) computed by depends
+# Staging prefix/id used by depends hashing and install layout
 android_prefix    := /$(host)
 android_id_string := android-ndk=$(notdir $(ANDROID_NDK)) api=$(ANDROID_API_LEVEL)
 
@@ -153,9 +152,9 @@ i686_android_prefix    := $(android_prefix)
 i686_android_id_string := $(android_id_string)
 
 # --------------------------------
-# Aliases some packages expect
+# Aliases some recipes expect
 # --------------------------------
-# Some legacy package recipes (e.g. miniupnpc) reference host_* directly.
+# Legacy recipes may read host_* directly; map to LLVM tools.
 host_AR     ?= $(android_AR)
 host_RANLIB ?= $(android_RANLIB)
 host_STRIP  ?= $(android_STRIP)
