@@ -19,7 +19,7 @@ env:
   COMPRESS_DIR: vkax-compress  # Directory for compressed artifacts
   LC_ALL: C  # Set locale for consistent behavior across machines
   LANG: C
-  ANDROID_API: "25"  # Android API level to target, changed from 21 to 25
+  ANDROID_API: "25"  # Android API level to target
   HOST: aarch64-linux-android  # Set the host for cross-compiling
 
 jobs:
@@ -54,7 +54,7 @@ jobs:
         run: |
           set -eux
           if [ ! -d "$ANDROID_SDK_ROOT" ]; then
-            echo "Installing Android SDK"
+            echo "Installing Android SDK and NDK"
             mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools"  # Ensure the cmdline-tools directory exists
             wget -q https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip -O /tmp/clt.zip
             unzip -q /tmp/clt.zip -d "$ANDROID_SDK_ROOT/cmdline-tools"  # Unzip SDK tools
@@ -66,22 +66,10 @@ jobs:
             echo "Android SDK/NDK already installed, skipping installation."
           fi
           echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> "$GITHUB_ENV"  # Export SDK root for later steps
+          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/25.2.9519653" >> "$GITHUB_ENV"  # Set NDK path
+          echo "$ANDROID_SDK_ROOT/ndk/25.2.9519653/toolchains/llvm/prebuilt/linux-x86_64/bin" >> "$GITHUB_PATH"  # Add NDK tools to path
 
-      # Step 5: Install the Android NDK using the .deb package
-      - name: Install Android NDK via .deb Package
-        run: |
-          set -eux
-          # Install required dependencies before installing the NDK
-          sudo apt-get update
-          sudo apt-get install -y google-android-licenses po-debconf
-
-          # Download the NDK .deb package
-          wget http://ftp.us.debian.org/debian/pool/non-free/g/google-android-installers/google-android-ndk-r25c-installer_25.2.9519653+1743526702-1_amd64.deb -O /tmp/google-android-ndk.deb
-          # Install the NDK .deb package
-          sudo dpkg -i /tmp/google-android-ndk.deb
-          sudo apt-get install -f  # Fix any missing dependencies
-
-      # Step 6: Set up NDK clang toolchain for Boost
+      # Step 5: Set up NDK clang toolchain for Boost
       - name: Set up NDK clang toolchain for Boost
         env:
           HOST: ${{ env.HOST }}
@@ -121,7 +109,7 @@ jobs:
           # Export Boost build path as an environment variable
           echo "BOOST_BUILD_PATH=$PWD/depends" >> "$GITHUB_ENV"
 
-      # Step 7: Build dependencies (no Qt)
+      # Step 6: Build dependencies (no Qt)
       - name: Build dependencies (no Qt)
         env:
           HOST: ${{ env.HOST }}
@@ -131,7 +119,7 @@ jobs:
           set -eux
           make -C depends -j"$(nproc)" HOST="$HOST" ANDROID_NDK="$ANDROID_NDK_HOME" ANDROID_API="$ANDROID_API" NO_QT=1 V=1
 
-      # Step 8: Configure for daemon + cli + tx
+      # Step 7: Configure for daemon + cli + tx
       - name: Configure (daemon + cli + tx)
         env:
           HOST: ${{ env.HOST }}
@@ -147,7 +135,7 @@ jobs:
             --without-gui --disable-bench --disable-tests \
             CXXFLAGS="-O2 -fPIC"  # Configure the project with appropriate flags
 
-      # Step 9: Build and package the binaries (vkaxd, vkax-cli, vkax-tx)
+      # Step 8: Build and package the binaries (vkaxd, vkax-cli, vkax-tx)
       - name: Build and Package (vkaxd, vkax-cli, vkax-tx)
         run: |
           set -eux
@@ -156,7 +144,7 @@ jobs:
           cp -f src/vkaxd src/vkax-cli src/vkax-tx "$BUILD_DIR/" || true  # Copy binaries to build dir
           tar -czvf "$COMPRESS_DIR/${COIN_NAME}-android-aarch64-daemons.tar.gz" -C "$BUILD_DIR" .  # Compress the binaries into a tar.gz archive
 
-      # Step 10: Diagnostics (always run for debugging)
+      # Step 9: Diagnostics (always run for debugging)
       - name: Diagnostics (always)
         if: always()  # Ensure this step always runs, even on failure
         run: |
@@ -165,7 +153,7 @@ jobs:
           B2=$(find depends -maxdepth 7 -type f -name b2 -print -quit || true)
           if [ -n "$B2" ]; then "$(dirname "$B2")/b2" --debug-configuration -n --version toolset=clang target-os=android || true; fi
 
-      # Step 11: Upload the build artifact
+      # Step 10: Upload the build artifact
       - uses: actions/upload-artifact@v4
         if: always()  # Upload the artifact even if the build fails
         with:
