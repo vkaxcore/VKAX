@@ -1,12 +1,7 @@
 # File: depends/funcs.mk
 # Director: Setvin
 # Intent: Core dependency build orchestration for VKAX "depends" with legacy layout preserved.
-# Key changes for maintainers:
-#   - Android wrapper compiler/export fallbacks (prevents '/aarch64-linux-android-clang' and blank API).
-#   - Guarded --sysroot/__ANDROID_API__ injection (only when toolchain/sysroot is resolvable).
-#   - Debug echoes at configure/build time for toolchain/flags visibility.
-#   - Corrected 'final_build_id_long' aggregation to use $(1) rather than a stale $(package).
-#   - All recipe lines use literal TABs; do not convert to spaces.
+# Key: Android prefix guard + default host_prefix, verbose toolchain echoes, no ownership flips on tar, literal TABs only.
 
 # ------------------------------------------------------------------------------
 # Optional quieting (legacy pattern)
@@ -14,17 +9,23 @@
 AT ?= @
 
 # ------------------------------------------------------------------------------
+# Android prefix safety (prevents mkdir/cd to filesystem root)
+# ------------------------------------------------------------------------------
+ifeq ($(host_os),android)
+  host_prefix ?= $(host)                              # sane default if hosts/android.mk didn't set it
+  ifneq (,$(filter /%,$(host_prefix)))
+    $(error host_prefix must be relative for Android, got "$(host_prefix)")
+  endif
+endif
+
+# ------------------------------------------------------------------------------
 # Android NDK glue (fallbacks that do not disturb legacy hosts)
 # This section only activates when building for Android.
 # ------------------------------------------------------------------------------
 ifeq ($(host_os),android)
-  # Some CI provide ANDROID_API, some ANDROID_API_LEVEL; unify.
   ANDROID_API_LEVEL ?= $(ANDROID_API)
-
-  # HOST triplet (e.g. aarch64-linux-android); default to $(host) which the top makefile sets.
   HOST ?= $(host)
 
-  # Resolve toolchain bin from provided variables; avoid leading '/' when empty.
   ifneq ($(ANDROID_TOOLCHAIN_BIN),)
     android_toolchain_bin := $(ANDROID_TOOLCHAIN_BIN)
   else ifneq ($(ANDROID_NDK),)
@@ -33,17 +34,14 @@ ifeq ($(host_os),android)
     android_toolchain_bin :=
   endif
 
-  # Sysroot path (only if toolchain path resolved)
   android_SYSROOT := $(if $(android_toolchain_bin),$(abspath $(android_toolchain_bin)/../sysroot),)
 
-  # Prefer wrapper compilers; if toolchain bin unknown, rely on wrapper names in PATH (no leading '/').
   android_CC     := $(if $(android_toolchain_bin),$(android_toolchain_bin)/$(HOST)$(ANDROID_API_LEVEL)-clang,$(HOST)$(ANDROID_API_LEVEL)-clang)
   android_CXX    := $(if $(android_toolchain_bin),$(android_toolchain_bin)/$(HOST)$(ANDROID_API_LEVEL)-clang++,$(HOST)$(ANDROID_API_LEVEL)-clang++)
   android_AR     := $(if $(android_toolchain_bin),$(android_toolchain_bin)/llvm-ar,llvm-ar)
   android_RANLIB := $(if $(android_toolchain_bin),$(android_toolchain_bin)/llvm-ranlib,llvm-ranlib)
   android_STRIP  := $(if $(android_toolchain_bin),$(android_toolchain_bin)/llvm-strip,llvm-strip)
 
-  # Only inject sysroot/API defines when sysroot is known; wrapper compilers already embed defaults.
   ifneq ($(android_SYSROOT),)
     android_CPPFLAGS += --sysroot=$(android_SYSROOT) -D__ANDROID_API__=$(ANDROID_API_LEVEL)
     android_CFLAGS   += --sysroot=$(android_SYSROOT) -D__ANDROID_API__=$(ANDROID_API_LEVEL)
@@ -51,7 +49,6 @@ ifeq ($(host_os),android)
     android_LDFLAGS  += --sysroot=$(android_SYSROOT)
   endif
 
-  # Export for host maps in hosts/android.mk and package recipes.
   export ANDROID_CC:=$(android_CC)
   export ANDROID_CXX:=$(android_CXX)
   export ANDROID_AR:=$(android_AR)
@@ -63,7 +60,6 @@ ifeq ($(host_os),android)
   export ANDROID_CXXFLAGS:=$(android_CXXFLAGS)
   export ANDROID_LDFLAGS:=$(android_LDFLAGS)
 
-  # Keep ANDROID_API in sync for older fragments that read that name only.
   ifneq ($(ANDROID_API_LEVEL),)
     export ANDROID_API:=$(ANDROID_API_LEVEL)
   endif
@@ -73,8 +69,6 @@ endif
 # Package defaults template (deferred evaluation, legacy-compatible)
 # ------------------------------------------------------------------------------
 define int_vars
-# Set defaults for vars which may be overridden per-package.
-# These are intentionally $$-expanded so that $(1)_type gets bound later to the active host triplet.
 $(1)_cc=$$($$($(1)_type)_CC)
 $(1)_cxx=$$($$($(1)_type)_CXX)
 $(1)_objc=$$($$($(1)_type)_OBJC)
@@ -133,7 +127,6 @@ $(eval $(1)_all_dependencies:=$(call int_get_all_dependencies,$(1),$($($(1)_type
 $(foreach dep,$($(1)_all_dependencies),$(eval $(1)_build_id_deps+=$(dep)-$($(dep)_version)-$($(dep)_recipe_hash)))
 $(eval $(1)_build_id_long:=$(1)-$($(1)_version)-$($(1)_recipe_hash)-$(release_type) $($(1)_build_id_deps) $($($(1)_type)_id_string))
 $(eval $(1)_build_id:=$(shell echo -n "$($(1)_build_id_long)" | $(build_SHA256SUM) | cut -c-$(HASH_LENGTH)))
-# Keep a concatenated string of all package build-ids for final artifacts.
 final_build_id_long+=$($(1)_build_id_long)
 
 # Package-specific paths
@@ -164,7 +157,6 @@ $(1)_postprocessed=$$($(1)_staging_prefix_dir)/.stamp_postprocessed
 $(1)_download_path_fixed=$(subst :,\:,$$($(1)_download_path))
 
 # Default commands
-# Disable tar ownership changes (uid 0 containers) to keep archives reproducible.
 $(1)_fetch_cmds ?= $(call fetch_file,$(1),$(subst \:,:,$$($(1)_download_path_fixed)),$$($(1)_download_file),$($(1)_file_name),$($(1)_sha256_hash))
 $(1)_extract_cmds ?= mkdir -p $$($(1)_extract_dir) && echo "$$($(1)_sha256_hash)  $$($(1)_source)" > $$($(1)_extract_dir)/.$$($(1)_file_name).hash &&  $(build_SHA256SUM) -c $$($(1)_extract_dir)/.$$($(1)_file_name).hash && tar --no-same-owner --strip-components=1 -xf $$($(1)_source)
 $(1)_preprocess_cmds ?=
@@ -175,7 +167,6 @@ $(1)_set_vars ?=
 
 all_sources+=$$($(1)_fetched)
 endef
-# $(foreach dep_target,$($(1)_all_dependencies),$(eval $(1)_dependency_targets=$($(dep_target)_cached)))
 
 # ------------------------------------------------------------------------------
 # Attach build configuration to each package (flags/env/autoconf line)
@@ -271,8 +262,11 @@ $($(1)_preprocessed): | $($(1)_extracted)
 	$(AT)touch $$@
 $($(1)_configured): | $($(1)_dependencies) $($(1)_preprocessed)
 	$(AT)echo Configuring $(1)...
+	# Safety: fail if someone reintroduced an absolute prefix (prevents /aarch64-linux-android)
+	$(AT)case "$(host_prefix)" in /*) echo "ERROR: host_prefix is absolute: $(host_prefix)"; exit 1;; esac
 	$(AT)rm -rf $(host_prefix); mkdir -p $(host_prefix)/lib; cd $(host_prefix); $(foreach package,$($(1)_all_dependencies), tar --no-same-owner -xf $($(package)_cached); )
 	$(AT)mkdir -p $$(@D)
+	$(AT)echo "[$(1)] HOST_PREFIX='$(host_prefix)'"
 	$(AT)echo "[$(1)] CC=$$($(1)_cc)  CXX=$$($(1)_cxx)  AR=$$($(1)_ar)  RANLIB=$$($(1)_ranlib)  NM=$$($(1)_nm)"
 	$(AT)echo "[$(1)] CFLAGS='$$($(1)_cflags)'"
 	$(AT)echo "[$(1)] CXXFLAGS='$$($(1)_cxxflags)'"
@@ -321,30 +315,15 @@ $(foreach stage,$(stages),
 endef
 
 # ------------------------------------------------------------------------------
-# Orchestration: type mapping, package includes, hashing, ids, configs, rules
+# Orchestration
 # ------------------------------------------------------------------------------
-# Bind types
 $(foreach native_package,$(native_packages),$(eval $(native_package)_type=build))
 $(foreach package,$(packages),$(eval $(package)_type=$(host_arch)_$(host_os)))
-
-# Defaults per package
 $(foreach package,$(all_packages),$(eval $(call int_vars,$(package))))
-
-# Include package recipes
 $(foreach native_package,$(native_packages),$(eval include packages/$(native_package).mk))
 $(foreach package,$(packages),$(eval include packages/$(package).mk))
-
-# Hash recipes
 $(foreach package,$(all_packages),$(eval $(call int_get_build_recipe_hash,$(package))))
-
-# Build-ids
 $(foreach package,$(all_packages),$(eval $(call int_get_build_id,$(package))))
-
-# Attach configs
 $(foreach package,$(all_packages),$(eval $(call int_config_attach_build_config,$(package))))
-
-# Emit rules
 $(foreach package,$(all_packages),$(eval $(call int_add_cmds,$(package))))
-
-# Toolchain pre-dependency (native toolchain first for non-native pkgs)
 $(foreach package,$(packages),$(eval $($(package)_extracted): |$($($(host_arch)_$(host_os)_native_toolchain)_cached) $($($(host_arch)_$(host_os)_native_binutils)_cached) ))
