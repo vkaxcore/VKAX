@@ -1,48 +1,151 @@
-name: Android Build
+name: VKAX Android Build
 
+# Workflow triggers
 on:
+  # Trigger the workflow manually via the GitHub UI (workflow_dispatch)
+  workflow_dispatch:
+  
+  # Trigger the workflow on push to specific branches
   push:
-    branches:
+    branches: 
       - main
-      - development  # You can specify other branches here
-  pull_request:
-    branches:
-      - main
+      - v100.11.5-android
+      - dev  # Ensure these are the correct branches you want to build for
+
+env:
+  # General environment variables
+  COIN_NAME: vkax  # Set the coin name as an environment variable
+  BUILD_DIR: vkax-build  # Directory for build outputs
+  COMPRESS_DIR: vkax-compress  # Directory for compressed artifacts
+  LC_ALL: C  # Set locale for consistent behavior across machines
+  LANG: C
+  ANDROID_API: "21"  # Android API level to target
+  HOST: aarch64-linux-android  # Set the host for cross-compiling
 
 jobs:
-  build:
-    runs-on: ubuntu-latest  # or use macos-latest for macOS runners
-    
+  android-aarch64-daemon:
+    name: Android aarch64 (daemon + cli + tx, no Qt)
+    runs-on: ubuntu-22.04  # Use the latest supported Ubuntu runner for your builds
+
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v2
+      # Step 1: Checkout the repository
+      - uses: actions/checkout@v4
+        with:
+          lfs: true  # Ensure Git LFS files are checked out as well
 
+      # Step 2: Set up JDK 11 for building the project
       - name: Set up JDK 11
-        uses: actions/setup-java@v2
+        uses: actions/setup-java@v4
         with:
-          java-version: 11
-          distribution: 'adoptopenjdk'
+          distribution: temurin  # Use the Temurin JDK distribution
+          java-version: "11"  # Specify the version of Java to use for the build
 
-      - name: Set up Android SDK
-        uses: reactivecircus/android-sdk-manager@v2
-        with:
-          sdk-version: 'commandlinetools-linux-7583922_latest.zip'  # You can specify the version you need
-          ndk-version: '21.3.6528147'  # Set the NDK version to match your project
-
-      - name: Install dependencies
+      # Step 3: Install necessary tooling and dependencies
+      - name: Install required tools and dependencies
         run: |
+          set -eux
           sudo apt-get update
-          sudo apt-get install -y cmake python3
+          sudo apt-get install -y build-essential automake libtool pkg-config python3 unzip wget cmake ninja-build
 
-      - name: Build the project with Gradle
-        run: ./gradlew build --stacktrace
+      # Step 4: Install Android SDK and NDK (r25c), skip if already installed
+      - name: Install Android SDK + NDK (r25c)
+        env:
+          ANDROID_SDK_ROOT: ${{ github.workspace }}/android-sdk  # Set Android SDK root directory
+        run: |
+          set -eux
+          if [ ! -d "$ANDROID_SDK_ROOT" ]; then
+            echo "Installing Android SDK and NDK"
+            mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools"  # Ensure the cmdline-tools directory exists
+            wget -q https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip -O /tmp/clt.zip
+            unzip -q /tmp/clt.zip -d "$ANDROID_SDK_ROOT/cmdline-tools"  # Unzip SDK tools
+            mv "$ANDROID_SDK_ROOT/cmdline-tools/cmdline-tools" "$ANDROID_SDK_ROOT/cmdline-tools/latest"
+            export PATH="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH"  # Update path for SDK tools
+            yes | sdkmanager --licenses >/dev/null  # Accept SDK licenses automatically
+            sdkmanager "platform-tools" "platforms;android-${{ env.ANDROID_API }}" "ndk;25.2.9519653"  # Install necessary SDK/NDK versions
+          else
+            echo "Android SDK/NDK already installed, skipping installation."
+          fi
+          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> "$GITHUB_ENV"  # Export SDK root for later steps
+          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/25.2.9519653" >> "$GITHUB_ENV"  # Set NDK path
+          echo "$ANDROID_SDK_ROOT/ndk/25.2.9519653/toolchains/llvm/prebuilt/linux-x86_64/bin" >> "$GITHUB_PATH"  # Add NDK tools to path
 
-      - name: Build the APK
-        run: ./gradlew assembleRelease  # Change to assembleDebug if you want to build a debug APK
+      # Step 5: Set up NDK clang toolchain for Boost
+      - name: Set up NDK clang toolchain for Boost
+        env:
+          HOST: ${{ env.HOST }}
+          ANDROID_API: ${{ env.ANDROID_API }}
+          ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
+        run: |
+          set -eux
+          TOOLCHAIN_BIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          test -x "$TOOLCHAIN_BIN/${HOST}${ANDROID_API}-clang++"  # Check that the clang++ binary exists
+          ln -sf "${TOOLCHAIN_BIN}/${HOST}${ANDROID_API}-clang"  "${TOOLCHAIN_BIN}/${HOST}-clang"  # Create symlinks for clang
+          ln -sf "${TOOLCHAIN_BIN}/${HOST}${ANDROID_API}-clang++" "${TOOLCHAIN_BIN}/${HOST}-clang++"  # Create symlinks for clang++
+          echo "$TOOLCHAIN_BIN" >> "$GITHUB_PATH"  # Add toolchain bin directory to PATH
+          {
+            echo "CC=${HOST}${ANDROID_API}-clang"  # Set CC to use clang
+            echo "CXX=${HOST}${ANDROID_API}-clang++"  # Set CXX to use clang++
+            echo "AR=llvm-ar"  # Set AR to llvm-ar
+            echo "RANLIB=llvm-ranlib"  # Set RANLIB to llvm-ranlib
+          } >> "$GITHUB_ENV"  # Export these variables for use in later steps
+          
+          # Boost user-config.jam for Android
+          mkdir -p depends "$HOME/.boost-build"  # Create Boost build directories
+          cat > depends/user-config.jam <<EOF
+using clang : aarch64
+  : ${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android${ANDROID_API}-clang++
+  : <target-os>android <architecture>arm <address-model>64 ;
+EOF
+          cp depends/user-config.jam "$HOME/.boost-build/user-config.jam"  # Copy the config to the Boost build directory
+          echo "BOOST_BUILD_PATH=$PWD/depends" >> "$GITHUB_ENV"  # Set Boost build path as an environment variable
 
-      - name: Upload APK Artifacts
-        uses: actions/upload-artifact@v2
+      # Step 6: Build dependencies (no Qt)
+      - name: Build dependencies (no Qt)
+        env:
+          HOST: ${{ env.HOST }}
+          ANDROID_API: ${{ env.ANDROID_API }}
+          BOOST_BUILD_PATH: ${{ env.BOOST_BUILD_PATH }}
+        run: |
+          set -eux
+          make -C depends -j"$(nproc)" HOST="$HOST" ANDROID_NDK="$ANDROID_NDK_HOME" ANDROID_API="$ANDROID_API" NO_QT=1 V=1
+
+      # Step 7: Configure for daemon + cli + tx
+      - name: Configure (daemon + cli + tx)
+        env:
+          HOST: ${{ env.HOST }}
+          CONFIG_SITE: ${{ github.workspace }}/depends/${{ env.HOST }}/share/config.site
+        run: |
+          set -eux
+          export PKG_CONFIG_PATH="${PWD}/depends/${HOST}/lib/pkgconfig"  # Set pkg-config path
+          ./autogen.sh || true  # Run autogen if available (ignore failure)
+          ./configure \
+            --host="${HOST}" --build="$(gcc -dumpmachine)" \
+            --prefix="${PWD}/depends/${HOST}" \
+            --with-incompatible-bdb \
+            --without-gui --disable-bench --disable-tests \
+            CXXFLAGS="-O2 -fPIC"  # Configure the project with appropriate flags
+
+      # Step 8: Build and package the binaries (vkaxd, vkax-cli, vkax-tx)
+      - name: Build and Package (vkaxd, vkax-cli, vkax-tx)
+        run: |
+          set -eux
+          make -j"$(nproc)" src/vkaxd src/vkax-cli src/vkax-tx  # Build the binaries in parallel
+          mkdir -p "$BUILD_DIR" "$COMPRESS_DIR"  # Ensure directories exist
+          cp -f src/vkaxd src/vkax-cli src/vkax-tx "$BUILD_DIR/" || true  # Copy binaries to build dir
+          tar -czvf "$COMPRESS_DIR/${COIN_NAME}-android-aarch64-daemons.tar.gz" -C "$BUILD_DIR" .  # Compress the binaries into a tar.gz archive
+
+      # Step 9: Diagnostics (always run for debugging)
+      - name: Diagnostics (always)
+        if: always()  # Ensure this step always runs, even on failure
+        run: |
+          set -x
+          find depends -maxdepth 7 -type f \( -name bootstrap.log -o -name config.log -o -name project-config.jam -o -name user-config.jam \) -print || true  # Find useful log files for debugging
+          B2=$(find depends -maxdepth 7 -type f -name b2 -print -quit || true)
+          if [ -n "$B2" ]; then "$(dirname "$B2")/b2" --debug-configuration -n --version toolset=clang target-os=android || true; fi
+
+      # Step 10: Upload the build artifact
+      - uses: actions/upload-artifact@v4
+        if: always()  # Upload the artifact even if the build fails
         with:
-          name: app-release-apk
-          path: app/build/outputs/apk/release/app-release.apk  # Update the path to match your build output
-
+          name: ${{ env.COIN_NAME }}-android-aarch64-daemons
+          path: ${{ env.COMPRESS_DIR }}/${{ env.COIN_NAME }}-android-aarch64-daemons.tar.gz  # Upload the generated artifact
