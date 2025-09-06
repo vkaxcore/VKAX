@@ -1,17 +1,26 @@
-# .NOTPARALLEL :
+# .NOTPARALLEL : 
+# We disable parallel builds to avoid issues with the build process.
 
-# Pattern rule to print variables, e.g. make print-top_srcdir
-print-%:
-	@echo $* = $($*)
-
-# When invoking a sub-make, keep only the command line variable definitions
-# matching the pattern in the filter function.
+# Define the environment variables and paths
 MAKEOVERRIDES := $(filter V=%,$(MAKEOVERRIDES))
 
+# Directories and paths
 SOURCES_PATH ?= $(BASEDIR)/sources
 WORK_PATH = $(BASEDIR)/work
 BASE_CACHE ?= $(BASEDIR)/built
 SDK_PATH ?= $(BASEDIR)/SDKs
+PATCHES_PATH = $(BASEDIR)/patches
+BASEDIR = $(CURDIR)
+HASH_LENGTH := 11
+DOWNLOAD_CONNECT_TIMEOUT := 30
+
+# Build configurations
+BUILD = $(shell ./config.guess)
+HOST ?= $(BUILD)
+HOST_ID_SALT ?= salt
+BUILD_ID_SALT ?= salt
+
+# Package handling
 NO_QT ?=
 NO_PROTOBUF ?=
 NO_OPENSSL ?=
@@ -21,76 +30,60 @@ NO_UPNP ?=
 NO_NATPMP ?=
 FALLBACK_DOWNLOAD_PATH ?= https://bitcoincore.org/depends-sources
 
-BUILD = $(shell ./config.guess)
-HOST ?= $(BUILD)
-PATCHES_PATH = $(BASEDIR)/patches
-BASEDIR = $(CURDIR)
-HASH_LENGTH:=11
-DOWNLOAD_CONNECT_TIMEOUT:=30
-HOST_ID_SALT ?= salt
-BUILD_ID_SALT ?= salt
+# Base directories for build
+base_build_dir = $(WORK_PATH)/build
+base_staging_dir = $(WORK_PATH)/staging
+base_download_dir = $(WORK_PATH)/download
 
-host:=$(BUILD)
-ifneq ($(HOST),)
-host:=$(HOST)
-endif
+# Canonical host
+canonical_host := $(shell ./config.sub $(HOST))
+build := $(shell ./config.sub $(BUILD))
 
-ifneq ($(DEBUG),)
-release_type=debug
-else
-release_type=release
-endif
-
-base_build_dir=$(WORK_PATH)/build
-base_staging_dir=$(WORK_PATH)/staging
-base_download_dir=$(WORK_PATH)/download
-canonical_host:=$(shell ./config.sub $(HOST))
-build:=$(shell ./config.sub $(BUILD))
-
-# Arch and OS variables
-build_arch =$(firstword $(subst -, ,$(build)))
-build_vendor=$(word 2,$(subst -, ,$(build)))
-full_build_os:=$(subst $(build_arch)-$(build_vendor)-,,$(build))
-build_os:=$(findstring linux,$(full_build_os))
-build_os+=$(findstring darwin,$(full_build_os))
-build_os:=$(strip $(build_os))
+# Arch and OS for host
+build_arch = $(firstword $(subst -, ,$(build)))
+build_vendor = $(word 2, $(subst -, ,$(build)))
+full_build_os := $(subst $(build_arch)-$(build_vendor)-,,$(build))
+build_os := $(findstring linux,$(full_build_os))
+build_os += $(findstring darwin,$(full_build_os))
+build_os := $(strip $(build_os))
 ifeq ($(build_os),)
-build_os=$(full_build_os)
+build_os = $(full_build_os)
 endif
 
-host_arch=$(firstword $(subst -, ,$(canonical_host)))
-host_vendor=$(word 2,$(subst -, ,$(canonical_host)))
-full_host_os:=$(subst $(host_arch)-$(host_vendor)-,,$(canonical_host))
-host_os:=$(findstring linux,$(full_host_os))
-host_os+=$(findstring darwin,$(full_host_os))
-host_os+=$(findstring mingw32,$(full_host_os))
+host_arch = $(firstword $(subst -, ,$(canonical_host)))
+host_vendor = $(word 2, $(subst -, ,$(canonical_host)))
+full_host_os := $(subst $(host_arch)-$(host_vendor)-,,$(canonical_host))
+host_os := $(findstring linux,$(full_host_os))
+host_os += $(findstring darwin,$(full_host_os))
+host_os += $(findstring mingw32,$(full_host_os))
 
 ifeq (android,$(findstring android,$(full_host_os)))
-host_os:=android
+host_os := android
 endif
 
-host_os:=$(strip $(host_os))
+host_os := $(strip $(host_os))
 ifeq ($(host_os),)
-host_os=$(full_host_os)
+host_os = $(full_host_os)
 endif
 
 # Host-specific prefix and build directories
-$(host_arch)_$(host_os)_prefix=$(BASEDIR)/$(host)
-$(host_arch)_$(host_os)_host=$(host)
-host_prefix=$($(host_arch)_$(host_os)_prefix)
+$(host_arch)_$(host_os)_prefix = $(BASEDIR)/$(host)
+$(host_arch)_$(host_os)_host = $(host)
+host_prefix = $($(host_arch)_$(host_os)_prefix)
 
-# Ensure that host_prefix is relative
-build_prefix=$(host_prefix)/native
-build_host=$(build)
+# Ensure host_prefix is relative
+build_prefix = $(host_prefix)/native
+build_host = $(build)
 
 # Define how to print debug info
-AT_$(V):=
-AT_:=@
-AT:=$(AT_$(V))
+AT_$(V) :=
+AT_ := @
+AT := $(AT_$(V))
 
+# Default target
 all: install
 
-# Include necessary makefiles for host and builder-specific settings
+# Include necessary makefiles
 include hosts/$(host_os).mk
 include hosts/default.mk
 include builders/$(build_os).mk
@@ -98,67 +91,27 @@ include builders/default.mk
 include packages/packages.mk
 
 # Build ID generation for versioning
-build_id_string:=$(BUILD_ID_SALT)
-build_id_string+=$(shell $(build_CC) --version 2>/dev/null)
-build_id_string+=$(shell $(build_AR) --version 2>/dev/null)
-build_id_string+=$(shell $(build_CXX) --version 2>/dev/null)
-build_id_string+=$(shell $(build_RANLIB) --version 2>/dev/null)
-build_id_string+=$(shell $(build_STRIP) --version 2>/dev/null)
+build_id_string := $(BUILD_ID_SALT)
+build_id_string += $(shell $(build_CC) --version 2>/dev/null)
+build_id_string += $(shell $(build_AR) --version 2>/dev/null)
+build_id_string += $(shell $(build_CXX) --version 2>/dev/null)
+build_id_string += $(shell $(build_RANLIB) --version 2>/dev/null)
+build_id_string += $(shell $(build_STRIP) --version 2>/dev/null)
 
-$(host_arch)_$(host_os)_id_string:=$(HOST_ID_SALT)
-$(host_arch)_$(host_os)_id_string+=$(shell $(host_CC) --version 2>/dev/null)
-$(host_arch)_$(host_os)_id_string+=$(shell $(host_AR) --version 2>/dev/null)
-$(host_arch)_$(host_os)_id_string+=$(shell $(host_CXX) --version 2>/dev/null)
-$(host_arch)_$(host_os)_id_string+=$(shell $(host_RANLIB) --version 2>/dev/null)
-$(host_arch)_$(host_os)_id_string+=$(shell $(host_STRIP) --version 2>/dev/null)
+# Handle miniupnpc package
+package = miniupnpc
+$(package)_version = 2.0.20180203
+$(package)_download_path = https://miniupnp.tuxfamily.org/files/
+$(package)_file_name = $(package)-$($(package)_version).tar.gz
+$(package)_sha256_hash = 90dda8c7563ca6cd4a83e23b3c66dbbea89603a1675bfdb852897c2c9cc220b7
+$(package)_patches = dont_use_wingen.patch
 
-ifneq ($(strip $(FORCE_USE_SYSTEM_CLANG)),)
-build_id_string+=system_clang
-$(host_arch)_$(host_os)_id_string+=system_clang
-endif
+# Include miniupnpc.mk
+include packages/miniupnpc.mk
 
-# Package list handling with conditions for optional packages (e.g., Qt, ZMQ, etc.)
-qt_packages_$(NO_QT) = $(qt_packages) $(qt_$(host_os)_packages) $(qt_$(host_arch)_$(host_os)_packages)
-wallet_packages_$(NO_WALLET) = $(wallet_packages)
-upnp_packages_$(NO_UPNP) = $(upnp_packages)
-natpmp_packages_$(NO_NATPMP) = $(natpmp_packages)
-
-zmq_packages_$(NO_ZMQ) = $(zmq_packages)
-
-protobuf_packages_$(NO_PROTOBUF) = $(protobuf_packages)
-openssl_packages_$(NO_OPENSSL) = $(openssl_packages)
-
-packages += $($(host_arch)_$(host_os)_packages) $($(host_os)_packages) $(qt_packages_) $(wallet_packages_) $(upnp_packages_) $(natpmp_packages_)
-native_packages += $($(host_arch)_$(host_os)_native_packages) $($(host_os)_native_packages)
-
-ifneq ($(protobuf_packages_),)
-native_packages += $(protobuf_native_packages)
-packages += $(protobuf_packages)
-endif
-
-ifneq ($(openssl_packages_),)
-packages += $(openssl_packages)
-endif
-
-ifneq ($(zmq_packages_),)
-packages += $(zmq_packages)
-endif
-
-all_packages = $(packages) $(native_packages)
-
-# Meta dependencies for various build configurations
-meta_depends = Makefile funcs.mk builders/default.mk hosts/default.mk hosts/$(host_os).mk builders/$(build_os).mk
-
-# Define native binutils and toolchain for the host
-$(host_arch)_$(host_os)_native_binutils?=$($(host_os)_native_binutils)
-$(host_arch)_$(host_os)_native_toolchain?=$($(host_os)_native_toolchain)
-
-# Include functions and make the final config.site
-include funcs.mk
-
-# Final build ID calculation based on the version and configuration
-final_build_id_long+=$(shell $(build_SHA256SUM) config.site.in)
-final_build_id+=$(shell echo -n "$(final_build_id_long)" | $(build_SHA256SUM) | cut -c-$(HASH_LENGTH))
+# Build ID generation for versioning
+final_build_id_long += $(shell $(build_SHA256SUM) config.site.in)
+final_build_id += $(shell echo -n "$(final_build_id_long)" | $(build_SHA256SUM) | cut -c-$(HASH_LENGTH))
 
 # Ensure config.site is generated correctly
 $(host_prefix)/.stamp_$(final_build_id): $(native_packages) $(packages)
@@ -168,6 +121,10 @@ $(host_prefix)/.stamp_$(final_build_id): $(native_packages) $(packages)
 	$(AT)echo to: $(@D)
 	$(AT)cd $(@D); $(foreach package,$^, tar xf $($(package)_cached); )
 	$(AT)touch $@
+
+# Target for miniupnpc (requires the patch)
+miniupnpc:
+	$(MAKE) -C depends/packages/miniupnpc
 
 # Ensure that checksums for downloaded files are correct
 define check_or_remove_cached
@@ -189,7 +146,8 @@ check-packages:
 check-sources:
 	@$(foreach package,$(all_packages),$(call check_or_remove_sources,$(package));)
 
-# Clean the build environment
+check-packages: check-sources
+
 clean-all: clean
 	@rm -rf $(SOURCES_PATH) x86_64* i686* mips* arm* aarch64* riscv32* riscv64*
 
@@ -198,10 +156,8 @@ clean:
 
 install: check-packages $(host_prefix)/share/config.site
 
-# Download the necessary source files for packages
 download-one: check-sources $(all_sources)
 
-# Handle download for different platforms
 download-osx:
 	@$(MAKE) -s HOST=x86_64-apple-darwin download-one
 download-linux:
@@ -210,8 +166,6 @@ download-win:
 	@$(MAKE) -s HOST=x86_64-w64-mingw32 download-one
 download: download-osx download-linux download-win
 
-# Add stages for all packages
 $(foreach package,$(all_packages),$(eval $(call ext_add_stages,$(package))))
 
-# Define necessary makefile targets as phony
-.PHONY: install cached clean clean-all download-one download-osx download-linux download-win download check-packages check-sources
+.PHONY: install cached clean clean-all download-one download-osx download-linux download-win download check-packages check-sources miniupnpc
