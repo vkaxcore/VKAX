@@ -74,21 +74,31 @@ jobs:
           echo "PATH: $PATH"
           echo "==== End Debugging Environment Variables ===="
 
-      - name: Check necessary files exist
+      - name: Normalize and Debug Paths
         run: |
-          echo "==== Checking for config.site and builders/.mk ===="
+          echo "==== Normalizing and Debugging Paths ===="
+          CONFIG_SITE_IN="${PWD}/depends/config.site.in"
           CONFIG_SITE="${PWD}/depends/${HOST}/share/config.site"
-          BUILDER_MK="${PWD}/depends/builders/.mk"
-          if [ ! -f "$CONFIG_SITE" ]; then
-            echo "Error: config.site not found at $CONFIG_SITE"
+
+          echo "Normalized config.site.in path: $CONFIG_SITE_IN"
+          echo "Normalized config.site path: $CONFIG_SITE"
+          
+          if [ ! -f "$CONFIG_SITE_IN" ]; then
+            echo "Error: config.site.in not found at $CONFIG_SITE_IN"
             exit 1
           fi
-          if [ ! -f "$BUILDER_MK" ]; then
-            echo "Error: builders/.mk not found at $BUILDER_MK"
-            exit 1
-          fi
-          echo "Both config.site and builders/.mk are present."
-          echo "==== End Checking ===="
+
+          # Normalize paths to absolute paths
+          ABSOLUTE_CONFIG_SITE_IN=$(realpath "$CONFIG_SITE_IN")
+          ABSOLUTE_CONFIG_SITE=$(realpath "$CONFIG_SITE")
+
+          echo "Absolute config.site.in path: $ABSOLUTE_CONFIG_SITE_IN"
+          echo "Absolute config.site path: $ABSOLUTE_CONFIG_SITE"
+
+          echo "Copying config.site.in to config.site"
+          cp "$ABSOLUTE_CONFIG_SITE_IN" "$ABSOLUTE_CONFIG_SITE"
+          echo "Config site copied to $ABSOLUTE_CONFIG_SITE"
+        shell: bash
 
       - name: Verify NDK toolchain
         run: |
@@ -196,4 +206,3 @@ jobs:
         with:
           name: ${{ env.COIN_NAME }}-android-aarch64-apk
           path: ${{ env.COMPRESS_DIR }}/${{ env.COIN_NAME }}-android-aarch64.apk
-
