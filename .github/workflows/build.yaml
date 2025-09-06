@@ -1,7 +1,7 @@
 # .github/workflows/build.yaml
 # VKAX Android APK Build — aarch64; deterministic NDK r23c wiring; depends-only (no Qt); strict sysroot/API; CI diagnostics.
 # This workflow assumes depends/hosts/android.mk from VKAX repo (absolute clang paths + API handling).
-# Signed: Setvin
+# Enforced fix: pass host_prefix="$HOST" to make to keep it RELATIVE and satisfy funcs.mk guard.
 
 name: VKAX Android APK Build
 
@@ -105,29 +105,31 @@ jobs:
           test -x "${TOOLBIN}/clang++"
           "${TOOLBIN}/clang++" --target=${HOST}${ANDROID_API_LEVEL} -v || true
 
-      - name: Build depends (full set; ensure miniupnpc is staged)
+      - name: Build depends (force RELATIVE host_prefix to satisfy funcs.mk guard)
         env:
           HOST: ${{ env.HOST }}
         run: |
           set -eux
-          # Full depends build without Qt; android.mk provides absolute CC/CXX/AR/RANLIB and sysroot/API flags
+          # IMPORTANT: pass host_prefix="$HOST" so funcs.mk sees a RELATIVE value; do not change Makefiles.
           make -C depends -j"$(nproc)" \
             HOST="$HOST" \
             ANDROID_NDK="$ANDROID_NDK" \
             ANDROID_API="${ANDROID_API_LEVEL}" \
+            host_prefix="$HOST" \
             NO_QT=1 V=1
-          # Ensure miniupnpc exists even if not default-picked by packages set (idempotent if already built)
+
+          # Ensure miniupnpc is present (idempotent)
           make -C depends -j"$(nproc)" \
             HOST="$HOST" \
             ANDROID_NDK="$ANDROID_NDK" \
             ANDROID_API="${ANDROID_API_LEVEL}" \
+            host_prefix="$HOST" \
             miniupnpc V=1
 
-          # Sanity: verify staged libs exist so configure can't claim empty paths
+          # Sanity checks
           DEPENDS_PREFIX="${PWD}/depends/${HOST}"
           test -d "${DEPENDS_PREFIX}/lib"
           ls -l "${DEPENDS_PREFIX}/lib" || true
-          # Hard checks for typical artifacts we require (Boost, BDB 4.8, miniupnpc)
           test -n "$(echo ${DEPENDS_PREFIX}/lib/libboost_* 2>/dev/null | tr -d ' ')" || (echo "Missing Boost in depends prefix" && exit 1)
           test -e "${DEPENDS_PREFIX}/lib/libdb_cxx-4.8.a" || test -e "${DEPENDS_PREFIX}/lib/libdb_cxx.a" || (echo "Missing BDB 4.8 in depends prefix" && exit 1)
           test -e "${DEPENDS_PREFIX}/lib/libminiupnpc.a" || (echo "Missing miniupnpc in depends prefix" && exit 1)
@@ -156,7 +158,6 @@ jobs:
             --with-miniupnpc --enable-upnp-default \
             --without-gui --disable-bench --disable-tests
 
-          # Emit what configure actually sees to aid future debugging
           echo "=== includes ==="; ls -la "${DEPENDS_PREFIX}/include" || true
           echo "=== include/db4.8 ==="; ls -la "${DEPENDS_PREFIX}/include/db4.8" || true
           echo "=== libs ==="; ls -la "${DEPENDS_PREFIX}/lib" || true
@@ -249,3 +250,5 @@ jobs:
         with:
           name: ${{ env.COIN_NAME }}-android-aarch64-apk
           path: ${{ env.COMPRESS_DIR }}/${{ env.COIN_NAME }}-android-aarch64.apk
+
+# .github/workflows/build.yaml — Setvin — 2025-09-05
