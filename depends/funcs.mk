@@ -9,14 +9,14 @@ AT ?= @
 # Android prefix safety and sane defaults
 # ------------------------------------------------------------------------------
 ifeq ($(host_os),android)
+    # Force host_prefix to always be relative
     host_prefix ?= $(strip $(notdir $(host)))   # Always make it relative
-    # Ensure host_prefix is relative (this part is not needed anymore)
+
+    # Ensure that host_prefix is strictly relative (no absolute paths)
     ifneq (,$(filter /%,$(host_prefix)))
       $(error host_prefix must be relative for Android, got "$(host_prefix)")
     endif
 endif
-
-
 
 
 # ------------------------------------------------------------------------------
@@ -34,8 +34,11 @@ else
   android_toolchain_bin :=
 endif
 
+# Ensure android_SYSROOT is relative
 android_SYSROOT := $(if $(android_toolchain_bin),$(abspath $(android_toolchain_bin)/../sysroot),)
+android_SYSROOT := $(notdir $(android_SYSROOT))  # Make sure SYSROOT is relative
 
+# Android toolchain paths
 android_CC     := $(if $(android_toolchain_bin),$(android_toolchain_bin)/$(HOST)$(ANDROID_API_LEVEL)-clang,$(HOST)$(ANDROID_API_LEVEL)-clang)
 android_CXX    := $(if $(android_toolchain_bin),$(android_toolchain_bin)/$(HOST)$(ANDROID_API_LEVEL)-clang++,$(HOST)$(ANDROID_API_LEVEL)-clang++)
 android_AR     := $(if $(android_toolchain_bin),$(android_toolchain_bin)/llvm-ar,llvm-ar)
@@ -58,7 +61,7 @@ export ANDROID_SYSROOT:=$(android_SYSROOT)
 export ANDROID_CPPFLAGS:=$(android_CPPFLAGS)
 export ANDROID_CFLAGS:=$(android_CFLAGS)
 export ANDROID_CXXFLAGS:=$(android_CXXFLAGS)
-export ANDROID_LDFLAGS:=$(android_LDFLAGS)
+export ANDROID_LDFLAGS:=$(ANDROID_LDFLAGS)
 
 ifneq ($(ANDROID_API_LEVEL),)
   export ANDROID_API:=$(ANDROID_API_LEVEL)
@@ -209,135 +212,5 @@ $(1)_config_opts+=$$($(1)_config_opts_$(host_os)) $$($(1)_config_opts_$(host_os)
 $(1)_config_opts+=$$($(1)_config_opts_$(host_arch)_$(host_os)) $$($(1)_config_opts_$(host_arch)_$(host_os)_$(release_type))
 
 $(1)_config_env+=$$($(1)_config_env_$(release_type))
-$(1)_config_env+=$($(1)_config_env_$(host_arch)) $($(1)_config_env_$(host_arch)_$(release_type))
-$(1)_config_env+=$($(1)_config_env_$(host_os)) $($(1)_config_env_$(host_os)_$(release_type))
-$(1)_config_env+=$($(1)_config_env_$(host_arch)_$(host_os)) $($(1)_config_env_$(host_arch)_$(host_os)_$(release_type))
-
-# QUOTED env to avoid space-splitting
-$(1)_config_env+=PKG_CONFIG_LIBDIR="$($($(1)_type)_prefix)/lib/pkgconfig"
-$(1)_config_env+=PKG_CONFIG_PATH="$($($(1)_type)_prefix)/share/pkgconfig"
-$(1)_config_env+=PATH="$(build_prefix)/bin:$(PATH)"
-$(1)_build_env+=PATH="$(build_prefix)/bin:$(PATH)"
-$(1)_stage_env+=PATH="$(build_prefix)/bin:$(PATH)"
-
-$(1)_autoconf=./configure --host=$($($(1)_type)_host) --disable-dependency-tracking --prefix=$($($(1)_type)_prefix) $$($(1)_config_opts) CC="$$($(1)_cc)" CXX="$$($(1)_cxx)"
-
-ifneq ($($(1)_nm),)
-$(1)_autoconf += NM="$$($(1)_nm)"
-endif
-ifneq ($($(1)_ranlib),)
-$(1)_autoconf += RANLIB="$$($(1)_ranlib)"
-endif
-ifneq ($($(1)_ar),)
-$(1)_autoconf += AR="$$($(1)_ar)"
-endif
-ifneq ($($(1)_cflags),)
-$(1)_autoconf += CFLAGS="$$($(1)_cflags)"
-endif
-ifneq ($($(1)_cxxflags),)
-$(1)_autoconf += CXXFLAGS="$$($(1)_cxxflags)"
-endif
-ifneq ($($(1)_cppflags),)
-$(1)_autoconf += CPPFLAGS="$$($(1)_cppflags)"
-endif
-ifneq ($($(1)_ldflags),)
-$(1)_autoconf += LDFLAGS="$$($(1)_ldflags)"
-endif
-endef
-
-# ------------------------------------------------------------------------------
-# Build steps (.stamp pipeline)
-# ------------------------------------------------------------------------------
-define int_add_cmds
-$($(1)_fetched):
-	$(AT)mkdir -p $$(@D) $(SOURCES_PATH)
-	$(AT)rm -f $$@
-	$(AT)touch $$@
-	$(AT)cd $$(@D); $(call $(1)_fetch_cmds,$(1))
-	$(AT)cd $($(1)_source_dir); $(foreach source,$($(1)_all_sources),$(build_SHA256SUM) $(source) >> $$(@);)
-	$(AT)touch $$@
-
-$($(1)_extracted): | $($(1)_fetched)
-	$(AT)echo Extracting $(1)...
-	$(AT)mkdir -p $$(@D)
-	$(AT)cd $$(@D); $(call $(1)_extract_cmds,$(1))
-	$(AT)touch $$@
-
-$($(1)_preprocessed): | $($(1)_extracted)
-	$(AT)echo Preprocessing $(1)...
-	$(AT)mkdir -p $$(@D) $($(1)_patch_dir)
-	$(AT)$(foreach patch,$($(1)_patches),cd $(PATCHES_PATH)/$(1); cp $(patch) $($(1)_patch_dir) ;)
-	$(AT)cd $$(@D); $(call $(1)_preprocess_cmds, $(1))
-	$(AT)touch $$@
-
-$($(1)_configured): | $($(1)_dependencies) $($(1)_preprocessed)
-	$(AT)echo Configuring $(1)...
-	$(AT)case "$(host_prefix)" in /*) echo "ERROR: host_prefix is absolute: $(host_prefix)"; exit 1;; esac
-	$(AT)rm -rf $(host_prefix); mkdir -p $(host_prefix)/lib; cd $(host_prefix); $(foreach package,$($(1)_all_dependencies), tar --no-same-owner -xf $($(package)_cached); )
-	$(AT)mkdir -p $$(@D)
-	$(AT)echo "[$(1)] HOST_PREFIX='$(host_prefix)'  BUILD_PREFIX='$(build_prefix)'"
-	$(AT)echo "[$(1)] CC=$$($(1)_cc)  CXX=$$($(1)_cxx)  AR=$$($(1)_ar)  RANLIB=$$($(1)_ranlib)  NM=$$($(1)_nm)"
-	$(AT)echo "[$(1)] CFLAGS='$$($(1)_cflags)'"
-	$(AT)echo "[$(1)] CXXFLAGS='$$($(1)_cxxflags)'"
-	$(AT)echo "[$(1)] CPPFLAGS='$$($(1)_cppflags)'"
-	$(AT)echo "[$(1)] LDFLAGS='$$($(1)_ldflags)'"
-	$(AT)+cd $$(@D); $($(1)_config_env) $(call $(1)_config_cmds, $(1))
-	$(AT)touch $$@
-
-$($(1)_built): | $($(1)_configured)
-	$(AT)echo Building $(1)...
-	$(AT)mkdir -p $$(@D)
-	$(AT)+cd $$(@D); $($(1)_build_env) $(call $(1)_build_cmds, $(1))
-	$(AT)touch $$@
-
-$($(1)_staged): | $($(1)_built)
-	$(AT)echo Staging $(1)...
-	$(AT)mkdir -p $($(1)_staging_dir)/$(host_prefix)
-	$(AT)cd $($(1)_build_dir); $($(1)_stage_env) $(call $(1)_stage_cmds, $(1))
-	$(AT)rm -rf $($(1)_extract_dir)
-	$(AT)touch $$@
-
-$($(1)_postprocessed): | $($(1)_staged)
-	$(AT)echo Postprocessing $(1)...
-	$(AT)cd $($(1)_staging_prefix_dir); $(call $(1)_postprocess_cmds)
-	$(AT)touch $$@
-
-$($(1)_cached): | $($(1)_dependencies) $($(1)_postprocessed)
-	$(AT)echo Caching $(1)...
-	$(AT)cd $$($(1)_staging_dir)/$(host_prefix); find . | sort | tar --no-recursion -czf $$($(1)_staging_dir)/$$(@F) -T -
-	$(AT)mkdir -p $$(@D)
-	$(AT)rm -rf $$(@D) && mkdir -p $$(@D)
-	$(AT)mv $$($(1)_staging_dir)/$$(@F) $$(@)
-	$(AT)rm -rf $($(1)_staging_dir)
-
-$($(1)_cached_checksum): $($(1)_cached)
-	$(AT)cd $$(@D); $(build_SHA256SUM) $$(<F) > $$(@)
-
-.PHONY: $(1)
-$(1): | $($(1)_cached_checksum)
-.SECONDARY: $($(1)_cached) $($(1)_postprocessed) $($(1)_staged) $($(1)_built) $($(1)_configured) $($(1)_preprocessed) $($(1)_extracted) $($(1)_fetched)
-endef
-
-# ------------------------------------------------------------------------------
-# Optional external per-stage aliases
-# ------------------------------------------------------------------------------
-stages = fetched extracted preprocessed configured built staged postprocessed cached cached_checksum
-define ext_add_stages
-$(foreach stage,$(stages),
-          $(1)_$(stage): $($(1)_$(stage))
-          .PHONY: $(1)_$(stage))
-endef
-
-# ------------------------------------------------------------------------------
-# Orchestration
-# ------------------------------------------------------------------------------
-$(foreach native_package,$(native_packages),$(eval $(native_package)_type=build))
-$(foreach package,$(packages),$(eval $(package)_type=$(host_arch)_$(host_os)))
-$(foreach package,$(all_packages),$(eval $(call int_vars,$(package))))
-$(foreach native_package,$(native_packages),$(eval include packages/$(native_package).mk))
-$(foreach package,$(packages),$(eval include packages/$(package).mk))
-$(foreach package,$(all_packages),$(eval $(call int_get_build_recipe_hash,$(package))))
-$(foreach package,$(all_packages),$(eval $(call int_get_build_id,$(package))))
-$(foreach package,$(all_packages),$(eval $(call int_config_attach_build_config,$(package))))
-$(foreach package,$(all_packages),$(eval $(call int_add_cmds,$(package))))
-$(foreach package,$(packages),$(eval $($(package)_extracted): | $($($(host_arch)_$(host_os)_native_toolchain)_cached) $($($(host_arch)_$(host_os)_native_binutils)_cached)))
+$(1)_config_env+=$$(1)_config_env_$(host_arch)) $($(1)_config_env_$(host_arch)_$(release_type))
+$(1)_config_env+=$$(1)_config_env_$(host_os))
