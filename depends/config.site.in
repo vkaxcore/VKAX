@@ -8,12 +8,15 @@ true  # Dummy command because shellcheck treats all directives before first
       # See: https://github.com/koalaman/shellcheck/wiki/Directive
 
 # shellcheck disable=SC2154
+# Compute depends_prefix based on location of the config.site.in file
 depends_prefix="$(cd "$(dirname ${ac_site_file})/.." && pwd)"
 
+# Cross-compiling setup
 cross_compiling=maybe
 host_alias=@HOST@
 ac_tool_prefix=${host_alias}-
 
+# Set default paths for dependencies
 if test -z $with_boost; then
   with_boost=$depends_prefix
 fi
@@ -30,7 +33,7 @@ if test -z $with_protoc_bindir; then
   with_protoc_bindir=$depends_prefix/native/bin
 fi
 
-
+# Disable certain features if needed
 if test -z $enable_wallet && test -n "@no_wallet@"; then
   enable_wallet=no
 fi
@@ -55,35 +58,40 @@ if test -n $disable_bip70 && test -n "@disable_bip70@"; then
   disable_bip70=no
 fi
 
+# Debug option for Qt
 if test -n "@debug@" && test -z "@no_qt@" && test "x$with_gui" != xno; then
   with_gui=qt5_debug
 fi
 
+# For macOS, we don't need to use Brew
 if test "@host_os@" = darwin; then
   BREW=no
 fi
 
+# Toolchain and pkg-config setup
 PATH=$depends_prefix/native/bin:$PATH
 PKG_CONFIG="$(which pkg-config) --static"
 
-# These two need to remain exported because pkg-config does not see them
-# otherwise. That means they must be unexported at the end of configure.ac to
-# avoid ruining the cache. Sigh.
-
+# Export environment variables needed for pkg-config
 export PKG_CONFIG_LIBDIR=$depends_prefix/lib/pkgconfig
 export PKG_CONFIG_PATH=$depends_prefix/share/pkgconfig
 
+# Compiler and linker flags
 CPPFLAGS="-I$depends_prefix/include/ $CPPFLAGS"
 LDFLAGS="-L$depends_prefix/lib $LDFLAGS"
 
+# Compiler setup
 if test -n "@CC@" -a -z "${CC}"; then
   CC="@CC@"
 fi
 if test -n "@CXX@" -a -z "${CXX}"; then
   CXX="@CXX@"
 fi
+
+# Python setup (if applicable)
 PYTHONPATH="${depends_prefix}/native/lib/python3/dist-packages${PYTHONPATH:+${PATH_SEPARATOR}}${PYTHONPATH}"
 
+# Handling AR, RANLIB, NM, etc. for cross-compiling
 if test -n "@AR@"; then
   AR=@AR@
   ac_cv_path_ac_pt_AR=${AR}
@@ -99,10 +107,12 @@ if test -n "@NM@"; then
   ac_cv_path_ac_pt_NM=${NM}
 fi
 
+# Debug options
 if test -n "@debug@"; then
   enable_reduce_exports=no
 fi
 
+# Additional compiler flags
 if test -n "@CFLAGS@"; then
   CFLAGS="@CFLAGS@ $CFLAGS"
 fi
