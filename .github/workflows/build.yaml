@@ -2,26 +2,30 @@ name: VKAX Android Build
 
 # Workflow triggers
 on:
-  workflow_dispatch:  # Allows manual triggering of the workflow
+  # Trigger the workflow manually via the GitHub UI (workflow_dispatch)
+  workflow_dispatch:
+  
+  # Trigger the workflow on push to specific branches
   push:
     branches: 
       - main
       - v100.11.5-android
-      - dev  # Ensure these are the branches you want to build for
+      - dev  # Ensure these are the correct branches you want to build for
 
 env:
+  # General environment variables
   COIN_NAME: vkax  # Set the coin name as an environment variable
   BUILD_DIR: vkax-build  # Directory for build outputs
   COMPRESS_DIR: vkax-compress  # Directory for compressed artifacts
   LC_ALL: C  # Set locale for consistent behavior across machines
   LANG: C
-  ANDROID_API: "25"  # Target API level set to 25
-  HOST: aarch64-linux-android  # Cross-compiling host for ARM 64-bit
+  ANDROID_API: "25"  # Android API level to target, changed from 21 to 25
+  HOST: aarch64-linux-android  # Set the host for cross-compiling
 
 jobs:
   android-aarch64-daemon:
     name: Android aarch64 (daemon + cli + tx, no Qt)
-    runs-on: ubuntu-22.04  # Use Ubuntu 22.04 runner
+    runs-on: ubuntu-22.04  # Use the latest supported Ubuntu runner for your builds
 
     steps:
       # Step 1: Checkout the repository
@@ -33,50 +37,45 @@ jobs:
       - name: Set up JDK 11
         uses: actions/setup-java@v4
         with:
-          distribution: temurin  # Use Temurin JDK
-          java-version: "11"  # Java version for building
+          distribution: temurin  # Use the Temurin JDK distribution
+          java-version: "11"  # Specify the version of Java to use for the build
 
-      # Step 3: Install required tooling and dependencies
+      # Step 3: Install necessary tooling and dependencies
       - name: Install required tools and dependencies
         run: |
           set -eux
           sudo apt-get update
           sudo apt-get install -y build-essential automake libtool pkg-config python3 unzip wget cmake ninja-build
 
-      # Step 4: Install Android SDK and NDK (ensure correct version)
+      # Step 4: Install Android SDK and NDK (r25c), skip if already installed
       - name: Install Android SDK + NDK (r25c)
         env:
-          ANDROID_SDK_ROOT: ${{ github.workspace }}/android-sdk  # Set SDK root directory
+          ANDROID_SDK_ROOT: ${{ github.workspace }}/android-sdk  # Set Android SDK root directory
         run: |
           set -eux
           if [ ! -d "$ANDROID_SDK_ROOT" ]; then
-            echo "Installing Android SDK and NDK"
-            mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools"  # Create cmdline-tools directory
+            echo "Installing Android SDK"
+            mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools"  # Ensure the cmdline-tools directory exists
             wget -q https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip -O /tmp/clt.zip
             unzip -q /tmp/clt.zip -d "$ANDROID_SDK_ROOT/cmdline-tools"  # Unzip SDK tools
             mv "$ANDROID_SDK_ROOT/cmdline-tools/cmdline-tools" "$ANDROID_SDK_ROOT/cmdline-tools/latest"
             export PATH="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH"  # Update path for SDK tools
             yes | sdkmanager --licenses >/dev/null  # Accept SDK licenses automatically
-            sdkmanager "platform-tools" "platforms;android-${{ env.ANDROID_API }}" "ndk;25.2.9519653"  # Install NDK version
+            sdkmanager "platform-tools" "platforms;android-${{ env.ANDROID_API }}" "ndk;25.2.9519653"  # Install necessary SDK/NDK versions
           else
             echo "Android SDK/NDK already installed, skipping installation."
           fi
           echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> "$GITHUB_ENV"  # Export SDK root for later steps
-          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/25.2.9519653" >> "$GITHUB_ENV"  # Set NDK path
-          echo "$ANDROID_SDK_ROOT/ndk/25.2.9519653/toolchains/llvm/prebuilt/linux-x86_64/bin" >> "$GITHUB_PATH"  # Add NDK tools to path
 
-      # Step 5: Check NDK installation and debug path issue
-      - name: Validate NDK installation
+      # Step 5: Install the Android NDK using the .deb package
+      - name: Install Android NDK via .deb Package
         run: |
           set -eux
-          # Check if the NDK toolchain exists
-          if [ -d "$ANDROID_SDK_ROOT/ndk/25.2.9519653/toolchains/llvm/prebuilt/linux-x86_64/bin" ]; then
-            echo "NDK toolchain directory found."
-            ls -la "$ANDROID_SDK_ROOT/ndk/25.2.9519653/toolchains/llvm/prebuilt/linux-x86_64/bin"
-          else
-            echo "NDK toolchain directory not found!"
-            exit 1
-          fi
+          # Download the NDK .deb package
+          wget http://ftp.us.debian.org/debian/pool/non-free/g/google-android-installers/google-android-ndk-r25c-installer_25.2.9519653+1743526702-1_amd64.deb -O /tmp/google-android-ndk.deb
+          # Install the NDK .deb package
+          sudo dpkg -i /tmp/google-android-ndk.deb
+          sudo apt-get install -f  # Fix any missing dependencies
 
       # Step 6: Set up NDK clang toolchain for Boost
       - name: Set up NDK clang toolchain for Boost
@@ -88,19 +87,9 @@ jobs:
           set -eux
           TOOLCHAIN_BIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
           
-          # Check available toolchains
-          echo "Available toolchains:"
-          ls -la $TOOLCHAIN_BIN  # List toolchains in the NDK
-
-          # Check if clang++ exists for the requested API level
-          if [ -x "$TOOLCHAIN_BIN/aarch64-linux-android${ANDROID_API}-clang++" ]; then
-            echo "clang++ found for API level $ANDROID_API"
-          else
-            echo "clang++ for API level $ANDROID_API not found. Trying API level 21..."
-            # Fallback to API level 21 if clang++ for API level 25 doesn't exist
-            test -x "$TOOLCHAIN_BIN/aarch64-linux-android21-clang++" && echo "clang++ for API level 21 found!" || exit 1
-          fi
-
+          # Check if clang++ exists in the toolchain directory for the correct API level
+          test -x "$TOOLCHAIN_BIN/${HOST}${ANDROID_API}-clang++"
+          
           # Create symlinks for clang and clang++
           ln -sf "${TOOLCHAIN_BIN}/${HOST}${ANDROID_API}-clang"  "${TOOLCHAIN_BIN}/${HOST}-clang"
           ln -sf "${TOOLCHAIN_BIN}/${HOST}${ANDROID_API}-clang++" "${TOOLCHAIN_BIN}/${HOST}-clang++"
