@@ -47,8 +47,8 @@ ifeq ($(host_os),)
   host_os := $(full_host_os)
 endif
 
-# Set ANDROID_NDK explicitly to version r23c
-ANDROID_NDK ?= $(BASEDIR)/android-sdk/ndk/android-ndk-r23c
+# Set ANDROID_NDK explicitly to version r25.2.9519653
+ANDROID_NDK ?= $(BASEDIR)/android-sdk/ndk/android-ndk-r25.2.9519653
 @echo "Using Android NDK from: $(ANDROID_NDK)"
 
 # Path to NDK and dependencies
