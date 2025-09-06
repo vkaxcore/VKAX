@@ -1,3 +1,4 @@
+# .github/workflows/build.yaml
 # VKAX Android APK Build — aarch64; deterministic NDK r23c wiring; depends-only (no Qt); strict sysroot/API; CI diagnostics.
 # This workflow assumes depends/hosts/android.mk from VKAX repo (absolute clang paths + API handling).
 # Enforced fix: pass host_prefix="$HOST" to make to keep it RELATIVE and satisfy funcs.mk guard.
@@ -77,6 +78,17 @@ jobs:
           echo "ANDROID_API_LEVEL=${{ env.ANDROID_API }}"                            >> "$GITHUB_ENV"
           echo "$ANDROID_SDK_ROOT/ndk/android-ndk-r23c/toolchains/llvm/prebuilt/linux-x86_64/bin" >> "$GITHUB_PATH"
 
+      # Ensure the config.site file exists in the correct location
+      - name: Ensure config.site exists
+        run: |
+          set -eux
+          # Create the directory structure for the config.site file
+          mkdir -p "$GITHUB_WORKSPACE/depends/${HOST}/share"
+          # Copy the config.site.in to the correct location
+          cp "$GITHUB_WORKSPACE/depends/config.site.in" "$GITHUB_WORKSPACE/depends/${HOST}/share/config.site"
+          # Verify that the file exists
+          ls -l "$GITHUB_WORKSPACE/depends/${HOST}/share/config.site" || true
+
       - name: Sanitize Makefiles (strip CRLF + BOM)
         run: |
           set -eux
@@ -104,19 +116,11 @@ jobs:
           test -x "${TOOLBIN}/clang++"
           "${TOOLBIN}/clang++" --target=${HOST}${ANDROID_API_LEVEL} -v || true
 
-      - name: Ensure config.site exists
-        run: |
-          set -eux
-          mkdir -p "$GITHUB_WORKSPACE/depends/${HOST}/share"
-          cp "$GITHUB_WORKSPACE/depends/config.site.in" "$GITHUB_WORKSPACE/depends/${HOST}/share/config.site"
-          ls -l "$GITHUB_WORKSPACE/depends/${HOST}/share/config.site" || true
-
       - name: Build depends (force RELATIVE host_prefix to satisfy funcs.mk guard)
         env:
           HOST: ${{ env.HOST }}
         run: |
           set -eux
-          # IMPORTANT: pass host_prefix="$HOST" so funcs.mk sees a RELATIVE value; do not change Makefiles.
           make -C depends -j"$(nproc)" \
             HOST="$HOST" \
             ANDROID_NDK="$ANDROID_NDK" \
@@ -163,10 +167,6 @@ jobs:
             --with-incompatible-bdb \
             --with-miniupnpc --enable-upnp-default \
             --without-gui --disable-bench --disable-tests
-
-          echo "=== includes ==="; ls -la "${DEPENDS_PREFIX}/include" || true
-          echo "=== include/db4.8 ==="; ls -la "${DEPENDS_PREFIX}/include/db4.8" || true
-          echo "=== libs ==="; ls -la "${DEPENDS_PREFIX}/lib" || true
 
       - name: Build core
         run: |
