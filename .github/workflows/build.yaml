@@ -78,26 +78,36 @@ jobs:
         run: |
           set -eux
           TOOLCHAIN_BIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
-          test -x "$TOOLCHAIN_BIN/${HOST}${ANDROID_API}-clang++"  # Check that the clang++ binary exists
-          ln -sf "${TOOLCHAIN_BIN}/${HOST}${ANDROID_API}-clang"  "${TOOLCHAIN_BIN}/${HOST}-clang"  # Create symlinks for clang
-          ln -sf "${TOOLCHAIN_BIN}/${HOST}${ANDROID_API}-clang++" "${TOOLCHAIN_BIN}/${HOST}-clang++"  # Create symlinks for clang++
-          echo "$TOOLCHAIN_BIN" >> "$GITHUB_PATH"  # Add toolchain bin directory to PATH
-          {
-            echo "CC=${HOST}${ANDROID_API}-clang"  # Set CC to use clang
-            echo "CXX=${HOST}${ANDROID_API}-clang++"  # Set CXX to use clang++
-            echo "AR=llvm-ar"  # Set AR to llvm-ar
-            echo "RANLIB=llvm-ranlib"  # Set RANLIB to llvm-ranlib
-          } >> "$GITHUB_ENV"  # Export these variables for use in later steps
           
-          # Boost user-config.jam for Android
-          mkdir -p depends "$HOME/.boost-build"  # Create Boost build directories
+          # Check if clang++ exists in the toolchain directory
+          test -x "$TOOLCHAIN_BIN/${HOST}${ANDROID_API}-clang++"
+          
+          # Create symlinks for clang and clang++
+          ln -sf "${TOOLCHAIN_BIN}/${HOST}${ANDROID_API}-clang"  "${TOOLCHAIN_BIN}/${HOST}-clang"
+          ln -sf "${TOOLCHAIN_BIN}/${HOST}${ANDROID_API}-clang++" "${TOOLCHAIN_BIN}/${HOST}-clang++"
+          
+          # Add toolchain binary directory to PATH for later steps
+          echo "$TOOLCHAIN_BIN" >> "$GITHUB_PATH"
+          
+          # Set environment variables for Boost to use the Android NDK toolchain
+          echo "CC=${HOST}${ANDROID_API}-clang" >> "$GITHUB_ENV"
+          echo "CXX=${HOST}${ANDROID_API}-clang++" >> "$GITHUB_ENV"
+          echo "AR=llvm-ar" >> "$GITHUB_ENV"
+          echo "RANLIB=llvm-ranlib" >> "$GITHUB_ENV"
+
+          # Boost user-config.jam for Android (write Boost-specific config)
+          mkdir -p depends "$HOME/.boost-build"
           cat > depends/user-config.jam <<EOF
 using clang : aarch64
   : ${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android${ANDROID_API}-clang++
   : <target-os>android <architecture>arm <address-model>64 ;
 EOF
-          cp depends/user-config.jam "$HOME/.boost-build/user-config.jam"  # Copy the config to the Boost build directory
-          echo "BOOST_BUILD_PATH=$PWD/depends" >> "$GITHUB_ENV"  # Set Boost build path as an environment variable
+
+          # Copy the user-config.jam to the correct Boost directory
+          cp depends/user-config.jam "$HOME/.boost-build/user-config.jam"
+          
+          # Export Boost build path as an environment variable
+          echo "BOOST_BUILD_PATH=$PWD/depends" >> "$GITHUB_ENV"
 
       # Step 6: Build dependencies (no Qt)
       - name: Build dependencies (no Qt)
