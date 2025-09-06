@@ -1,12 +1,9 @@
-name: Debug VKAX Android APK Build
+name: VKAX Android APK Build
 
 on:
   workflow_dispatch:
   push:
-    branches:
-      - main
-      - v100.11.5-android
-      - dev
+    branches: [main, v100.11.5-android, dev]
 
 env:
   COIN_NAME: vkax
@@ -17,11 +14,11 @@ env:
 
 jobs:
   android-apk:
-    name: Android aarch64 build (Debug)
+    name: Android aarch64 build
     runs-on: ubuntu-22.04
     env:
       HOST: aarch64-linux-android
-      ANDROID_API: "21"  # exported as ANDROID_API_LEVEL for depends/hosts/android.mk
+      ANDROID_API: "21"   # exported as ANDROID_API_LEVEL for depends/hosts/android.mk
     defaults:
       run:
         shell: bash
@@ -32,52 +29,7 @@ jobs:
         with:
           lfs: true
 
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            build-essential automake libtool pkg-config \
-            python3 unzip wget cmake ninja-build zip curl perl
-
-      - name: Set Up JDK 17
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: "17"
-
-      - name: Set Environment Variables for SDK/NDK
-        run: |
-          echo "==== Setting Up Environment Variables ===="
-          export ANDROID_SDK_ROOT="${{ github.workspace }}/android-sdk"
-          export ANDROID_NDK_HOME="${ANDROID_SDK_ROOT}/ndk/android-ndk-r23c"
-          export ANDROID_NDK="${ANDROID_SDK_ROOT}/ndk/android-ndk-r23c"
-          export ANDROID_API_LEVEL=21
-          echo "ANDROID_SDK_ROOT: $ANDROID_SDK_ROOT"
-          echo "ANDROID_NDK_HOME: $ANDROID_NDK_HOME"
-          echo "ANDROID_NDK: $ANDROID_NDK"
-          echo "ANDROID_API_LEVEL: $ANDROID_API_LEVEL"
-        shell: bash
-
-      - name: Install Android SDK and NDK r23c
-        env:
-          ANDROID_SDK_ROOT: ${{ github.workspace }}/android-sdk
-        run: |
-          set -eux
-          mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools"
-          wget -q https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip -O /tmp/clt.zip
-          unzip -q /tmp/clt.zip -d "$ANDROID_SDK_ROOT/cmdline-tools"
-          mv "$ANDROID_SDK_ROOT/cmdline-tools/cmdline-tools" "$ANDROID_SDK_ROOT/cmdline-tools/latest"
-          export PATH="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH"
-          yes | sdkmanager --licenses || true
-          sdkmanager "platform-tools" "platforms;android-${{ env.ANDROID_API }}"
-          wget -q https://dl.google.com/android/repository/android-ndk-r23c-linux.zip -O /tmp/ndk.zip
-          unzip -q /tmp/ndk.zip -d "$ANDROID_SDK_ROOT/ndk"
-          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/android-ndk-r23c" >> "$GITHUB_ENV"
-          echo "ANDROID_NDK=$ANDROID_SDK_ROOT/ndk/android-ndk-r23c" >> "$GITHUB_ENV"
-          echo "ANDROID_API_LEVEL=${{ env.ANDROID_API }}" >> "$GITHUB_ENV"
-          echo "$ANDROID_SDK_ROOT/ndk/android-ndk-r23c/toolchains/llvm/prebuilt/linux-x86_64/bin" >> "$GITHUB_PATH"
-
-      - name: Debug Environment Variables
+      - name: Debugging Environment Variables
         run: |
           echo "==== Debugging Environment Variables ===="
           echo "ANDROID_SDK_ROOT: $ANDROID_SDK_ROOT"
@@ -87,121 +39,33 @@ jobs:
           echo "PATH: $PATH"
           echo "==== End Debugging Environment Variables ===="
 
-      - name: Verify NDK Toolchain
+      - name: Strip out Windows PATH
         run: |
-          TOOLBIN="${ANDROID_NDK}/toolchains/llvm/prebuilt/linux-x86_64/bin"
-          echo "==== Verifying NDK Toolchain ===="
-          test -x "${TOOLBIN}/clang++" || (echo "clang++ not found!" && exit 1)
-          "${TOOLBIN}/clang++" --version
-          echo "==== Toolchain Verification Complete ===="
+          PATH=$(echo "$PATH" | sed -e 's/:\/mnt.*//g')  # Remove problematic Windows %PATH% imported var
 
-      - name: Ensure config.site Exists
+      - name: Build dependencies (Windows)
         run: |
           set -eux
-          CONFIG_SITE_IN="${PWD}/depends/config.site.in"
-          CONFIG_SITE="${PWD}/depends/${HOST}/share/config.site"
-          if [ ! -f "$CONFIG_SITE_IN" ]; then
-            echo "Error: config.site.in not found at $CONFIG_SITE_IN"
-            exit 1
-          fi
-          cp "$CONFIG_SITE_IN" "$CONFIG_SITE"
-          echo "config.site copied successfully"
-
-      - name: Build depends (Debug)
-        run: |
-          echo "==== Building depends with Debugging ===="
-          set -eux
-          make -C depends -j"$(nproc)" \
-            HOST="${HOST}" \
-            ANDROID_NDK="${ANDROID_NDK}" \
-            ANDROID_API="${ANDROID_API_LEVEL}" \
-            host_prefix="${HOST}" \
-            NO_QT=1 V=1
-          echo "==== Build Complete ===="
-
-      - name: Sanity checks (Dependencies)
-        run: |
-          echo "==== Running Sanity Checks ===="
-          DEPENDS_PREFIX="${PWD}/depends/${HOST}"
-          test -d "${DEPENDS_PREFIX}/lib"
-          ls -l "${DEPENDS_PREFIX}/lib" || true
-          test -n "$(echo ${DEPENDS_PREFIX}/lib/libboost_* 2>/dev/null | tr -d ' ')" || (echo "Error: Missing Boost in depends prefix" && exit 1)
-          test -e "${DEPENDS_PREFIX}/lib/libdb_cxx-4.8.a" || test -e "${DEPENDS_PREFIX}/lib/libdb_cxx.a" || (echo "Error: Missing BDB 4.8 in depends prefix" && exit 1)
-          test -e "${DEPENDS_PREFIX}/lib/libminiupnpc.a" || (echo "Error: Missing miniupnpc in depends prefix" && exit 1)
-          echo "Sanity checks passed."
-          echo "==== End Sanity Checks ===="
-
-      - name: Build Core
-        run: |
-          echo "==== Building Core ===="
-          make -j"$(nproc)" src/vkaxd src/vkax-cli src/vkax-tx
-          mkdir -p "$BUILD_DIR"
-          cp -f src/vkaxd src/vkax-cli src/vkax-tx "$BUILD_DIR/"
-          echo "==== Core Build Complete ===="
-
-      - name: Create APK (Debug)
-        run: |
-          echo "==== Creating APK ===="
-          mkdir -p android-app/app/src/main/{jniLibs/arm64-v8a,java/org/vkax/android}
-          cp "$BUILD_DIR/vkaxd" "$BUILD_DIR/vkax-cli" "$BUILD_DIR/vkax-tx" android-app/app/src/main/jniLibs/arm64-v8a/
-          cat > android-app/settings.gradle << 'GRADLE'
-          rootProject.name = "VKAXAndroid"
-          include(":app")
-          GRADLE
-          cat > android-app/build.gradle << 'GRADLE'
-          buildscript {
-            repositories { google(); mavenCentral() }
-            dependencies { classpath "com.android.tools.build:gradle:8.3.2" }
-          }
-          allprojects { repositories { google(); mavenCentral() } }
-          GRADLE
-          cat > android-app/app/build.gradle << 'GRADLE'
-          plugins { id "com.android.application" }
-          android {
-            namespace "org.vkax.android"
-            compileSdkVersion 34
-            defaultConfig {
-              applicationId "org.vkax.android"
-              minSdkVersion 21
-              targetSdkVersion 34
-              versionCode 1
-              versionName "1.0"
-              ndk { abiFilters "arm64-v8a" }
-            }
-            buildTypes { release { minifyEnabled false } }
-          }
-          GRADLE
-          cat > android-app/app/src/main/AndroidManifest.xml << 'XML'
-          <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="org.vkax.android">
-            <application android:label="VKAX Daemon" android:allowBackup="false">
-              <activity android:name=".MainActivity">
-                <intent-filter>
-                  <action android:name="android.intent.action.MAIN" />
-                  <category android:name="android.intent.category.LAUNCHER" />
-                </intent-filter>
-              </activity>
-            </application>
-          </manifest>
-          XML
-          mkdir -p android-app/app/src/main/java/org/vkax/android
-          cat > android-app/app/src/main/java/org/vkax/android/MainActivity.java << 'JAVA'
-          package org.vkax.android;
-          import android.app.Activity;
-          import android.os.Bundle;
-          public class MainActivity extends Activity {
-            @Override protected void onCreate(Bundle savedInstanceState) { super.onCreate(savedInstanceState); }
-          }
-          JAVA
-          cd android-app
-          /opt/gradle/gradle-8.7/bin/gradle --no-daemon --warning-mode all assembleRelease
+          cd depends
+          make HOST=x86_64-w64-mingw32
           cd ..
-          mkdir -p "$COMPRESS_DIR"
-          cp android-app/app/build/outputs/apk/release/app-release.apk "$COMPRESS_DIR/${COIN_NAME}-android-aarch64.apk"
-          echo "==== APK Creation Complete ===="
 
-      - name: Upload APK Artifact
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: ${{ env.COIN_NAME }}-android-aarch64-apk
-          path: ${{ env.COMPRESS_DIR }}/${{ env.COIN_NAME }}-android-aarch64.apk
+      - name: Ensure config.site exists
+        run: |
+          set -eux
+          # Check for config.site existence and copy if necessary
+          if [ ! -f "$PWD/depends/x86_64-w64-mingw32/share/config.site" ]; then
+            echo "config.site not found, creating it manually"
+            cp $PWD/depends/config.site.in $PWD/depends/x86_64-w64-mingw32/share/config.site
+          fi
+
+      - name: Run autogen.sh and configure
+        run: |
+          set -eux
+          ./autogen.sh  # Run autogen.sh to generate necessary files
+          CONFIG_SITE=$PWD/depends/x86_64-w64-mingw32/share/config.site ./configure --prefix=/
+
+      - name: Build the project
+        run: |
+          set -eux
+          make
