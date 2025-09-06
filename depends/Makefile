@@ -6,7 +6,19 @@ print-%:
 
 # When invoking a sub-make, keep only the command line variable definitions
 # matching the pattern in the filter function.
+# e.g. invoking:
+#   $ make A=1 C=1 print-MAKEOVERRIDES print-MAKEFLAGS
+# with the following in the Makefile:
+#   MAKEOVERRIDES := $(filter A=% B=%,$(MAKEOVERRIDES))
+# will print:
+#   MAKEOVERRIDES = A=1
+#   MAKEFLAGS = -- A=1
+#
+# This means that sub-makes will be invoked as if:
+#   $(MAKE) A=1 blah blah
+
 MAKEOVERRIDES := $(filter V=%,$(MAKEOVERRIDES))
+
 SOURCES_PATH ?= $(BASEDIR)/sources
 WORK_PATH = $(BASEDIR)/work
 BASE_CACHE ?= $(BASEDIR)/built
@@ -34,18 +46,23 @@ ifneq ($(HOST),)
 host:=$(HOST)
 endif
 
+# Set build type (debug or release)
 ifneq ($(DEBUG),)
 release_type=debug
 else
 release_type=release
 endif
 
+# Define directories for build, staging, and download
 base_build_dir=$(WORK_PATH)/build
 base_staging_dir=$(WORK_PATH)/staging
 base_download_dir=$(WORK_PATH)/download
+
+# Define canonical host and build configurations
 canonical_host:=$(shell ./config.sub $(HOST))
 build:=$(shell ./config.sub $(BUILD))
 
+# Break down build architecture, vendor, and OS
 build_arch =$(firstword $(subst -, ,$(build)))
 build_vendor=$(word 2,$(subst -, ,$(build)))
 full_build_os:=$(subst $(build_arch)-$(build_vendor)-,,$(build))
@@ -56,6 +73,7 @@ ifeq ($(build_os),)
 build_os=$(full_build_os)
 endif
 
+# Define host architecture and OS
 host_arch=$(firstword $(subst -, ,$(canonical_host)))
 host_vendor=$(word 2,$(subst -, ,$(canonical_host)))
 full_host_os:=$(subst $(host_arch)-$(host_vendor)-,,$(canonical_host))
@@ -63,48 +81,40 @@ host_os:=$(findstring linux,$(full_host_os))
 host_os+=$(findstring darwin,$(full_host_os))
 host_os+=$(findstring mingw32,$(full_host_os))
 
+# Define host-specific settings for Android
 ifeq (android,$(findstring android,$(full_host_os)))
 host_os:=android
 endif
 
+# Ensure host_os is set correctly
 host_os:=$(strip $(host_os))
 ifeq ($(host_os),)
 host_os=$(full_host_os)
 endif
 
-# Fix host_prefix to absolute path for Android
-host_prefix=$(BASEDIR)/work/aarch64-linux-android/native
+# Set paths for host prefix and build prefix
+$(host_arch)_$(host_os)_prefix=$(BASEDIR)/$(host)
+$(host_arch)_$(host_os)_host=$(host)
+host_prefix=$($(host_arch)_$(host_os)_prefix)
 build_prefix=$(host_prefix)/native
 build_host=$(build)
 
-# Clean up PKG_CONFIG_PATH and PKG_CONFIG_LIBDIR to avoid issues with spaces
-PKG_CONFIG_LIBDIR="aarch64-linux-android/native/lib/pkgconfig"
-PKG_CONFIG_PATH="aarch64-linux-android/native/share/pkgconfig"
+# Ensure relative paths are used for host_prefix
+AT_$(V):=
+AT_:=@
+AT:=$(AT_$(V))
 
-# Install NDK as part of dependencies
-include packages/ndk.mk
+# Define the target
+all: install
 
-# Add NDK to the list of packages to install
-packages += $(ndk_packages)
-
-# Ensure NDK is part of all packages to download/install
-all_packages = $(packages) $(native_packages) $(ndk_packages)
-
-install: check-packages $(host_prefix)/share/config.site
-	$(MAKE) -s $(foreach package,$(all_packages),$(package)_install;)
-
-# Ensuring proper NDK download
-download-one: check-sources $(all_sources)
-	$(AT)mkdir -p $(WORK_PATH)/download/$(package)
-	$(AT)cd $(WORK_PATH)/download/$(package); $(MAKE) $(package)_download_and_extract
-
-# Including host and builder-specific settings
+# Include necessary Makefiles for the host OS and build OS
 include hosts/$(host_os).mk
 include hosts/default.mk
 include builders/$(build_os).mk
 include builders/default.mk
 include packages/packages.mk
 
+# Build ID generation
 build_id_string:=$(BUILD_ID_SALT)
 build_id_string+=$(shell $(build_CC) --version 2>/dev/null)
 build_id_string+=$(shell $(build_AR) --version 2>/dev/null)
@@ -112,6 +122,7 @@ build_id_string+=$(shell $(build_CXX) --version 2>/dev/null)
 build_id_string+=$(shell $(build_RANLIB) --version 2>/dev/null)
 build_id_string+=$(shell $(build_STRIP) --version 2>/dev/null)
 
+# Host-specific build ID generation
 $(host_arch)_$(host_os)_id_string:=$(HOST_ID_SALT)
 $(host_arch)_$(host_os)_id_string+=$(shell $(host_CC) --version 2>/dev/null)
 $(host_arch)_$(host_os)_id_string+=$(shell $(host_AR) --version 2>/dev/null)
@@ -119,26 +130,28 @@ $(host_arch)_$(host_os)_id_string+=$(shell $(host_CXX) --version 2>/dev/null)
 $(host_arch)_$(host_os)_id_string+=$(shell $(host_RANLIB) --version 2>/dev/null)
 $(host_arch)_$(host_os)_id_string+=$(shell $(host_STRIP) --version 2>/dev/null)
 
+# Check if using system clang and update the build ID accordingly
 ifneq ($(strip $(FORCE_USE_SYSTEM_CLANG)),)
-# Make sure that cache is invalidated when switching between system and
-# depends-managed, pinned clang
 build_id_string+=system_clang
 $(host_arch)_$(host_os)_id_string+=system_clang
 endif
 
+# Package lists, with optional exclusions for components like Qt, Protobuf, OpenSSL, etc.
 qt_packages_$(NO_QT) = $(qt_packages) $(qt_$(host_os)_packages) $(qt_$(host_arch)_$(host_os)_packages)
 wallet_packages_$(NO_WALLET) = $(wallet_packages)
 upnp_packages_$(NO_UPNP) = $(upnp_packages)
 natpmp_packages_$(NO_NATPMP) = $(natpmp_packages)
 
+# Handle dependencies for protobuf, openssl, zmq
 zmq_packages_$(NO_ZMQ) = $(zmq_packages)
-
 protobuf_packages_$(NO_PROTOBUF) = $(protobuf_packages)
 openssl_packages_$(NO_OPENSSL) = $(openssl_packages)
 
+# Add all necessary packages to the build
 packages += $($(host_arch)_$(host_os)_packages) $($(host_os)_packages) $(qt_packages_) $(wallet_packages_) $(upnp_packages_) $(natpmp_packages_)
 native_packages += $($(host_arch)_$(host_os)_native_packages) $($(host_os)_native_packages)
 
+# Include protobuf and openssl packages if necessary
 ifneq ($(protobuf_packages_),)
 native_packages += $(protobuf_native_packages)
 packages += $(protobuf_packages)
@@ -152,17 +165,24 @@ ifneq ($(zmq_packages_),)
 packages += $(zmq_packages)
 endif
 
+# Combine all packages
 all_packages = $(packages) $(native_packages)
 
+# Meta dependencies
 meta_depends = Makefile funcs.mk builders/default.mk hosts/default.mk hosts/$(host_os).mk builders/$(build_os).mk
 
+# Define native binutils and toolchain for the host
 $(host_arch)_$(host_os)_native_binutils?=$($(host_os)_native_binutils)
 $(host_arch)_$(host_os)_native_toolchain?=$($(host_os)_native_toolchain)
 
+# Include necessary Makefiles for functions and settings
 include funcs.mk
 
+# Build ID calculation
 final_build_id_long+=$(shell $(build_SHA256SUM) config.site.in)
 final_build_id+=$(shell echo -n "$(final_build_id_long)" | $(build_SHA256SUM) | cut -c-$(HASH_LENGTH))
+
+# Package build stage
 $(host_prefix)/.stamp_$(final_build_id): $(native_packages) $(packages)
 	$(AT)rm -rf $(@D)
 	$(AT)mkdir -p $(@D)
@@ -171,58 +191,42 @@ $(host_prefix)/.stamp_$(final_build_id): $(native_packages) $(packages)
 	$(AT)cd $(@D); $(foreach package,$^, tar xf $($(package)_cached); )
 	$(AT)touch $@
 
-# $PATH is not preserved between ./configure and make by convention. Its
-# modification and overriding at ./configure time is (as I understand it)
-# supposed to be captured by the AC_{PROG_{,OBJ}CXX,PATH_{PROG,TOOL}} macros,
-# which will expand the program names to their full absolute paths. The notable
-# exception is command line overriding: ./configure CC=clang, which skips the
-# program name expansion step, and works because the user implicitly indicates
-# with CC=clang that clang will be available in $PATH at all times, and is most
-# likely part of the user's system.
-$(host_prefix)/share/config.site : check-packages
-	$(AT)@mkdir -p $(@D)
-	$(AT)sed -e 's|@HOST@|$(host)|' \
-            -e 's|@CC@|$(host_CC)|' \
-            -e 's|@CXX@|$(host_CXX)|' \
-            -e 's|@AR@|$(host_AR)|' \
-            -e 's|@RANLIB@|$(host_RANLIB)|' \
-            -e 's|@NM@|$(host_NM)|' \
-            -e 's|@STRIP@|$(host_STRIP)|' \
-            -e 's|@build_os@|$(build_os)|' \
-            -e 's|@host_os@|$(host_os)|' \
-            -e 's|@CFLAGS@|$(strip $(host_CFLAGS) $(host_$(release_type)_CFLAGS))|' \
-            -e 's|@CXXFLAGS@|$(strip $(host_CXXFLAGS) $(host_$(release_type)_CXXFLAGS))|' \
-            -e 's|@CPPFLAGS@|$(strip $(host_CPPFLAGS) $(host_$(release_type)_CPPFLAGS))|' \
-            -e 's|@LDFLAGS@|$(strip $(host_LDFLAGS) $(host_$(release_type)_LDFLAGS))|' \
-            -e 's|@no_qt@|$(NO_QT)|' \
-            -e 's|@no_zmq@|$(NO_ZMQ)|' \
-            -e 's|@disable_bip70@|$(NO_PROTOBUF)|' \
-            -e 's|@no_wallet@|$(NO_WALLET)|' \
-            -e 's|@no_upnp@|$(NO_UPNP)|' \
-            -e 's|@no_natpmp@|$(NO_NATPMP)|' \
-            -e 's|@debug@|$(DEBUG)|' \
-            $< > $@
-	$(AT)touch $@
+# Handle missing or mismatched checksums for downloaded sources
+define check_or_remove_cached
+  mkdir -p $(BASE_CACHE)/$(host)/$(package) && cd $(BASE_CACHE)/$(host)/$(package); \
+  $(build_SHA256SUM) -c $($(package)_cached_checksum) >/dev/null 2>/dev/null || \
+  ( rm -f $($(package)_cached_checksum); \
+    if test -f "$($(package)_cached)"; then echo "Checksum mismatch for $(package). Forcing rebuild.."; rm -f $($(package)_cached_checksum) $($(package)_cached); fi )
+endef
 
+# Check the sources and force re-download if necessary
+define check_or_remove_sources
+  mkdir -p $($(package)_source_dir); cd $($(package)_source_dir); \
+  test -f $($(package)_fetched) && ( $(build_SHA256SUM) -c $($(package)_fetched) >/dev/null 2>/dev/null || \
+    ( echo "Checksum missing or mismatched for $(package) source. Forcing re-download."; \
+      rm -f $($(package)_all_sources) $($(1)_fetched))) || true
+endef
+
+# Ensure all packages are checked and sources are available
 check-packages:
 	@$(foreach package,$(all_packages),$(call check_or_remove_cached,$(package));)
 check-sources:
 	@$(foreach package,$(all_packages),$(call check_or_remove_sources,$(package));)
 
-$(host_prefix)/share/config.site: check-packages
-
-check-packages: check-sources
-
+# Clean up the build environment
 clean-all: clean
 	@rm -rf $(SOURCES_PATH) x86_64* i686* mips* arm* aarch64* riscv32* riscv64*
 
 clean:
 	@rm -rf $(WORK_PATH) $(BASE_CACHE) $(BUILD)
 
+# Install the necessary packages
 install: check-packages $(host_prefix)/share/config.site
 
+# Download the necessary sources for all packages
 download-one: check-sources $(all_sources)
 
+# Download sources for different platforms
 download-osx:
 	@$(MAKE) -s HOST=x86_64-apple-darwin download-one
 download-linux:
@@ -231,6 +235,8 @@ download-win:
 	@$(MAKE) -s HOST=x86_64-w64-mingw32 download-one
 download: download-osx download-linux download-win
 
+# Add stages for all packages
 $(foreach package,$(all_packages),$(eval $(call ext_add_stages,$(package))))
 
+# Define the necessary targets as "phony"
 .PHONY: install cached clean clean-all download-one download-osx download-linux download-win download check-packages check-sources
