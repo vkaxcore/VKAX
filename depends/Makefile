@@ -56,7 +56,7 @@ ANDROID_API := 21
 HOST_PREFIX := $(BASEDIR)/$(HOST)
 host_prefix := $(HOST_PREFIX)/native
 
-# Define the toolchain
+# Define the toolchain for Android
 ANDROID_TOOLCHAIN_BIN := $(ANDROID_NDK)/toolchains/llvm/prebuilt/linux-x86_64/bin
 android_CC := $(ANDROID_TOOLCHAIN_BIN)/aarch64-linux-android$(ANDROID_API)-clang
 android_CXX := $(ANDROID_TOOLCHAIN_BIN)/aarch64-linux-android$(ANDROID_API)-clang++
@@ -64,6 +64,16 @@ android_AR := $(ANDROID_TOOLCHAIN_BIN)/llvm-ar
 android_RANLIB := $(ANDROID_TOOLCHAIN_BIN)/llvm-ranlib
 android_STRIP := $(ANDROID_TOOLCHAIN_BIN)/llvm-strip
 android_SYSROOT := $(ANDROID_NDK)/toolchains/llvm/prebuilt/linux-x86_64/sysroot
+
+# Export Android toolchain variables
+export ANDROID_NDK
+export ANDROID_API
+export android_CC
+export android_CXX
+export android_AR
+export android_RANLIB
+export android_STRIP
+export android_SYSROOT
 
 # Package management
 PACKAGES := miniupnpc boost openssl protobuf zmq
@@ -77,6 +87,10 @@ SOURCES_PATH := $(BASEDIR)/sources
 meta_depends := Makefile funcs.mk builders/default.mk hosts/default.mk hosts/$(host_os).mk builders/$(build_os).mk
 
 # Include necessary makefiles for host and builder-specific settings
+ifeq ($(host_os),android)
+  include builders/android.mk
+endif
+
 include hosts/$(host_os).mk
 include hosts/default.mk
 include builders/$(build_os).mk
