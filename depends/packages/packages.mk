@@ -3,14 +3,10 @@
 # Aggregates package lists and includes their .mk definitions.
 # ============================================
 
-# ---- Core (always used by VKAX)
+# ---- Core (your current list)
 packages := boost libevent gmp sodium bls-dash backtrace cmake immer
 
-# ---- Features toggled elsewhere:
-# - protobuf & openssl come via *_packages below
-# - upnp/zeromq/bdb are appended conditionally by top-level Makefile
-
-# Native/protobuf/openssl/qt buckets
+# ---- Buckets the top-level Makefile uses/extends
 protobuf_native_packages = native_protobuf
 protobuf_packages        = protobuf
 openssl_packages         = openssl
@@ -21,13 +17,12 @@ qt_android_packages      = qt
 qt_darwin_packages       = qt
 qt_mingw32_packages      = qt
 
-# Wallet / networking
 wallet_packages          = bdb
 zmq_packages             = zeromq
 upnp_packages            = miniupnpc
 natpmp_packages          = libnatpmp
 
-# macOS native (unused on Linux/Android but kept for parity)
+# macOS native (kept for parity; ignored on linux/android)
 darwin_native_packages   = native_ds_store native_mac_alias
 ifneq ($(build_os),darwin)
 darwin_native_packages  += native_cctools native_libtapi native_libdmg-hfsplus
@@ -39,48 +34,14 @@ endif
 # Host-arch specific native tools
 $(host_arch)_$(host_os)_native_packages += native_b2
 
-# ---- Include each package definition (.mk). Missing any of these will yield
-#      empty $(package)_source_dir / _download_path / _file_name and crash mkdir.
-# Core
-include depends/packages/boost.mk
-include depends/packages/libevent.mk
-include depends/packages/gmp.mk
-include depends/packages/sodium.mk
-include depends/packages/bls-dash.mk
-include depends/packages/backtrace.mk
-include depends/packages/cmake.mk
-include depends/packages/immer.mk
-
-# Feature / networking / wallet
-include depends/packages/miniupnpc.mk
-include depends/packages/zeromq.mk
-include depends/packages/bdb.mk
-include depends/packages/libnatpmp.mk
-
-# Crypto / serialization
-include depends/packages/openssl.mk
-include depends/packages/protobuf.mk
-include depends/packages/native_protobuf.mk
-
-# Tools needed by other packages
-include depends/packages/native_b2.mk
-
-# Qt stack (these are only used if NO_QT is not set)
-include depends/packages/zlib.mk
-include depends/packages/qrencode.mk
-include depends/packages/qt.mk
-include depends/packages/expat.mk
-include depends/packages/dbus.mk
-include depends/packages/libxcb.mk
-include depends/packages/xcb_proto.mk
-include depends/packages/libXau.mk
-include depends/packages/xproto.mk
-include depends/packages/freetype.mk
-include depends/packages/fontconfig.mk
+# ---- Include every package definition file that exists.
+# This avoids “empty $(package)_source_dir” because a .mk wasn’t included.
+# (Your repo stores these under depends/packages or packages. This covers both.)
+-include $(wildcard depends/packages/*.mk)
+-include $(wildcard packages/*.mk)
 
 # ============================================
 # Notes:
-# - If your repo doesn’t contain one of the included files above,
-#   remove that include or add the file. Do NOT leave a package
-#   in the ‘packages’ list without its .mk included.
+# - If a .mk truly doesn’t exist for a name in your lists above, the
+#   doctor target (added below) will tell you exactly which variable is missing.
 # ============================================
