@@ -1,10 +1,9 @@
 # ============================================
 # depends/builders/default.mk
-# Standardizes "build" (native/tools) toolchain selections.
-# This is separate from the cross-compile HOST toolchain.
+# Native "build" toolchain selection (no $(eval), LF line endings).
 # ============================================
 
-# ---- Default native tools (override per OS/arch below if needed)
+# Defaults for native tools
 default_build_CC                = gcc
 default_build_CXX               = g++
 default_build_AR                = ar
@@ -14,46 +13,34 @@ default_build_NM                = nm
 default_build_OTOOL             = otool
 default_build_INSTALL_NAME_TOOL = install_name_tool
 
-# Utilities used by the depends framework (give safe defaults)
+# Utilities used by the depends framework
 default_build_SHA256SUM         = sha256sum
 default_build_DOWNLOAD          = curl
 
-# ---- Map defaults -> per-OS -> per-arch+OS -> final "build_*" variables
-# $1 is the tool var name (CC, CXX, ...)
+# Normalize incoming identifiers (optional; build/build_os/build_arch are set by the workflow)
+build        ?=
+build_os     ?=
+build_arch   ?=
 
-define add_build_tool_func
-build_$(build_os)_$1 ?= $$(default_build_$1)
-build_$(build_arch)_$(build_os)_$1 ?= $$(build_$(build_os)_$1)
-build_$1 = $$(build_$(build_arch)_$(build_os)_$1)
-endef
+# Final native tool vars (keep it simple: defaults unless someone overrides upstream)
+build_CC                ?= $(default_build_CC)
+build_CXX               ?= $(default_build_CXX)
+build_AR                ?= $(default_build_AR)
+build_RANLIB            ?= $(default_build_RANLIB)
+build_STRIP             ?= $(default_build_STRIP)
+build_NM                ?= $(default_build_NM)
+build_OTOOL             ?= $(default_build_OTOOL)
+build_INSTALL_NAME_TOOL ?= $(default_build_INSTALL_NAME_TOOL)
+build_SHA256SUM         ?= $(default_build_SHA256SUM)
+build_DOWNLOAD          ?= $(default_build_DOWNLOAD)
 
-# Apply explicitly (avoids fragile foreach on some setups)
-$(eval $(call add_build_tool_func,CC))
-$(eval $(call add_build_tool_func,CXX))
-$(eval $(call add_build_tool_func,AR))
-$(eval $(call add_build_tool_func,RANLIB))
-$(eval $(call add_build_tool_func,STRIP))
-$(eval $(call add_build_tool_func,NM))
-$(eval $(call add_build_tool_func,OTOOL))
-$(eval $(call add_build_tool_func,INSTALL_NAME_TOOL))
-$(eval $(call add_build_tool_func,SHA256SUM))
-$(eval $(call add_build_tool_func,DOWNLOAD))
+# Flags (don’t be clever; just expose passthrough vars if someone sets them)
+build_CFLAGS   ?=
+build_CXXFLAGS ?=
+build_LDFLAGS  ?=
 
-# ---- Flags propagation
-# $1 is the flags var (CFLAGS, CXXFLAGS, LDFLAGS)
-
-define add_build_flags_func
-build_$(build_arch)_$(build_os)_$1 += $$(build_$(build_os)_$1)
-build_$1 = $$(build_$(build_arch)_$(build_os)_$1)
-endef
-
-$(eval $(call add_build_flags_func,CFLAGS))
-$(eval $(call add_build_flags_func,CXXFLAGS))
-$(eval $(call add_build_flags_func,LDFLAGS))
-
-# ============================================
 # Notes:
-# - Ensure this file uses LF endings (no CRLF), or GNU make may emit
-#   "*** missing separator" at $(eval ...) lines.
-# - Variables build, build_arch, build_os are set by the workflow before "make -C depends".
+# - This file intentionally avoids $(eval) and complex macros to prevent
+#   "*** missing separator" on systems with odd make versions or CRLFs.
+# - Ensure LF endings (Unix) for all *.mk to keep GNU make happy.
 # ============================================
