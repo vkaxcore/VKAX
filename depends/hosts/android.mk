@@ -1,7 +1,7 @@
 # File: depends/hosts/android.mk
-# Director: Setvin
-# Intent: RELATIVE install prefix to prevent writes to '/', absolute tool paths, legacy-safe; fixes mkdir '/aarch64-linux-android' perms.
-# Notes: funcs.mk will rm/mkdir/cd into $(host_prefix); keep this relative.
+# Android NDK toolchain wiring for VKAX depends (Bitcoin/Dash style).
+# Intent: absolute tool paths, RELATIVE install prefix (no writes to /), legacy-safe; do not touch consensus.
+# Director: Setvin | Summary: fixes mkdir '/aarch64-linux-android' by making prefix relative and exporting host_prefix; adds loud guards.
 
 UNAME_S ?= $(shell uname -s)
 UNAME_M ?= $(shell uname -m)
@@ -30,10 +30,12 @@ ANDROID_API_LEVEL ?= $(if $(ANDROID_API),$(ANDROID_API),21)
 ifeq ($(strip $(ANDROID_NDK)),)
   $(error ANDROID_NDK is not set; expected e.g. /path/to/android-ndk-r23c)
 endif
+
 ANDROID_TOOLCHAIN_BIN ?= $(ANDROID_NDK)/toolchains/llvm/prebuilt/$(NDK_HOST_TAG)/bin
 ifeq ($(wildcard $(ANDROID_TOOLCHAIN_BIN)),)
   $(error ANDROID_TOOLCHAIN_BIN not found: "$(ANDROID_TOOLCHAIN_BIN)"; check ANDROID_NDK and NDK_HOST_TAG "$(NDK_HOST_TAG)")
 endif
+
 android_SYSROOT := $(ANDROID_TOOLCHAIN_BIN)/../sysroot
 
 # Compose absolute tool paths for $(HOST)
@@ -44,6 +46,7 @@ else
   _HOST_TRIPLE_CC  := $(HOST)$(ANDROID_API_LEVEL)-clang
   _HOST_TRIPLE_CXX := $(HOST)$(ANDROID_API_LEVEL)-clang++
 endif
+
 android_CC      := $(ANDROID_TOOLCHAIN_BIN)/$(_HOST_TRIPLE_CC)
 android_CXX     := $(ANDROID_TOOLCHAIN_BIN)/$(_HOST_TRIPLE_CXX)
 android_AR      := $(ANDROID_TOOLCHAIN_BIN)/llvm-ar
@@ -154,4 +157,5 @@ ifeq ($(V),1)
   $(info [depends/android] host_prefix=$(host_prefix))
 endif
 
-# Summary: relative android_prefix + host_prefix fix permission error; rest unchanged.  Signed: Setvin
+# Summary: relative android_prefix + exported host_prefix + guards; prevents writes to '/', tool paths clean; legacy layout preserved.
+# Signed: Setvin
