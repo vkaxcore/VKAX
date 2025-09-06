@@ -72,15 +72,14 @@ ifeq ($(host_os),)
 host_os=$(full_host_os)
 endif
 
-$(host_arch)_$(host_os)_prefix=$(BASEDIR)/$(host)
-$(host_arch)_$(host_os)_host=$(host)
-host_prefix=$($(host_arch)_$(host_os)_prefix)
+# Fix host_prefix to absolute path for Android
+host_prefix=$(BASEDIR)/work/aarch64-linux-android/native
 build_prefix=$(host_prefix)/native
 build_host=$(build)
 
-AT_$(V):=
-AT_:=@
-AT:=$(AT_$(V))
+# Clean up PKG_CONFIG_PATH and PKG_CONFIG_LIBDIR to avoid issues with spaces
+PKG_CONFIG_LIBDIR="aarch64-linux-android/native/lib/pkgconfig"
+PKG_CONFIG_PATH="aarch64-linux-android/native/share/pkgconfig"
 
 # Install NDK as part of dependencies
 include packages/ndk.mk
