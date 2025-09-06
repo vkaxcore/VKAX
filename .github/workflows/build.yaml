@@ -1,22 +1,19 @@
 name: VKAX Android Build
 
-# Workflow triggers
 on:
   workflow_dispatch:
   push:
-    branches:
-      - main
-      - v100.11.5-android
-      - dev
+    branches: [ main, v100.11.5-android, dev ]
 
 env:
+  # ---- Global knobs you tweak most often ----
   COIN_NAME: vkax
   BUILD_DIR: vkax-build
   COMPRESS_DIR: vkax-compress
   LC_ALL: C
   LANG: C
-  ANDROID_API: "25"
-  HOST: aarch64-linux-android
+  ANDROID_API: "25"                  # <- you asked for 25 specifically
+  HOST: aarch64-linux-android        # <- Android 64-bit
 
 jobs:
   android-aarch64-daemon:
@@ -24,9 +21,22 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-      - uses: actions/checkout@v4
+      # --------- 0) Source checkout ---------
+      - name: Checkout repo (with LFS)
+        uses: actions/checkout@v4
         with:
           lfs: true
+
+      # --------- 1) Tooling on runner ---------
+      - name: Install build prerequisites
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          # dos2unix+curl are used to harden the depends build (line endings + fetch config.guess/sub)
+          sudo apt-get install -y \
+            build-essential automake libtool pkg-config \
+            python3 unzip wget cmake ninja-build \
+            dos2unix curl
 
       - name: Set up JDK 11
         uses: actions/setup-java@v4
@@ -34,104 +44,191 @@ jobs:
           distribution: temurin
           java-version: "11"
 
-      - name: Install required tools and dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential automake libtool pkg-config python3 unzip wget cmake ninja-build
-
-      - name: Install Android SDK + NDK (r25c)
+      # --------- 2) Android SDK + NDK (robust) ---------
+      - name: Install Android SDK + NDK r25c and accept licenses
         env:
           ANDROID_SDK_ROOT: ${{ github.workspace }}/android-sdk
+          ANDROID_API: ${{ env.ANDROID_API }}
         run: |
-          set -eux
-          if [ ! -d "$ANDROID_SDK_ROOT" ]; then
-            echo "Installing Android SDK and NDK"
+          set -euxo pipefail
+
+          # Ensure SDK root exists
+          mkdir -p "$ANDROID_SDK_ROOT"
+
+          # Install/ensure cmdline-tools present (we check the actual sdkmanager path)
+          if [ ! -x "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" ]; then
+            echo "Installing Android commandline-tools..."
             mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools"
             wget -q https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip -O /tmp/clt.zip
             unzip -q /tmp/clt.zip -d "$ANDROID_SDK_ROOT/cmdline-tools"
             mv "$ANDROID_SDK_ROOT/cmdline-tools/cmdline-tools" "$ANDROID_SDK_ROOT/cmdline-tools/latest"
-            export PATH="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH"
-            yes | sdkmanager --licenses >/dev/null
-            sdkmanager "platform-tools" "platforms;android-${{ env.ANDROID_API }}" "ndk;25.2.9519653"
           fi
+
+          # Put sdkmanager on PATH for this step
+          export PATH="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH"
+
+          # Accept licenses (non-zero returns sometimes; we ignore them to be resilient)
+          yes | sdkmanager --licenses || true
+
+          # Always make sure these are installed (idempotent)
+          sdkmanager "platform-tools"
+          sdkmanager "platforms;android-${ANDROID_API}"
+          sdkmanager "ndk;25.2.9519653"
+
+          # Export for downstream steps
           echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> "$GITHUB_ENV"
           echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/25.2.9519653" >> "$GITHUB_ENV"
           echo "$ANDROID_SDK_ROOT/ndk/25.2.9519653/toolchains/llvm/prebuilt/linux-x86_64/bin" >> "$GITHUB_PATH"
 
-      - name: Set up NDK clang toolchain for Boost
+          # Helpful diagnostics
+          echo "Installed SDK components:"
+          sdkmanager --list | sed -n '1,120p' || true
+          echo "NDK toolchain bin listing:"
+          ls -la "$ANDROID_SDK_ROOT/ndk/25.2.9519653/toolchains/llvm/prebuilt/linux-x86_64/bin" || true
+
+      # --------- 3) NDK toolchain environment (no wrapper assumption) ---------
+      - name: Export NDK/Clang toolchain environment
         env:
-          HOST: ${{ env.HOST }}
-          ANDROID_API: ${{ env.ANDROID_API }}
           ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
+          ANDROID_API: ${{ env.ANDROID_API }}
+          HOST: ${{ env.HOST }}
         run: |
+          set -euxo pipefail
+
           TOOLCHAIN_BIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
-          
-          if [ ! -x "$TOOLCHAIN_BIN/${HOST}${ANDROID_API}-clang++" ]; then
-            echo "clang++ for API level $ANDROID_API not found, attempting to install clang-13 as fallback."
-            sudo apt-get install -y clang-13
-          fi
-          
-          if [ -x "/usr/bin/clang++-13" ]; then
-            sudo ln -sf /usr/bin/clang-13 /usr/bin/clang
-            sudo ln -sf /usr/bin/clang++-13 /usr/bin/clang++
-          else
-            echo "clang-13 not found, make sure it's installed or download the correct NDK version."
-            exit 1
-          fi
-          
-          echo "CC=${HOST}${ANDROID_API}-clang" >> "$GITHUB_ENV"
-          echo "CXX=${HOST}${ANDROID_API}-clang++" >> "$GITHUB_ENV"
+          SYSROOT="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/sysroot"
+
+          # We DO NOT rely on aarch64-linux-android${API}-clang++ existing.
+          # We drive clang/clang++ with --target and --sysroot explicitly.
+          echo "CC=clang --target=${HOST}${ANDROID_API} --sysroot=${SYSROOT}" >> "$GITHUB_ENV"
+          echo "CXX=clang++ --target=${HOST}${ANDROID_API} --sysroot=${SYSROOT}" >> "$GITHUB_ENV"
           echo "AR=llvm-ar" >> "$GITHUB_ENV"
           echo "RANLIB=llvm-ranlib" >> "$GITHUB_ENV"
+          echo "STRIP=llvm-strip" >> "$GITHUB_ENV"
 
+          # Keep toolchain on PATH
+          echo "$TOOLCHAIN_BIN" >> "$GITHUB_PATH"
+
+          # Show effective compilers
+          echo "Toolchain bin present?"; ls -la "$TOOLCHAIN_BIN" | sed -n '1,40p' || true
+          echo "Using target: ${HOST}${ANDROID_API}"
+          clang --version || true
+          clang++ --version || true
+
+      # --------- 4) Boost user-config for Android (safe writer) ---------
+      # If your depends/boost.mk already writes user-config.jam, this won't hurt:
+      # Boost will pick the one you point it to via BOOST_BUILD_PATH / --user-config.
+      - name: Write Boost user-config.jam for Android (clang + sysroot)
+        env:
+          ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
+          ANDROID_API: ${{ env.ANDROID_API }}
+          HOST: ${{ env.HOST }}
+        run: |
+          set -euxo pipefail
           mkdir -p depends "$HOME/.boost-build"
-          echo "using clang : aarch64" > depends/user-config.jam
-          echo "  : ${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android${ANDROID_API}-clang++" >> depends/user-config.jam
-          echo "  : <target-os>android <architecture>arm <address-model>64 ;" >> depends/user-config.jam
+
+          SYSROOT="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/sysroot"
+          TOOLCHAIN_BIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
+
+          # Write in one shot with printf to avoid YAML heredoc gotchas.
+          printf 'using clang : aarch64 : %s/clang++ : ' "$TOOLCHAIN_BIN" > depends/user-config.jam
+          printf '<target-os>android <architecture>arm <address-model>64 ' >> depends/user-config.jam
+          printf '<compileflags>"--target=%s%s --sysroot=%s" ' "$HOST" "$ANDROID_API" "$SYSROOT" >> depends/user-config.jam
+          printf '<linkflags>"--target=%s%s --sysroot=%s" ;\n' "$HOST" "$ANDROID_API" "$SYSROOT" >> depends/user-config.jam
+
           cp depends/user-config.jam "$HOME/.boost-build/user-config.jam"
           echo "BOOST_BUILD_PATH=$PWD/depends" >> "$GITHUB_ENV"
 
-      - name: Build dependencies (no Qt)
-        env:
-          HOST: ${{ env.HOST }}
-          ANDROID_API: ${{ env.ANDROID_API }}
-          BOOST_BUILD_PATH: ${{ env.BOOST_BUILD_PATH }}
-        run: |
-          set -eux
-          make -C depends -j"$(nproc)" HOST="$HOST" ANDROID_NDK="$ANDROID_NDK_HOME" ANDROID_API="$ANDROID_API" NO_QT=1 V=1
+          echo "Wrote depends/user-config.jam:"
+          cat depends/user-config.jam
 
-      - name: Configure (daemon + cli + tx)
+      # --------- 5) Build depends (hardened) ---------
+      - name: Build dependencies (no Qt) — force triplets and modern config.guess/sub
         env:
           HOST: ${{ env.HOST }}
-          CONFIG_SITE: ${{ github.workspace }}/depends/${{ env.HOST }}/share/config.site
+          ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
+          ANDROID_API: ${{ env.ANDROID_API }}
         run: |
-          set -eux
+          set -euxo pipefail
+
+          # Normalize possible CRLF in mk files to avoid "missing separator"
+          find depends -name '*.mk' -print0 | xargs -0 -n1 dos2unix || true
+
+          # Ensure config.guess/config.sub exist for canonical triplets
+          if [ ! -x depends/config.guess ] || [ ! -x depends/config.sub ]; then
+            echo "Fetching config.guess/config.sub ..."
+            curl -fsSL 'https://git.savannah.gnu.org/gitweb/?p=config.git;a=blob_plain;f=config.guess' -o depends/config.guess
+            curl -fsSL 'https://git.savannah.gnu.org/gitweb/?p=config.git;a=blob_plain;f=config.sub'   -o depends/config.sub
+            chmod +x depends/config.guess depends/config.sub
+          fi
+
+          # Compute build triplet once (e.g. x86_64-linux-gnu on Actions Ubuntu)
+          BUILD_TRIPLET="$(./depends/config.guess || gcc -dumpmachine || echo x86_64-linux-gnu)"
+          echo "Using BUILD_TRIPLET=${BUILD_TRIPLET}"
+
+          # Drive depends explicitly to avoid including a directory by mistake
+          make -C depends -j"$(nproc)" \
+            build="${BUILD_TRIPLET}" \
+            build_os=linux \
+            HOST="${HOST}" \
+            ANDROID_NDK="${ANDROID_NDK_HOME}" \
+            ANDROID_API="${ANDROID_API}" \
+            NO_QT=1 V=1
+
+      # --------- 6) Project configure (daemon/cli/tx; no Qt) ---------
+      - name: Configure VKAX (daemon + cli + tx)
+        env:
+          HOST: ${{ env.HOST }}
+          ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
+        run: |
+          set -euxo pipefail
           export PKG_CONFIG_PATH="${PWD}/depends/${HOST}/lib/pkgconfig"
+          export PKG_CONFIG_LIBDIR="${PWD}/depends/${HOST}/lib/pkgconfig"
+
+          # Use config.guess for build triplet for consistency
+          BUILD_TRIPLET="$(./depends/config.guess || gcc -dumpmachine || echo x86_64-linux-gnu)"
+
           ./autogen.sh || true
           ./configure \
-            --host="${HOST}" --build="$(gcc -dumpmachine)" \
+            --host="${HOST}" \
+            --build="${BUILD_TRIPLET}" \
             --prefix="${PWD}/depends/${HOST}" \
             --with-incompatible-bdb \
-            --without-gui --disable-bench --disable-tests \
+            --without-gui \
+            --disable-bench \
+            --disable-tests \
+            CFLAGS="-O2 -fPIC" \
             CXXFLAGS="-O2 -fPIC"
 
-      - name: Build and Package (vkaxd, vkax-cli, vkax-tx)
+      # --------- 7) Build + package ---------
+      - name: Build and package (vkaxd, vkax-cli, vkax-tx)
+        env:
+          COIN_NAME: ${{ env.COIN_NAME }}
+          BUILD_DIR: ${{ env.BUILD_DIR }}
+          COMPRESS_DIR: ${{ env.COMPRESS_DIR }}
         run: |
-          set -eux
+          set -euxo pipefail
           make -j"$(nproc)" src/vkaxd src/vkax-cli src/vkax-tx
           mkdir -p "$BUILD_DIR" "$COMPRESS_DIR"
           cp -f src/vkaxd src/vkax-cli src/vkax-tx "$BUILD_DIR/" || true
           tar -czvf "$COMPRESS_DIR/${COIN_NAME}-android-aarch64-daemons.tar.gz" -C "$BUILD_DIR" .
 
+      # --------- 8) Diagnostics (always) ---------
       - name: Diagnostics (always)
         if: always()
         run: |
-          set -x
+          set -euxo pipefail
+          echo "Depends logs:"
           find depends -maxdepth 7 -type f \( -name bootstrap.log -o -name config.log -o -name project-config.jam -o -name user-config.jam \) -print || true
           B2=$(find depends -maxdepth 7 -type f -name b2 -print -quit || true)
-          if [ -n "$B2" ]; then "$(dirname "$B2")/b2" --debug-configuration -n --version toolset=clang target-os=android || true; fi
+          if [ -n "$B2" ]; then
+            echo "b2 debug configuration:"
+            "$(dirname "$B2")/b2" --debug-configuration -n --version toolset=clang target-os=android || true
+          fi
 
-      - uses: actions/upload-artifact@v4
+      # --------- 9) Upload artifact ---------
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
         if: always()
         with:
           name: ${{ env.COIN_NAME }}-android-aarch64-daemons
