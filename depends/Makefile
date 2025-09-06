@@ -47,8 +47,11 @@ ifeq ($(host_os),)
   host_os := $(full_host_os)
 endif
 
+# Set ANDROID_NDK explicitly to version r23c
+ANDROID_NDK ?= $(BASEDIR)/android-sdk/ndk/android-ndk-r23c
+@echo "Using Android NDK from: $(ANDROID_NDK)"
+
 # Path to NDK and dependencies
-ANDROID_NDK := $(BASEDIR)/android-sdk/ndk/android-ndk-r23c
 ANDROID_API := 21
 HOST_PREFIX := $(BASEDIR)/$(HOST)
 host_prefix := $(HOST_PREFIX)/native
