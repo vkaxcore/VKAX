@@ -81,17 +81,17 @@ jobs:
           
           # Check if clang++ for the correct API level exists
           if [ ! -x "$TOOLCHAIN_BIN/aarch64-linux-android${ANDROID_API}-clang++" ]; then
-            echo "clang++ for API level $ANDROID_API not found, attempting to install clang-3.5 as fallback."
+            echo "clang++ for API level $ANDROID_API not found, attempting to install clang-13 as fallback."
 
-            # Install clang-3.5 if missing (for fallback purposes)
+            # Install clang-13 if missing (for fallback purposes)
             sudo apt-get install clang-13
 
-            # Check again if clang-3.5 exists and create symlinks
-            if [ -x "/usr/bin/clang-3.5" ] && [ -x "/usr/bin/clang++-3.5" ]; then
-              sudo ln -sf /usr/bin/clang-3.5 /usr/bin/clang
+            # Check again if clang-13 exists and create symlinks
+            if [ -x "/usr/bin/clang-13" ] && [ -x "/usr/bin/clang++-3.5" ]; then
+              sudo ln -sf /usr/bin/clang-13 /usr/bin/clang
               sudo ln -sf /usr/bin/clang++-3.5 /usr/bin/clang++
             else
-              echo "clang-3.5 not found, make sure it's installed or download the correct NDK version."
+              echo "clang-13 not found, make sure it's installed or download the correct NDK version."
               exit 1
             fi
           fi
