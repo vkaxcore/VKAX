@@ -71,7 +71,9 @@ ifneq (,$(filter /%,$(android_prefix)))
 endif
 
 # Export for funcs.mk configured stage
-host_prefix ?= $(android_prefix)
+android_prefix := $(strip $(host))
+host_prefix    := $(strip $(android_prefix))
+ifneq (,$(filter /%,$(host_prefix))) $(error host_prefix must be relative, got "$(host_prefix)") endif
 NO_QT ?= 1
 export NO_QT
 
