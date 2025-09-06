@@ -8,7 +8,8 @@ AT ?= @
 # Android prefix safety and sane defaults
 # ------------------------------------------------------------------------------
 ifeq ($(host_os),android)
-    host_prefix ?= $(strip $(notdir $(host)))   # Ensure that host_prefix is always relative.
+    # Ensure that host_prefix is always relative.
+    host_prefix ?= $(strip $(notdir $(host)))
 
     # Ensure host_prefix is relative (no absolute paths)
     ifneq (,$(filter /%,$(host_prefix)))
@@ -63,10 +64,12 @@ export ANDROID_CFLAGS:=$(android_CFLAGS)
 export ANDROID_CXXFLAGS:=$(android_CXXFLAGS)
 export ANDROID_LDFLAGS:=$(ANDROID_LDFLAGS)
 
+# Ensure API Level is exported
 ifneq ($(ANDROID_API_LEVEL),)
   export ANDROID_API:=$(ANDROID_API_LEVEL)
 endif
 
+# Disable Qt for Android builds if NO_QT is set
 NO_QT ?= 1
 endif
 
