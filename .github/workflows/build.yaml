@@ -1,4 +1,3 @@
-# .github/workflows/build.yaml
 # VKAX Android APK Build — aarch64; deterministic NDK r23c wiring; depends-only (no Qt); strict sysroot/API; CI diagnostics.
 # This workflow assumes depends/hosts/android.mk from VKAX repo (absolute clang paths + API handling).
 # Enforced fix: pass host_prefix="$HOST" to make to keep it RELATIVE and satisfy funcs.mk guard.
@@ -104,6 +103,13 @@ jobs:
           TOOLBIN="${ANDROID_NDK}/toolchains/llvm/prebuilt/linux-x86_64/bin"
           test -x "${TOOLBIN}/clang++"
           "${TOOLBIN}/clang++" --target=${HOST}${ANDROID_API_LEVEL} -v || true
+
+      - name: Ensure config.site exists
+        run: |
+          set -eux
+          mkdir -p "$GITHUB_WORKSPACE/depends/${HOST}/share"
+          cp "$GITHUB_WORKSPACE/depends/config.site.in" "$GITHUB_WORKSPACE/depends/${HOST}/share/config.site"
+          ls -l "$GITHUB_WORKSPACE/depends/${HOST}/share/config.site" || true
 
       - name: Build depends (force RELATIVE host_prefix to satisfy funcs.mk guard)
         env:
@@ -250,5 +256,3 @@ jobs:
         with:
           name: ${{ env.COIN_NAME }}-android-aarch64-apk
           path: ${{ env.COMPRESS_DIR }}/${{ env.COIN_NAME }}-android-aarch64.apk
-
-# .github/workflows/build.yaml — Setvin — 2025-09-05
