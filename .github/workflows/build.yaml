@@ -82,7 +82,7 @@ jobs:
           } >> "$GITHUB_ENV"
           mkdir -p depends "$HOME/.boost-build"
           cat > depends/user-config.jam <<'EOF'
-using clang : aarch64 : aarch64-linux-android-clang++ : <target-os>android ;
+using clang : aarch64 : $(ANDROID_NDK_HOME)/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android$(ANDROID_API)-clang++ : <target-os>android ;
 EOF
           cp depends/user-config.jam "$HOME/.boost-build/user-config.jam"
           echo "BOOST_BUILD_PATH=$PWD/depends" >> "$GITHUB_ENV"
