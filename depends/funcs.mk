@@ -9,12 +9,13 @@ AT ?= @
 # Android prefix safety and sane defaults
 # ------------------------------------------------------------------------------
 ifeq ($(host_os),android)
-host_prefix ?= $(strip $(host))   # default if hosts/android.mk didn't set it
-ifneq (,$(filter /%,$(host_prefix)))
-  $(error host_prefix must be relative for Android, got "$(host_prefix)")
+    host_prefix ?= $(strip $(host))   # default if hosts/android.mk didn't set it
+    # Ensure host_prefix is relative
+    ifneq (,$(filter /%,$(host_prefix)))
+      $(error host_prefix must be relative for Android, got "$(host_prefix)")
+    endif
 endif
-build_prefix ?= $(host_prefix)/native
-endif
+
 
 # ------------------------------------------------------------------------------
 # Android NDK glue (wrapper exports if env-only)
