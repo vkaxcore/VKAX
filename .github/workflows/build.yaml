@@ -65,7 +65,20 @@ jobs:
           echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/25.2.9519653" >> "$GITHUB_ENV"  # Set NDK path
           echo "$ANDROID_SDK_ROOT/ndk/25.2.9519653/toolchains/llvm/prebuilt/linux-x86_64/bin" >> "$GITHUB_PATH"  # Add NDK tools to path
 
-      # Step 5: Set up NDK clang toolchain for Boost
+      # Step 5: Check NDK installation and debug path issue
+      - name: Validate NDK installation
+        run: |
+          set -eux
+          # Check if the NDK toolchain exists
+          if [ -d "$ANDROID_SDK_ROOT/ndk/25.2.9519653/toolchains/llvm/prebuilt/linux-x86_64/bin" ]; then
+            echo "NDK toolchain directory found."
+            ls -la "$ANDROID_SDK_ROOT/ndk/25.2.9519653/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          else
+            echo "NDK toolchain directory not found!"
+            exit 1
+          fi
+
+      # Step 6: Set up NDK clang toolchain for Boost
       - name: Set up NDK clang toolchain for Boost
         env:
           HOST: ${{ env.HOST }}
@@ -115,7 +128,7 @@ jobs:
           # Export Boost build path as an environment variable
           echo "BOOST_BUILD_PATH=$PWD/depends" >> "$GITHUB_ENV"
 
-      # Step 6: Build dependencies (no Qt)
+      # Step 7: Build dependencies (no Qt)
       - name: Build dependencies (no Qt)
         env:
           HOST: ${{ env.HOST }}
@@ -125,7 +138,7 @@ jobs:
           set -eux
           make -C depends -j"$(nproc)" HOST="$HOST" ANDROID_NDK="$ANDROID_NDK_HOME" ANDROID_API="$ANDROID_API" NO_QT=1 V=1
 
-      # Step 7: Configure for daemon + cli + tx
+      # Step 8: Configure for daemon + cli + tx
       - name: Configure (daemon + cli + tx)
         env:
           HOST: ${{ env.HOST }}
@@ -141,7 +154,7 @@ jobs:
             --without-gui --disable-bench --disable-tests \
             CXXFLAGS="-O2 -fPIC"  # Configure the project with appropriate flags
 
-      # Step 8: Build and package the binaries (vkaxd, vkax-cli, vkax-tx)
+      # Step 9: Build and package the binaries (vkaxd, vkax-cli, vkax-tx)
       - name: Build and Package (vkaxd, vkax-cli, vkax-tx)
         run: |
           set -eux
@@ -150,7 +163,7 @@ jobs:
           cp -f src/vkaxd src/vkax-cli src/vkax-tx "$BUILD_DIR/" || true  # Copy binaries to build dir
           tar -czvf "$COMPRESS_DIR/${COIN_NAME}-android-aarch64-daemons.tar.gz" -C "$BUILD_DIR" .  # Compress the binaries into a tar.gz archive
 
-      # Step 9: Diagnostics (always run for debugging)
+      # Step 10: Diagnostics (always run for debugging)
       - name: Diagnostics (always)
         if: always()  # Ensure this step always runs, even on failure
         run: |
@@ -159,7 +172,7 @@ jobs:
           B2=$(find depends -maxdepth 7 -type f -name b2 -print -quit || true)
           if [ -n "$B2" ]; then "$(dirname "$B2")/b2" --debug-configuration -n --version toolset=clang target-os=android || true; fi
 
-      # Step 10: Upload the build artifact
+      # Step 11: Upload the build artifact
       - uses: actions/upload-artifact@v4
         if: always()  # Upload the artifact even if the build fails
         with:
