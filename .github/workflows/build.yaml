@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-22.04
     env:
       HOST: aarch64-linux-android
-      ANDROID_API: "21"
+      ANDROID_API: "28"  # Change the API level based on the requirement
 
     steps:
       # Step 1: Checkout the repository
@@ -82,17 +82,7 @@ jobs:
           } >> "$GITHUB_ENV"
           mkdir -p depends "$HOME/.boost-build"
           cat > depends/user-config.jam <<'EOF'
-import os ;
-
-# grab the env-vars
-local ndk_home = [ os.environ.get ANDROID_NDK_HOME ] ;
-local api     = [ os.environ.get ANDROID_API     ] ;
-
-using clang
-: aarch64
-: $(ndk_home)/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android$(api)-clang++
-: <target-os>android <architecture>arm <address-model>64
-;
+using clang : aarch64 : ${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android${ANDROID_API}-clang++ : <target-os>android <architecture>arm <address-model>64 ;
 EOF
           cp depends/user-config.jam "$HOME/.boost-build/user-config.jam"
           echo "BOOST_BUILD_PATH=$PWD/depends" >> "$GITHUB_ENV"
