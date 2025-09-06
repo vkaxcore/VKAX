@@ -1,31 +1,23 @@
 # File: depends/funcs.mk
 # Director: Setvin
 # Intent: Core dependency build orchestration for VKAX "depends" with legacy layout preserved.
-# Key: Android prefix guard + default host_prefix, verbose toolchain echoes, no ownership flips on tar, literal TABs only.
+# Key: Android prefix guard + proper native build_prefix, quoted PKG_CONFIG_* and PATH, Qt filtered on Android, verbose toolchain echoes.
 
-# ------------------------------------------------------------------------------
-# Optional quieting (legacy pattern)
-# ------------------------------------------------------------------------------
 AT ?= @
 
-# ------------------------------------------------------------------------------
-# Android prefix safety (prevents mkdir/cd to filesystem root)
-# ------------------------------------------------------------------------------
+# Android prefix safety
 ifeq ($(host_os),android)
-  host_prefix ?= $(host)                              # sane default if hosts/android.mk didn't set it
+  host_prefix ?= $(host)  # default if hosts/android.mk didn't set it
   ifneq (,$(filter /%,$(host_prefix)))
     $(error host_prefix must be relative for Android, got "$(host_prefix)")
   endif
+  build_prefix ?= $(host_prefix)/native
 endif
 
-# ------------------------------------------------------------------------------
-# Android NDK glue (fallbacks that do not disturb legacy hosts)
-# This section only activates when building for Android.
-# ------------------------------------------------------------------------------
+# Android NDK glue (wrapper exports if env-only)
 ifeq ($(host_os),android)
   ANDROID_API_LEVEL ?= $(ANDROID_API)
   HOST ?= $(host)
-
   ifneq ($(ANDROID_TOOLCHAIN_BIN),)
     android_toolchain_bin := $(ANDROID_TOOLCHAIN_BIN)
   else ifneq ($(ANDROID_NDK),)
@@ -33,22 +25,18 @@ ifeq ($(host_os),android)
   else
     android_toolchain_bin :=
   endif
-
   android_SYSROOT := $(if $(android_toolchain_bin),$(abspath $(android_toolchain_bin)/../sysroot),)
-
   android_CC     := $(if $(android_toolchain_bin),$(android_toolchain_bin)/$(HOST)$(ANDROID_API_LEVEL)-clang,$(HOST)$(ANDROID_API_LEVEL)-clang)
   android_CXX    := $(if $(android_toolchain_bin),$(android_toolchain_bin)/$(HOST)$(ANDROID_API_LEVEL)-clang++,$(HOST)$(ANDROID_API_LEVEL)-clang++)
   android_AR     := $(if $(android_toolchain_bin),$(android_toolchain_bin)/llvm-ar,llvm-ar)
   android_RANLIB := $(if $(android_toolchain_bin),$(android_toolchain_bin)/llvm-ranlib,llvm-ranlib)
   android_STRIP  := $(if $(android_toolchain_bin),$(android_toolchain_bin)/llvm-strip,llvm-strip)
-
   ifneq ($(android_SYSROOT),)
     android_CPPFLAGS += --sysroot=$(android_SYSROOT) -D__ANDROID_API__=$(ANDROID_API_LEVEL)
     android_CFLAGS   += --sysroot=$(android_SYSROOT) -D__ANDROID_API__=$(ANDROID_API_LEVEL)
     android_CXXFLAGS += --sysroot=$(android_SYSROOT) -D__ANDROID_API__=$(ANDROID_API_LEVEL)
     android_LDFLAGS  += --sysroot=$(android_SYSROOT)
   endif
-
   export ANDROID_CC:=$(android_CC)
   export ANDROID_CXX:=$(android_CXX)
   export ANDROID_AR:=$(android_AR)
@@ -59,15 +47,19 @@ ifeq ($(host_os),android)
   export ANDROID_CFLAGS:=$(android_CFLAGS)
   export ANDROID_CXXFLAGS:=$(android_CXXFLAGS)
   export ANDROID_LDFLAGS:=$(android_LDFLAGS)
-
   ifneq ($(ANDROID_API_LEVEL),)
     export ANDROID_API:=$(ANDROID_API_LEVEL)
   endif
+  NO_QT ?= 1
 endif
 
-# ------------------------------------------------------------------------------
-# Package defaults template (deferred evaluation, legacy-compatible)
-# ------------------------------------------------------------------------------
+# -------- Filter out Qt when Android or explicitly disabled --------
+ifeq ($(NO_QT),1)
+  packages        := $(filter-out qt% Qt%,$(packages))
+  native_packages := $(filter-out native_qt%,$(native_packages))
+endif
+
+# Package defaults template
 define int_vars
 $(1)_cc=$$($$($(1)_type)_CC)
 $(1)_cxx=$$($$($(1)_type)_CXX)
@@ -90,12 +82,10 @@ $(1)_cppflags=$$($$($(1)_type)_CPPFLAGS) \
 $(1)_recipe_hash:=
 endef
 
-# Compute full transitive dependencies for a package.
 define int_get_all_dependencies
 $(sort $(foreach dep,$(2),$(2) $(call int_get_all_dependencies,$(1),$($(dep)_dependencies))))
 endef
 
-# Download + checksum verification; cleans temp dir on success.
 define fetch_file_inner
     ( mkdir -p $$($(1)_download_dir) && echo Fetching $(3) from $(2) && \
     $(build_DOWNLOAD) "$$($(1)_download_dir)/$(4).temp" "$(2)/$(3)" && \
@@ -105,7 +95,6 @@ define fetch_file_inner
     rm -rf $$($(1)_download_dir) )
 endef
 
-# Retry logic with fallback mirror.
 define fetch_file
     ( test -f $$($(1)_source_dir)/$(4) || \
     ( $(call fetch_file_inner,$(1),$(2),$(3),$(4),$(5)) || \
@@ -114,13 +103,11 @@ define fetch_file
       $(call fetch_file_inner,$(1),$(FALLBACK_DOWNLOAD_PATH),$(3),$(4),$(5))))
 endef
 
-# Hash the build recipe inputs to form a stable key.
 define int_get_build_recipe_hash
 $(eval $(1)_all_file_checksums:=$(shell $(build_SHA256SUM) $(meta_depends) packages/$(1).mk $(addprefix $(PATCHES_PATH)/$(1)/,$($(1)_patches)) | cut -d" " -f1))
 $(eval $(1)_recipe_hash:=$(shell echo -n "$($(1)_all_file_checksums)" | $(build_SHA256SUM) | cut -d" " -f1))
 endef
 
-# Build-id: include version, recipe hash, release/debug, deps and host id.
 define int_get_build_id
 $(eval $(1)_dependencies += $($(1)_$(host_arch)_$(host_os)_dependencies) $($(1)_$(host_os)_dependencies))
 $(eval $(1)_all_dependencies:=$(call int_get_all_dependencies,$(1),$($($(1)_type)_native_toolchain) $($($(1)_type)_native_binutils) $($(1)_dependencies)))
@@ -129,7 +116,6 @@ $(eval $(1)_build_id_long:=$(1)-$($(1)_version)-$($(1)_recipe_hash)-$(release_ty
 $(eval $(1)_build_id:=$(shell echo -n "$($(1)_build_id_long)" | $(build_SHA256SUM) | cut -c-$(HASH_LENGTH)))
 final_build_id_long+=$($(1)_build_id_long)
 
-# Package-specific paths
 $(1)_build_subdir?=.
 $(1)_download_file?=$($(1)_file_name)
 $(1)_source_dir:=$(SOURCES_PATH)
@@ -145,7 +131,6 @@ $(1)_prefixbin:=$($($(1)_type)_prefix)/bin/
 $(1)_cached:=$(BASE_CACHE)/$(host)/$(1)/$(1)-$($(1)_version)-$($(1)_build_id).tar.gz
 $(1)_all_sources=$($(1)_file_name) $($(1)_extra_sources)
 
-# Stamps
 $(1)_fetched=$(SOURCES_PATH)/download-stamps/.stamp_fetched-$(1)-$($(1)_file_name).hash
 $(1)_extracted=$$($(1)_extract_dir)/.stamp_extracted
 $(1)_preprocessed=$$($(1)_extract_dir)/.stamp_preprocessed
@@ -156,7 +141,6 @@ $(1)_staged=$$($(1)_staging_dir)/.stamp_staged
 $(1)_postprocessed=$$($(1)_staging_prefix_dir)/.stamp_postprocessed
 $(1)_download_path_fixed=$(subst :,\:,$$($(1)_download_path))
 
-# Default commands
 $(1)_fetch_cmds ?= $(call fetch_file,$(1),$(subst \:,:,$$($(1)_download_path_fixed)),$$($(1)_download_file),$($(1)_file_name),$($(1)_sha256_hash))
 $(1)_extract_cmds ?= mkdir -p $$($(1)_extract_dir) && echo "$$($(1)_sha256_hash)  $$($(1)_source)" > $$($(1)_extract_dir)/.$$($(1)_file_name).hash &&  $(build_SHA256SUM) -c $$($(1)_extract_dir)/.$$($(1)_file_name).hash && tar --no-same-owner --strip-components=1 -xf $$($(1)_source)
 $(1)_preprocess_cmds ?=
@@ -168,9 +152,6 @@ $(1)_set_vars ?=
 all_sources+=$$($(1)_fetched)
 endef
 
-# ------------------------------------------------------------------------------
-# Attach build configuration to each package (flags/env/autoconf line)
-# ------------------------------------------------------------------------------
 define int_config_attach_build_config
 $(eval $(call $(1)_set_vars,$(1)))
 $(1)_cflags+=$($(1)_cflags_$(release_type))
@@ -208,11 +189,12 @@ $(1)_config_env+=$($(1)_config_env_$(host_arch)) $($(1)_config_env_$(host_arch)_
 $(1)_config_env+=$($(1)_config_env_$(host_os)) $($(1)_config_env_$(host_os)_$(release_type))
 $(1)_config_env+=$($(1)_config_env_$(host_arch)_$(host_os)) $($(1)_config_env_$(host_arch)_$(host_os)_$(release_type))
 
-$(1)_config_env+=PKG_CONFIG_LIBDIR=$($($(1)_type)_prefix)/lib/pkgconfig
-$(1)_config_env+=PKG_CONFIG_PATH=$($($(1)_type)_prefix)/share/pkgconfig
-$(1)_config_env+=PATH=$(build_prefix)/bin:$(PATH)
-$(1)_build_env+=PATH=$(build_prefix)/bin:$(PATH)
-$(1)_stage_env+=PATH=$(build_prefix)/bin:$(PATH)
+# QUOTED to avoid space-splitting bugs seen in CI logs
+$(1)_config_env+=PKG_CONFIG_LIBDIR="$($($(1)_type)_prefix)/lib/pkgconfig"
+$(1)_config_env+=PKG_CONFIG_PATH="$($($(1)_type)_prefix)/share/pkgconfig"
+$(1)_config_env+=PATH="$(build_prefix)/bin:$(PATH)"
+$(1)_build_env+=PATH="$(build_prefix)/bin:$(PATH)"
+$(1)_stage_env+=PATH="$(build_prefix)/bin:$(PATH)"
 $(1)_autoconf=./configure --host=$($($(1)_type)_host) --disable-dependency-tracking --prefix=$($($(1)_type)_prefix) $$($(1)_config_opts) CC="$$($(1)_cc)" CXX="$$($(1)_cxx)"
 
 ifneq ($($(1)_nm),)
@@ -238,9 +220,6 @@ $(1)_autoconf += LDFLAGS="$$($(1)_ldflags)"
 endif
 endef
 
-# ------------------------------------------------------------------------------
-# Build steps (.stamp pipeline)
-# ------------------------------------------------------------------------------
 define int_add_cmds
 $($(1)_fetched):
 	$(AT)mkdir -p $$(@D) $(SOURCES_PATH)
@@ -262,11 +241,10 @@ $($(1)_preprocessed): | $($(1)_extracted)
 	$(AT)touch $$@
 $($(1)_configured): | $($(1)_dependencies) $($(1)_preprocessed)
 	$(AT)echo Configuring $(1)...
-	# Safety: fail if someone reintroduced an absolute prefix (prevents /aarch64-linux-android)
 	$(AT)case "$(host_prefix)" in /*) echo "ERROR: host_prefix is absolute: $(host_prefix)"; exit 1;; esac
 	$(AT)rm -rf $(host_prefix); mkdir -p $(host_prefix)/lib; cd $(host_prefix); $(foreach package,$($(1)_all_dependencies), tar --no-same-owner -xf $($(package)_cached); )
 	$(AT)mkdir -p $$(@D)
-	$(AT)echo "[$(1)] HOST_PREFIX='$(host_prefix)'"
+	$(AT)echo "[$(1)] HOST_PREFIX='$(host_prefix)'  BUILD_PREFIX='$(build_prefix)'"
 	$(AT)echo "[$(1)] CC=$$($(1)_cc)  CXX=$$($(1)_cxx)  AR=$$($(1)_ar)  RANLIB=$$($(1)_ranlib)  NM=$$($(1)_nm)"
 	$(AT)echo "[$(1)] CFLAGS='$$($(1)_cflags)'"
 	$(AT)echo "[$(1)] CXXFLAGS='$$($(1)_cxxflags)'"
@@ -305,18 +283,14 @@ $(1): | $($(1)_cached_checksum)
 
 endef
 
-# External per-stage aliases for targeted debugging.
 stages = fetched extracted preprocessed configured built staged postprocessed cached cached_checksum
-
 define ext_add_stages
 $(foreach stage,$(stages),
           $(1)_$(stage): $($(1)_$(stage))
           .PHONY: $(1)_$(stage))
 endef
 
-# ------------------------------------------------------------------------------
 # Orchestration
-# ------------------------------------------------------------------------------
 $(foreach native_package,$(native_packages),$(eval $(native_package)_type=build))
 $(foreach package,$(packages),$(eval $(package)_type=$(host_arch)_$(host_os)))
 $(foreach package,$(all_packages),$(eval $(call int_vars,$(package))))
@@ -327,3 +301,5 @@ $(foreach package,$(all_packages),$(eval $(call int_get_build_id,$(package))))
 $(foreach package,$(all_packages),$(eval $(call int_config_attach_build_config,$(package))))
 $(foreach package,$(all_packages),$(eval $(call int_add_cmds,$(package))))
 $(foreach package,$(packages),$(eval $($(package)_extracted): |$($($(host_arch)_$(host_os)_native_toolchain)_cached) $($($(host_arch)_$(host_os)_native_binutils)_cached) ))
+
+# Signed: Setvin
