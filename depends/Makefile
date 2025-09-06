@@ -1,62 +1,55 @@
 # .NOTPARALLEL : Avoid parallel build issues for certain targets.
+.NOTPARALLEL: $(package)_build $(native_packages)
 
-# Define variables
-MAKEOVERRIDES := $(filter V=%,$(MAKEOVERRIDES))
-BASEDIR := $(CURDIR)
-WORK_PATH := $(BASEDIR)/work
-BASE_CACHE := $(BASEDIR)/built
-SDK_PATH := $(BASEDIR)/SDKs
-HOST := $(shell ./config.guess)
-HOST_ID_SALT := salt
-BUILD_ID_SALT := salt
-HASH_LENGTH := 11
-DOWNLOAD_CONNECT_TIMEOUT := 30
+# --- Define essential variables ---
+MAKEOVERRIDES := $(filter V=%,$(MAKEOVERRIDES))        # Allow overriding variables like verbosity
+BASEDIR := $(CURDIR)                                   # The current working directory
+WORK_PATH := $(BASEDIR)/work                            # Directory for build output
+BASE_CACHE := $(BASEDIR)/built                          # Cache directory
+SDK_PATH := $(BASEDIR)/SDKs                            # SDK path (e.g., Android SDK)
+HOST := $(shell ./config.guess)                         # Guess host architecture
+HOST_ID_SALT := salt                                    # Salt for host ID (for uniqueness)
+BUILD_ID_SALT := salt                                   # Salt for build ID (for versioning)
+HASH_LENGTH := 11                                       # Length for the final build ID hash
+DOWNLOAD_CONNECT_TIMEOUT := 30                          # Timeout for downloading dependencies
 
 # Default build directories
 base_build_dir := $(WORK_PATH)/build
 base_staging_dir := $(WORK_PATH)/staging
 base_download_dir := $(WORK_PATH)/download
-canonical_host := $(shell ./config.sub $(HOST))
-build := $(shell ./config.sub $(BUILD))
+canonical_host := $(shell ./config.sub $(HOST))         # Canonical form of host architecture
+build := $(shell ./config.sub $(BUILD))                 # Build configuration
 
-# Set up the host architecture and OS
-build_arch := $(firstword $(subst -, ,$(build)))
-build_vendor := $(word 2,$(subst -, ,$(build)))
-full_build_os := $(subst $(build_arch)-$(build_vendor)-,,$(build))
-build_os := $(findstring linux,$(full_build_os))
-build_os += $(findstring darwin,$(full_build_os))
-build_os := $(strip $(build_os))
-ifeq ($(build_os),)
+# --- Set up host architecture and OS ---
+build_arch := $(firstword $(subst -, ,$(build)))         # Extract architecture from the build
+build_vendor := $(word 2,$(subst -, ,$(build)))         # Extract vendor from the build
+full_build_os := $(subst $(build_arch)-$(build_vendor)-,,$(build))  # Extract OS from build configuration
+build_os := $(findstring linux,$(full_build_os))       # Detect Linux OS
+build_os += $(findstring darwin,$(full_build_os))      # Add Darwin (macOS) to supported OS list
+build_os := $(strip $(build_os))                       # Remove any extra spaces
+ifeq ($(build_os),)                                     # Set fallback to full OS name if undefined
   build_os := $(full_build_os)
 endif
 
-# Host specific architecture and OS
-host_arch := $(firstword $(subst -, ,$(canonical_host)))
-host_vendor := $(word 2,$(subst -, ,$(canonical_host)))
-full_host_os := $(subst $(host_arch)-$(host_vendor)-,,$(canonical_host))
-host_os := $(findstring linux,$(full_host_os))
-host_os += $(findstring darwin,$(full_host_os))
-host_os += $(findstring mingw32,$(full_host_os))
-
-ifeq (android,$(findstring android,$(full_host_os)))
+# --- Host-specific architecture and OS ---
+host_arch := $(firstword $(subst -, ,$(canonical_host))) # Extract architecture for the host
+host_vendor := $(word 2,$(subst -, ,$(canonical_host)))  # Extract vendor for the host
+full_host_os := $(subst $(host_arch)-$(host_vendor)-,,$(canonical_host)) # Extract OS for the host
+host_os := $(findstring linux,$(full_host_os))          # Detect if host is Linux
+host_os += $(findstring darwin,$(full_host_os))         # Detect if host is macOS
+host_os += $(findstring mingw32,$(full_host_os))        # Detect if host is Windows (mingw32)
+ifeq (android,$(findstring android,$(full_host_os)))    # If Android, set host OS accordingly
   host_os := android
 endif
+host_os := $(strip $(host_os))                          # Clean up any whitespace from host OS
 
-host_os := $(strip $(host_os))
-ifeq ($(host_os),)
-  host_os := $(full_host_os)
-endif
+# --- Android NDK setup ---
+ANDROID_NDK ?= $(BASEDIR)/android-sdk/ndk/android-ndk-r25.2.9519653   # Set the NDK path
+ANDROID_API := 21                                 # Set the Android API level to 21 (minimum required)
+HOST_PREFIX := $(BASEDIR)/$(HOST)                 # Prefix for host
+host_prefix := $(HOST_PREFIX)/native             # Prefix for the native host
 
-# Set ANDROID_NDK explicitly to version r25.2.9519653
-ANDROID_NDK ?= $(BASEDIR)/android-sdk/ndk/android-ndk-r25.2.9519653
-@echo "Using Android NDK from: $(ANDROID_NDK)"
-
-# Path to NDK and dependencies
-ANDROID_API := 21
-HOST_PREFIX := $(BASEDIR)/$(HOST)
-host_prefix := $(HOST_PREFIX)/native
-
-# Define the toolchain for Android
+# --- Define the Android NDK toolchain ---
 ANDROID_TOOLCHAIN_BIN := $(ANDROID_NDK)/toolchains/llvm/prebuilt/linux-x86_64/bin
 android_CC := $(ANDROID_TOOLCHAIN_BIN)/aarch64-linux-android$(ANDROID_API)-clang
 android_CXX := $(ANDROID_TOOLCHAIN_BIN)/aarch64-linux-android$(ANDROID_API)-clang++
@@ -65,7 +58,7 @@ android_RANLIB := $(ANDROID_TOOLCHAIN_BIN)/llvm-ranlib
 android_STRIP := $(ANDROID_TOOLCHAIN_BIN)/llvm-strip
 android_SYSROOT := $(ANDROID_NDK)/toolchains/llvm/prebuilt/linux-x86_64/sysroot
 
-# Export Android toolchain variables
+# --- Export the Android toolchain variables ---
 export ANDROID_NDK
 export ANDROID_API
 export android_CC
@@ -75,42 +68,42 @@ export android_RANLIB
 export android_STRIP
 export android_SYSROOT
 
-# Package management
-PACKAGES := miniupnpc boost openssl protobuf zmq
-native_packages := $(PACKAGES)
+# --- Package management ---
+PACKAGES := miniupnpc boost openssl protobuf zmq       # List of essential dependencies
+native_packages := $(PACKAGES)                        # Native packages to be built
 
-# Handle patches and source directories
-PATCHES_PATH := $(BASEDIR)/patches
-SOURCES_PATH := $(BASEDIR)/sources
+# --- Handle patches and source directories ---
+PATCHES_PATH := $(BASEDIR)/patches                    # Path to patches directory
+SOURCES_PATH := $(BASEDIR)/sources                    # Path to source files directory
 
-# Meta dependencies
+# --- Meta dependencies (other Makefiles for configuration) ---
 meta_depends := Makefile funcs.mk builders/default.mk hosts/default.mk hosts/$(host_os).mk builders/$(build_os).mk
 
-# Include necessary makefiles for host and builder-specific settings
-ifeq ($(host_os),android)
+# --- Include necessary makefiles for the build ---
+ifeq ($(host_os),android)                             # If the host is Android, include android.mk
   include builders/android.mk
 endif
 
-include hosts/$(host_os).mk
+include hosts/$(host_os).mk                          # Include platform-specific makefiles
 include hosts/default.mk
 include builders/$(build_os).mk
 include builders/default.mk
-include packages/packages.mk
+include packages/packages.mk                         # Include packages makefile for managing dependencies
 
-# Ensure ANDROID_SDK is defined in environment
-ifeq ($(ANDROID_SDK),)
-  $(error "ANDROID_SDK environment variable is not set. Please set it before building.")
+# --- Ensure ANDROID_SDK is defined ---
+ifeq ($(ANDROID_SDK),)                                 # Check if ANDROID_SDK is not set
+  $(error "ANDROID_SDK environment variable is not set. Please set it before building.") # Throw error if not set
 endif
 
-# Build ID generation for versioning
-build_id_string := $(BUILD_ID_SALT)
-build_id_string += $(shell $(build_CC) --version 2>/dev/null)
-build_id_string += $(shell $(build_AR) --version 2>/dev/null)
-build_id_string += $(shell $(build_CXX) --version 2>/dev/null)
-build_id_string += $(shell $(build_RANLIB) --version 2>/dev/null)
-build_id_string += $(shell $(build_STRIP) --version 2>/dev/null)
+# --- Build ID generation ---
+build_id_string := $(BUILD_ID_SALT)                   # Start with build ID salt
+build_id_string += $(shell $(build_CC) --version 2>/dev/null)   # Add version of build CC (clang)
+build_id_string += $(shell $(build_AR) --version 2>/dev/null)   # Add version of AR (archiver)
+build_id_string += $(shell $(build_CXX) --version 2>/dev/null)  # Add version of C++ compiler
+build_id_string += $(shell $(build_RANLIB) --version 2>/dev/null) # Add version of ranlib
+build_id_string += $(shell $(build_STRIP) --version 2>/dev/null)  # Add version of strip
 
-# Rule for generating config.site file
+# --- Rule for generating config.site file ---
 config_site_path := $(BASEDIR)/depends/config.site.in
 $(host_prefix)/share/config.site: $(config_site_path) $(host_prefix)/.stamp_$(final_build_id)
 	$(AT)@mkdir -p $(@D)
@@ -128,11 +121,11 @@ $(host_prefix)/share/config.site: $(config_site_path) $(host_prefix)/.stamp_$(fi
             -e 's|@no_upnp@|$(NO_UPNP)|' \
             $< > $@
 
-# Final build ID calculation based on version and configuration
-final_build_id_long += $(shell $(build_SHA256SUM) $(config_site_path))
-final_build_id += $(shell echo -n "$(final_build_id_long)" | $(build_SHA256SUM) | cut -c-$(HASH_LENGTH))
+# --- Final build ID calculation ---
+final_build_id_long += $(shell $(build_SHA256SUM) $(config_site_path))  # Use SHA256SUM for final build ID
+final_build_id += $(shell echo -n "$(final_build_id_long)" | $(build_SHA256SUM) | cut -c-$(HASH_LENGTH)) # Limit length to the first 11 characters
 
-# Build dependencies
+# --- Build dependencies ---
 $(host_prefix)/.stamp_$(final_build_id): $(native_packages) $(packages)
 	$(AT)rm -rf $(@D)
 	$(AT)mkdir -p $(@D)
@@ -141,7 +134,7 @@ $(host_prefix)/.stamp_$(final_build_id): $(native_packages) $(packages)
 	$(AT)cd $(@D); $(foreach package,$^, tar xf $($(package)_cached); )
 	$(AT)touch $@
 
-# Dependencies download and verification
+# --- Dependencies download and verification ---
 define check_or_remove_cached
   mkdir -p $(BASE_CACHE)/$(host)/$(package) && cd $(BASE_CACHE)/$(host)/$(package); \
   $(build_SHA256SUM) -c $($(package)_cached_checksum) >/dev/null 2>/dev/null || \
@@ -156,15 +149,16 @@ define check_or_remove_sources
       rm -f $($(package)_all_sources) $($(1)_fetched))) || true
 endef
 
+# --- Ensure everything is in place for the build ---
 check-packages:
 	@$(foreach package,$(all_packages),$(call check_or_remove_cached,$(package));)
 check-sources:
 	@$(foreach package,$(all_packages),$(call check_or_remove_sources,$(package));)
 
+# --- Ensure the config site is generated ---
 $(host_prefix)/share/config.site: check-packages
 
-check-packages: check-sources
-
+# --- Clean and install rules ---
 clean-all: clean
 	@rm -rf $(SOURCES_PATH) x86_64* i686* mips* arm* aarch64* riscv32* riscv64*
 
