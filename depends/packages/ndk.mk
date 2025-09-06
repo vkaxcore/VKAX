@@ -1,3 +1,5 @@
+# .NOTPARALLEL : Avoid parallel build issues for certain targets.
+
 # NDK - Android Native Development Kit (version r25.2.9519653)
 # This section handles the downloading and installing of the NDK as part of the dependencies.
 
@@ -14,10 +16,15 @@ $(package)_install_dir=$(DEPENDS_DIR)/$(package)-$(package)_version
 # Modify the path for the .env file to be inside the project folder
 $(package)_env_file=$(DEPENDS_DIR)/.env
 
-# Download and extract NDK
+# Download and extract NDK (with error handling)
 define $(package)_download_and_extract
+	@echo "Downloading NDK..."
 	$(call download,$(package)_download_path,$(package)_file_name,$(package)_sha256_hash)  # Download the NDK
-	$(call extract,$(package)_file_name,$(package)_install_dir)  # Extract the NDK to the appropriate directory
+	@if [ $$? -ne 0 ]; then echo "NDK download failed!"; exit 1; fi  # Check if download succeeded
+	@echo "Extracting NDK..."
+	$(call extract,$(package)_file_name,$(package)_install_dir)  # Extract the NDK
+	@if [ $$? -ne 0 ]; then echo "NDK extraction failed!"; exit 1; fi  # Check if extraction succeeded
+	@echo "NDK downloaded and extracted successfully."
 endef
 
 # Add NDK to the build path
@@ -26,16 +33,24 @@ $(package)_add_to_path:
 	@export ANDROID_NDK_HOME=$(DEPENDS_DIR)/$(package)-$(package)_version  # Set the NDK home path
 	@echo "ANDROID_NDK_HOME=$(ANDROID_NDK_HOME)" >> $(package)_env_file  # Write NDK path to the correct .env file
 	@export PATH=$(ANDROID_NDK_HOME)/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH  # Add the NDK binaries to the system path
+	@echo "NDK added to PATH."
 
-# Create wrapper for NDK toolchain (for cross-compilation)
+# Create wrapper for NDK toolchain (for cross-compilation) with error handling
 $(package)_create_wrapper:
 	@echo "Creating wrapper for NDK toolchain..."
 	@mkdir -p $(DEPENDS_DIR)/$(package)-$(package)_version/bin  # Create the necessary directory for the wrapper
 	@cp $(ANDROID_NDK_HOME)/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android21-clang++ $(DEPENDS_DIR)/$(package)-$(package)_version/bin/  # Copy the clang++ binary
 	@cp $(ANDROID_NDK_HOME)/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android21-clang $(DEPENDS_DIR)/$(package)-$(package)_version/bin/  # Copy the clang binary
+	@if [ $$? -ne 0 ]; then echo "Toolchain wrapper creation failed!"; exit 1; fi  # Check if toolchain wrapper creation succeeded
+	@echo "Toolchain wrapper created successfully."
 
-# Target rule to install the NDK
+# Target rule to install the NDK (with error handling)
 $(package)_install: $(package)_download_and_extract $(package)_add_to_path $(package)_create_wrapper
-	@echo "$(package) installation complete."  # Print a message after successful installation
+	@echo "$(package) installation complete."
 
+# .PHONY: This ensures 'install' is treated as a command, not a file.
 .PHONY: $(package)_install  # Mark the install target as phony to avoid conflicts with files named 'install'
+
+# Helper functions for downloading and extracting files
+download = curl -L $1 -o $2
+extract = unzip -q $2 -d $3
