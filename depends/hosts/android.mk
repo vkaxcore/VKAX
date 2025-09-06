@@ -1,7 +1,7 @@
 # File: depends/hosts/android.mk
 # Android NDK toolchain wiring for VKAX depends (Bitcoin/Dash style).
-# Purpose: absolute tool paths, relative install prefix (no writes to /), minimal flags, legacy-safe.
-# Maintainers: Setvin
+# Intent: absolute tool paths, RELATIVE install prefix (no writes to /), legacy-safe; do not touch consensus.
+# Maintainers: Setvin  |  Summary: fixes /aarch64-linux-android mkdir perms error by making prefix relative and exporting host_prefix.
 
 UNAME_S ?= $(shell uname -s)
 UNAME_M ?= $(shell uname -m)
@@ -27,16 +27,13 @@ NDK_HOST_TAG ?= $(_NDK_HOST_OS)-$(_NDK_HOST_ARCH)
 # Resolve NDK + toolchain
 ANDROID_NDK       ?= $(ANDROID_NDK_HOME)
 ANDROID_API_LEVEL ?= $(if $(ANDROID_API),$(ANDROID_API),21)
-
 ifeq ($(strip $(ANDROID_NDK)),)
   $(error ANDROID_NDK is not set; expected e.g. /path/to/android-ndk-r23c)
 endif
-
 ANDROID_TOOLCHAIN_BIN ?= $(ANDROID_NDK)/toolchains/llvm/prebuilt/$(NDK_HOST_TAG)/bin
 ifeq ($(wildcard $(ANDROID_TOOLCHAIN_BIN)),)
   $(error ANDROID_TOOLCHAIN_BIN not found: "$(ANDROID_TOOLCHAIN_BIN)"; check ANDROID_NDK and NDK_HOST_TAG "$(NDK_HOST_TAG)")
 endif
-
 android_SYSROOT := $(ANDROID_TOOLCHAIN_BIN)/../sysroot
 
 # Compose absolute tool paths for $(HOST)
@@ -47,7 +44,6 @@ else
   _HOST_TRIPLE_CC  := $(HOST)$(ANDROID_API_LEVEL)-clang
   _HOST_TRIPLE_CXX := $(HOST)$(ANDROID_API_LEVEL)-clang++
 endif
-
 android_CC      := $(ANDROID_TOOLCHAIN_BIN)/$(_HOST_TRIPLE_CC)
 android_CXX     := $(ANDROID_TOOLCHAIN_BIN)/$(_HOST_TRIPLE_CXX)
 android_AR      := $(ANDROID_TOOLCHAIN_BIN)/llvm-ar
@@ -62,8 +58,8 @@ android_CFLAGS   := --sysroot=$(android_SYSROOT) -D__ANDROID_API__=$(ANDROID_API
 android_CXXFLAGS := --sysroot=$(android_SYSROOT) -D__ANDROID_API__=$(ANDROID_API_LEVEL)
 android_LDFLAGS  := --sysroot=$(android_SYSROOT)
 
-# Staging prefix/id (MUST be relative; funcs.mk will rm/mkdir/cd into it)
-android_prefix    := $(host)
+# Staging prefix/id (MUST be relative; funcs.mk rm/mkdir/cd into this)
+android_prefix    := $(host)   # critical: no leading slash, prevents /aarch64-linux-android
 android_id_string := android-ndk=$(notdir $(ANDROID_NDK)) api=$(ANDROID_API_LEVEL)
 
 # Guard against accidental absolute prefix
@@ -71,7 +67,7 @@ ifneq (,$(filter /%,$(android_prefix)))
   $(error android_prefix must be relative, got "$(android_prefix)")
 endif
 
-# Expose for funcs.mk configured stage
+# Export for funcs.mk configured stage
 host_prefix ?= $(android_prefix)
 
 # Per-type blocks (type == $(host_arch)_android)
@@ -158,4 +154,4 @@ ifeq ($(V),1)
   $(info [depends/android] host_prefix=$(host_prefix))
 endif
 
-# Summary: relative android_prefix + host_prefix fix permission error; rest unchanged.  Signed: Setvin
+# Signed: Setvin
