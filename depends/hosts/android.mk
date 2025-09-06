@@ -72,6 +72,8 @@ endif
 
 # Export for funcs.mk configured stage
 host_prefix ?= $(android_prefix)
+NO_QT ?= 1
+export NO_QT
 
 # Per-type blocks (type == $(host_arch)_android)
 aarch64_android_host      := aarch64-linux-android
