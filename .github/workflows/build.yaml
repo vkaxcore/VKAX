@@ -82,7 +82,7 @@ jobs:
           # Check if clang++ exists in the toolchain directory for the correct API level
           test -x "$TOOLCHAIN_BIN/${HOST}${ANDROID_API}-clang++" || { echo "clang++ not found"; exit 1; }
           
-          # Create symlinks for clang and clang++ to standardize usage
+          # Create symlinks for clang and clang++
           ln -sf "${TOOLCHAIN_BIN}/${HOST}${ANDROID_API}-clang"  "${TOOLCHAIN_BIN}/${HOST}-clang"
           ln -sf "${TOOLCHAIN_BIN}/${HOST}${ANDROID_API}-clang++" "${TOOLCHAIN_BIN}/${HOST}-clang++"
           
