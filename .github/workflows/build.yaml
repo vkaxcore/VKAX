@@ -19,7 +19,7 @@ env:
   COMPRESS_DIR: vkax-compress  # Directory for compressed artifacts
   LC_ALL: C  # Set locale for consistent behavior across machines
   LANG: C
-  ANDROID_API: "25"  # Android API level to target, changed from 21 to 25
+  ANDROID_API: "25"  # Android API level to target
   HOST: aarch64-linux-android  # Set the host for cross-compiling
 
 jobs:
