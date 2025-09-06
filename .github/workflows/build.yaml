@@ -19,7 +19,7 @@ env:
   COMPRESS_DIR: vkax-compress  # Directory for compressed artifacts
   LC_ALL: C  # Set locale for consistent behavior across machines
   LANG: C
-  ANDROID_API: "25"  # Set Android API level to 25
+  ANDROID_API: "25"  # Android API level to target, changed from 21 to 25
   HOST: aarch64-linux-android  # Set the host for cross-compiling
 
 jobs:
@@ -79,7 +79,7 @@ jobs:
           set -eux
           TOOLCHAIN_BIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
           
-          # Check if clang++ exists in the toolchain directory
+          # Check if clang++ exists in the toolchain directory for the correct API level
           test -x "$TOOLCHAIN_BIN/${HOST}${ANDROID_API}-clang++"
           
           # Create symlinks for clang and clang++
