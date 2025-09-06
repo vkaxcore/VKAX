@@ -1,17 +1,14 @@
 package=qt
 
 # ===========================
-# Qt 5.15.10 single-tarball (static) for legacy Bitcoin/Dash forks
-# macOS-first; Linux/Windows kept compatible later
-# OpenSSL is REQUIRED unless NO_OPENSSL=1
-# Signed: Setvin (with comments left in for future you)
+# Qt 6.7 single-tarball (static) for Android
 # ===========================
 
-$(package)_version=5.15.10
-$(package)_download_path=https://download.qt.io/archive/qt/5.15/5.15.10/single
+$(package)_version=6.7
+$(package)_download_path=https://download.qt.io/archive/qt/6.7/single
 $(package)_download_file=qt-everywhere-opensource-src-$($(package)_version).tar.xz
 $(package)_file_name=$($(package)_download_file)
-$(package)_sha256_hash=B545CB83C60934ADC9A6BBD27E2AF79E5013DE77D46F5B9F5BB2A3C762BF55CA
+$(package)_sha256_hash=<<insert_sha256_hash_here>>
 
 # ---- deps ----
 $(package)_dependencies=zlib
@@ -19,7 +16,7 @@ ifeq ($(NO_OPENSSL),)
 $(package)_dependencies+=openssl
 endif
 
-# Build from qtbase/src; 'plugins' builds platform plugins (cocoa on mac)
+# Build from qtbase/src; 'plugins' builds platform plugins (xcb on linux)
 $(package)_qt_libs=corelib network widgets gui plugins
 
 # ---- patches (must exist under patches/qt) ----
