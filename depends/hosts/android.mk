@@ -1,7 +1,7 @@
 # File: depends/hosts/android.mk
 # Android NDK toolchain wiring for VKAX depends (Bitcoin/Dash style).
 # Intent: absolute tool paths, RELATIVE install prefix (no writes to /), legacy-safe; do not touch consensus.
-# Director: Setvin | Summary: fixes mkdir '/aarch64-linux-android' by making prefix relative and exporting host_prefix; adds loud guards.
+# Director: Setvin | Summary: relative $(android_prefix) + exported $(host_prefix), strict guards, uniform wrapper naming.
 
 UNAME_S ?= $(shell uname -s)
 UNAME_M ?= $(shell uname -m)
@@ -36,19 +36,14 @@ ifeq ($(wildcard $(ANDROID_TOOLCHAIN_BIN)),)
   $(error ANDROID_TOOLCHAIN_BIN not found: "$(ANDROID_TOOLCHAIN_BIN)"; check ANDROID_NDK and NDK_HOST_TAG "$(NDK_HOST_TAG)")
 endif
 
+# Default HOST triplet from top-level 'host' if not provided explicitly
+HOST ?= $(host)
+
 android_SYSROOT := $(ANDROID_TOOLCHAIN_BIN)/../sysroot
 
-# Compose absolute tool paths for $(HOST)
-ifeq ($(HOST),armv7a-linux-android)
-  _HOST_TRIPLE_CC  := $(HOST)eabi$(ANDROID_API_LEVEL)-clang
-  _HOST_TRIPLE_CXX := $(HOST)eabi$(ANDROID_API_LEVEL)-clang++
-else
-  _HOST_TRIPLE_CC  := $(HOST)$(ANDROID_API_LEVEL)-clang
-  _HOST_TRIPLE_CXX := $(HOST)$(ANDROID_API_LEVEL)-clang++
-endif
-
-android_CC      := $(ANDROID_TOOLCHAIN_BIN)/$(_HOST_TRIPLE_CC)
-android_CXX     := $(ANDROID_TOOLCHAIN_BIN)/$(_HOST_TRIPLE_CXX)
+# Wrapper compilers (uniform: always $(HOST)$(API)-clang[++] )
+android_CC      := $(ANDROID_TOOLCHAIN_BIN)/$(HOST)$(ANDROID_API_LEVEL)-clang
+android_CXX     := $(ANDROID_TOOLCHAIN_BIN)/$(HOST)$(ANDROID_API_LEVEL)-clang++
 android_AR      := $(ANDROID_TOOLCHAIN_BIN)/llvm-ar
 android_RANLIB  := $(ANDROID_TOOLCHAIN_BIN)/llvm-ranlib
 android_NM      := $(ANDROID_TOOLCHAIN_BIN)/llvm-nm
@@ -62,18 +57,20 @@ android_CXXFLAGS := --sysroot=$(android_SYSROOT) -D__ANDROID_API__=$(ANDROID_API
 android_LDFLAGS  := --sysroot=$(android_SYSROOT)
 
 # Staging prefix/id (MUST be relative; funcs.mk rm/mkdir/cd into this)
-android_prefix    := $(host)   # critical: no leading slash
-android_id_string := android-ndk=$(notdir $(ANDROID_NDK)) api=$(ANDROID_API_LEVEL)
-
-# Guard against accidental absolute prefix
+android_prefix := $(strip $(host))  # critical: no leading slash, no stray whitespace
 ifneq (,$(filter /%,$(android_prefix)))
   $(error android_prefix must be relative, got "$(android_prefix)")
 endif
 
+android_id_string := android-ndk=$(notdir $(ANDROID_NDK)) api=$(ANDROID_API_LEVEL)
+
 # Export for funcs.mk configured stage
-android_prefix := $(strip $(host))
-host_prefix    := $(strip $(android_prefix))
-ifneq (,$(filter /%,$(host_prefix))) $(error host_prefix must be relative, got "$(host_prefix)") endif
+host_prefix := $(strip $(android_prefix))
+ifneq (,$(filter /%,$(host_prefix)))
+  $(error host_prefix must be relative, got "$(host_prefix)")
+endif
+
+# Android builds do not need Qt (daemon/cli/tx only); keep for desktop later
 NO_QT ?= 1
 export NO_QT
 
@@ -161,5 +158,5 @@ ifeq ($(V),1)
   $(info [depends/android] host_prefix=$(host_prefix))
 endif
 
-# Summary: relative android_prefix + exported host_prefix + guards; prevents writes to '/', tool paths clean; legacy layout preserved.
+# Summary: relative android_prefix + exported host_prefix + strict guards; prevents writes to '/', tool paths clean; legacy layout preserved.
 # Signed: Setvin
