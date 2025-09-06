@@ -1,4 +1,3 @@
-# File: depends/funcs.mk
 # Director: Setvin
 # Intent: Core dependency build orchestration for VKAX "depends" with legacy layout preserved.
 # Key: Android prefix guard + proper native build_prefix, quoted PKG_CONFIG_* and PATH, Qt filtered on Android, verbose toolchain echoes.
@@ -156,4 +155,22 @@ $(1)_prefixbin:=$($($(1)_type)_prefix)/bin/
 $(1)_cached:=$(BASE_CACHE)/$(host)/$(1)/$(1)-$($(1)_version)-$($(1)_build_id).tar.gz
 $(1)_all_sources=$($(1)_file_name) $($(1)_extra_sources)
 
-$(1)_fetched=$(SOURCES_PATH)/download-stamps/.stamp_fetched-$(1)-$($(1)_
+$(1)_fetched=$(SOURCES_PATH)/download-stamps/.stamp_fetched-$(1)-$($(1)_file_name).hash
+$(1)_extracted=$$($(1)_extract_dir)/.stamp_extracted
+$(1)_preprocessed=$$($(1)_extract_dir)/.stamp_preprocessed
+$(1)_cleaned=$$($(1)_extract_dir)/.stamp_cleaned
+$(1)_built=$$($(1)_build_dir)/.stamp_built
+$(1)_configured=$$($(1)_build_dir)/.stamp_configured
+$(1)_staged=$$($(1)_staging_dir)/.stamp_staged
+$(1)_postprocessed=$$($(1)_staging_prefix_dir)/.stamp_postprocessed
+$(1)_download_path_fixed=$(subst :,\:,$$($(1)_download_path))
+
+$(1)_fetch_cmds ?= $(call fetch_file,$(1),$(subst \:,:,$$($(1)_download_path_fixed)),$$($(1)_download_file),$($(1)_file_name),$($(1)_sha256_hash))
+$(1)_extract_cmds ?= mkdir -p $$($(1)_extract_dir) && echo "$$($(1)_sha256_hash)  $$($(1)_source)" > $$($(1)_extract_dir)/.$$($(1)_file_name).hash && $(build_SHA256SUM) -c $$($(1)_extract_dir)/.$$($(1)_file_name).hash && tar --no-same-owner --strip-components=1 -xf $$($(1)_source)
+$(1)_preprocess_cmds ?=
+$(1)_build_cmds ?=
+$(1)_config_cmds ?=
+$(1)_stage_cmds ?=
+$(1)_set_vars ?=
+all_sources+=$$($(1)_fetched)
+endef
