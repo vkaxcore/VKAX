@@ -1,45 +1,70 @@
-# If the host architecture differs from the build architecture, prefix the toolchain name with host architecture.
+# ===== VKAX depends/hosts/default.mk (safe, explicit, no foreach) =====
+# - Avoids 'missing separator' by not using foreach/eval chains
+# - Ensures 'host' is always set so config.sub never gets an empty arg
+
+# --- Ensure 'host' is defined ---------------------------------------------------
+# Respect already-passed 'host', else use HOST env, else fall back to $(build)
+host := $(strip $(or $(host),$(HOST),$(build)))
+
+# If cross-compiling, add standard triplet prefix for binutils
 ifneq ($(host),$(build))
-host_toolchain:=$(host)-
+host_toolchain := $(host)-
 endif
 
-# Define the default host tools used for building (GCC, G++, AR, etc.)
-default_host_CC = $(host_toolchain)gcc
+# --- Defaults for tools ---------------------------------------------------------
+default_host_CC  = $(host_toolchain)gcc
 default_host_CXX = $(host_toolchain)g++
-default_host_AR = $(host_toolchain)ar
+default_host_AR  = $(host_toolchain)ar
 default_host_RANLIB = $(host_toolchain)ranlib
-default_host_STRIP = $(host_toolchain)strip
+default_host_STRIP  = $(host_toolchain)strip
 default_host_LIBTOOL = $(host_toolchain)libtool
 default_host_INSTALL_NAME_TOOL = $(host_toolchain)install_name_tool
 default_host_OTOOL = $(host_toolchain)otool
 default_host_NM = $(host_toolchain)nm
 
-# Function to add host tool variables based on the host and build configuration.
+# --- Macros used by package .mk files ------------------------------------------
 define add_host_tool_func
 ifneq ($(filter $(origin $1),undefined default),)
-    # If the variable is undefined or set to a default value, use the default_host_ values.
-    $(host_os)_$1?=$$(default_host_$1)
-    $(host_arch)_$(host_os)_$1?=$$($(host_os)_$1)
-    $(host_arch)_$(host_os)_$(release_type)_$1?=$$($(host_os)_$1)
+# If $1 (e.g. CC) is undefined or has make's default value, seed OS/tool defaults
+$(host_os)_$1?=$$(default_host_$1)
+$(host_arch)_$(host_os)_$1?=$$($(host_os)_$1)
+$(host_arch)_$(host_os)_$(release_type)_$1?=$$($(host_os)_$1)
 else
-    # Otherwise, set the tool using the existing variable or fallback to default_host_
-    $(host_os)_$1=$(or $($1),$($(host_os)_$1),$(default_host_$1))
-    $(host_arch)_$(host_os)_$1=$(or $($1),$($(host_arch)_$(host_os)_$1),$$($(host_os)_$1))
-    $(host_arch)_$(host_os)_$(release_type)_$1=$(or $($1),$($(host_arch)_$(host_os)_$(release_type)_$1),$$($(host_os)_$1))
+# Otherwise prefer the explicitly-provided value ($1), then OS default, then default_host_*
+$(host_os)_$1=$(or $($1),$($(host_os)_$1),$(default_host_$1))
+$(host_arch)_$(host_os)_$1=$(or $($1),$($(host_arch)_$(host_os)_$1),$$($(host_os)_$1))
+$(host_arch)_$(host_os)_$(release_type)_$1=$(or $($1),$($(host_arch)_$(host_os)_$(release_type)_$1),$$($(host_os)_$1))
 endif
 host_$1=$$($(host_arch)_$(host_os)_$1)
 endef
 
-# Function to add flags (CFLAGS, CXXFLAGS, etc.) based on the host and release configuration.
 define add_host_flags_func
-    $(host_arch)_$(host_os)_$1 += $($(host_os)_$1)
-    $(host_arch)_$(host_os)_$(release_type)_$1 += $($(host_os)_$(release_type)_$1)
-    host_$1 = $$($(host_arch)_$(host_os)_$1)
-    host_$(release_type)_$1 = $$($(host_arch)_$(host_os)_$(release_type)_$1)
+$(host_arch)_$(host_os)_$1 += $($(host_os)_$1)
+$(host_arch)_$(host_os)_$(release_type)_$1 += $($(host_os)_$(release_type)_$1)
+host_$1 = $$($(host_arch)_$(host_os)_$1)
+host_$(release_type)_$1 = $$($(host_arch)_$(host_os)_$(release_type)_$1)
 endef
 
-# Add the necessary host tools (compiler, linker, etc.) for both CC and CXX, as well as other tools.
-$(foreach tool,CC CXX AR RANLIB STRIP NM LIBTOOL OTOOL INSTALL_NAME_TOOL,$(eval $(call add_host_tool_func,$(tool))))
+# --- Explicit expansion (replaces the foreach that errors) ----------------------
+# Tools:
+$(eval $(call add_host_tool_func,CC))
+$(eval $(call add_host_tool_func,CXX))
+$(eval $(call add_host_tool_func,AR))
+$(eval $(call add_host_tool_func,RANLIB))
+$(eval $(call add_host_tool_func,STRIP))
+$(eval $(call add_host_tool_func,NM))
+$(eval $(call add_host_tool_func,LIBTOOL))
+$(eval $(call add_host_tool_func,OTOOL))
+$(eval $(call add_host_tool_func,INSTALL_NAME_TOOL))
 
-# Add flags such as CFLAGS, CXXFLAGS, LDFLAGS to the build configuration.
-$(foreach flags,CFLAGS CXXFLAGS CPPFLAGS LDFLAGS, $(eval $(call add_host_flags_func,$(flags))))
+# Flags:
+$(eval $(call add_host_flags_func,CFLAGS))
+$(eval $(call add_host_flags_func,CXXFLAGS))
+$(eval $(call add_host_flags_func,CPPFLAGS))
+$(eval $(call add_host_flags_func,LDFLAGS))
+
+# -------------------------------------------------------------------------------
+# If you still see "missing separator":
+#   - Make sure this file has LF endings (run: dos2unix depends/hosts/default.mk)
+#   - Ensure there are no tabs at the start of any non-recipe line.
+# -------------------------------------------------------------------------------
