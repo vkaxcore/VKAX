@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-22.04
     env:
       HOST: aarch64-linux-android
-      ANDROID_API: "28"  # Change the API level based on the requirement
+      ANDROID_API: "21"
 
     steps:
       # Step 1: Checkout the repository
@@ -46,6 +46,7 @@ jobs:
           ANDROID_SDK_ROOT: ${{ github.workspace }}/android-sdk
         run: |
           set -eux
+          # Install SDK Tools
           if [ ! -d "$ANDROID_SDK_ROOT" ]; then
             mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools"
             wget -q https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip -O /tmp/clt.zip
@@ -70,9 +71,16 @@ jobs:
         run: |
           set -eux
           TOOLCHAIN_BIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          
+          # Ensure the correct clang binaries exist
           test -x "$TOOLCHAIN_BIN/${HOST}${ANDROID_API}-clang++"
+          test -x "$TOOLCHAIN_BIN/${HOST}${ANDROID_API}-clang"
+          
+          # Create symlinks to use the clang binaries
           ln -sf "${TOOLCHAIN_BIN}/${HOST}${ANDROID_API}-clang"  "${TOOLCHAIN_BIN}/${HOST}-clang"
           ln -sf "${TOOLCHAIN_BIN}/${HOST}${ANDROID_API}-clang++" "${TOOLCHAIN_BIN}/${HOST}-clang++"
+          
+          # Set the NDK path in the GitHub environment
           echo "$TOOLCHAIN_BIN" >> "$GITHUB_PATH"
           {
             echo "CC=${HOST}${ANDROID_API}-clang"
@@ -80,11 +88,19 @@ jobs:
             echo "AR=llvm-ar"
             echo "RANLIB=llvm-ranlib"
           } >> "$GITHUB_ENV"
+
+          # Create the necessary Boost configuration
           mkdir -p depends "$HOME/.boost-build"
           cat > depends/user-config.jam <<'EOF'
-using clang : aarch64 : ${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android${ANDROID_API}-clang++ : <target-os>android <architecture>arm <address-model>64 ;
+using clang : aarch64
+  : $(ANDROID_NDK_HOME)/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android$(ANDROID_API)-clang++ 
+  : <target-os>android <architecture>arm <address-model>64 ;
 EOF
+
+          # Move user-config.jam to the correct location
           cp depends/user-config.jam "$HOME/.boost-build/user-config.jam"
+          
+          # Set the BOOST_BUILD_PATH for later use
           echo "BOOST_BUILD_PATH=$PWD/depends" >> "$GITHUB_ENV"
 
       # Step 6: Build dependencies (no Qt)
