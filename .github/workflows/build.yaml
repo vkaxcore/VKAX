@@ -71,6 +71,10 @@ jobs:
       - name: Install Android NDK via .deb Package
         run: |
           set -eux
+          # Install required dependencies before installing the NDK
+          sudo apt-get update
+          sudo apt-get install -y google-android-licenses po-debconf
+
           # Download the NDK .deb package
           wget http://ftp.us.debian.org/debian/pool/non-free/g/google-android-installers/google-android-ndk-r25c-installer_25.2.9519653+1743526702-1_amd64.deb -O /tmp/google-android-ndk.deb
           # Install the NDK .deb package
