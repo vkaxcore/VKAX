@@ -120,7 +120,7 @@ EOF
 
       # Step 9: Diagnostics (always)
       - name: Diagnostics (always)
-        if: always()
+        if: always()  # Ensure this step always runs
         run: |
           set -x
           find depends -maxdepth 7 -type f \( -name bootstrap.log -o -name config.log -o -name project-config.jam -o -name user-config.jam \) -print || true
