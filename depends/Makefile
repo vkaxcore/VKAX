@@ -51,7 +51,7 @@ endif
 ANDROID_NDK := $(BASEDIR)/android-sdk/ndk/android-ndk-r23c
 ANDROID_API := 21
 HOST_PREFIX := $(BASEDIR)/$(HOST)
-host_prefix := $(host_prefix)/native
+host_prefix := $(HOST_PREFIX)/native
 
 # Define the toolchain
 ANDROID_TOOLCHAIN_BIN := $(ANDROID_NDK)/toolchains/llvm/prebuilt/linux-x86_64/bin
@@ -89,7 +89,8 @@ build_id_string += $(shell $(build_RANLIB) --version 2>/dev/null)
 build_id_string += $(shell $(build_STRIP) --version 2>/dev/null)
 
 # Rule for generating config.site file
-$(host_prefix)/share/config.site: config.site.in $(host_prefix)/.stamp_$(final_build_id)
+config_site_path := $(BASEDIR)/depends/config.site.in
+$(host_prefix)/share/config.site: $(config_site_path) $(host_prefix)/.stamp_$(final_build_id)
 	$(AT)@mkdir -p $(@D)
 	$(AT)sed -e 's|@HOST@|$(host)|' \
             -e 's|@CC@|$(host_CC)|' \
@@ -106,15 +107,15 @@ $(host_prefix)/share/config.site: config.site.in $(host_prefix)/.stamp_$(final_b
             $< > $@
 
 # Final build ID calculation based on version and configuration
-final_build_id_long += $(shell $(build_SHA256SUM) config.site.in)
+final_build_id_long += $(shell $(build_SHA256SUM) $(config_site_path))
 final_build_id += $(shell echo -n "$(final_build_id_long)" | $(build_SHA256SUM) | cut -c-$(HASH_LENGTH))
 
 # Build dependencies
 $(host_prefix)/.stamp_$(final_build_id): $(native_packages) $(packages)
 	$(AT)rm -rf $(@D)
 	$(AT)mkdir -p $(@D)
-	$(AT)echo copying packages: $^
-	$(AT)echo to: $(@D)
+	$(AT)echo "Copying packages: $^"
+	$(AT)echo "To: $(@D)"
 	$(AT)cd $(@D); $(foreach package,$^, tar xf $($(package)_cached); )
 	$(AT)touch $@
 
