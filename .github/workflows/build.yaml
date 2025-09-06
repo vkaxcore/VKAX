@@ -14,13 +14,13 @@ on:
 
 env:
   # General environment variables
-  COIN_NAME: vkax  # Set the coin name as an environment variable
+  COIN_NAME: vkax  # Set the coin name as an environment variable for easy access
   BUILD_DIR: vkax-build  # Directory for build outputs
-  COMPRESS_DIR: vkax-compress  # Directory for compressed artifacts
+  COMPRESS_DIR: vkax-compress  # Directory for compressed build artifacts
   LC_ALL: C  # Set locale for consistent behavior across machines
-  LANG: C
-  ANDROID_API: "25"  # Android API level to target, changed from 21 to 25
-  HOST: aarch64-linux-android  # Set the host for cross-compiling
+  LANG: C  # Set language for consistency
+  ANDROID_API: "25"  # Android API level to target, set to 25 for 64-bit support
+  HOST: aarch64-linux-android  # Set the host for cross-compiling to ARM 64-bit
 
 jobs:
   android-aarch64-daemon:
@@ -80,9 +80,9 @@ jobs:
           TOOLCHAIN_BIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
           
           # Check if clang++ exists in the toolchain directory for the correct API level
-          test -x "$TOOLCHAIN_BIN/${HOST}${ANDROID_API}-clang++"
+          test -x "$TOOLCHAIN_BIN/${HOST}${ANDROID_API}-clang++" || { echo "clang++ not found"; exit 1; }
           
-          # Create symlinks for clang and clang++
+          # Create symlinks for clang and clang++ to standardize usage
           ln -sf "${TOOLCHAIN_BIN}/${HOST}${ANDROID_API}-clang"  "${TOOLCHAIN_BIN}/${HOST}-clang"
           ln -sf "${TOOLCHAIN_BIN}/${HOST}${ANDROID_API}-clang++" "${TOOLCHAIN_BIN}/${HOST}-clang++"
           
