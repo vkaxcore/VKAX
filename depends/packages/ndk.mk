@@ -1,12 +1,12 @@
-# NDK - Android Native Development Kit (version r23c)
+# NDK - Android Native Development Kit (version r25.2.9519653)
 # This section handles the downloading and installing of the NDK as part of the dependencies.
 
 # Package details
 package=ndk
-$(package)_version=r23c
-$(package)_download_path=https://dl.google.com/android/repository/android-ndk-r23c-linux.zip  # URL for downloading NDK
-$(package)_file_name=android-ndk-r23c-linux.zip  # The downloaded file name
-$(package)_sha256_hash=e5053c126a47e84726d9f7173a04686a71f9a67a  # SHA256 hash for file integrity check
+$(package)_version=r25.2.9519653
+$(package)_download_path=https://dl.google.com/android/repository/android-ndk-r25.2.9519653-linux.zip  # URL for downloading NDK
+$(package)_file_name=android-ndk-r25.2.9519653-linux.zip  # The downloaded file name
+$(package)_sha256_hash=dcccb6f92ef9f6debeabb31f1ad0d0cf30c2f70a88fc9ff2eb991d165a71322a  # SHA256 hash for file integrity check
 
 # Define the installation directory where the NDK will be placed
 $(package)_install_dir=$(DEPENDS_DIR)/$(package)-$(package)_version
