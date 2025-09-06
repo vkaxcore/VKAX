@@ -45,7 +45,7 @@ jobs:
         run: |
           set -eux
           sudo apt-get update
-          sudo apt-get install -y build-essential automake libtool pkg-config python3 unzip wget cmake ninja-build clang-13
+          sudo apt-get install -y build-essential automake libtool pkg-config python3 unzip wget cmake ninja-build
 
       # Step 4: Install Android SDK and NDK (r25c), skip if already installed
       - name: Install Android SDK + NDK (r25c)
@@ -87,8 +87,9 @@ jobs:
           
           # Verify if clang-13 is installed and symlinked correctly
           if [ -x "/usr/bin/clang++-13" ]; then
-            ln -sf /usr/bin/clang-13 /usr/bin/clang
-            ln -sf /usr/bin/clang++-13 /usr/bin/clang++
+            # Create symlinks with sudo to ensure permission is granted for modifying /usr/bin/
+            sudo ln -sf /usr/bin/clang-13 /usr/bin/clang
+            sudo ln -sf /usr/bin/clang++-13 /usr/bin/clang++
           else
             echo "clang-13 not found, make sure it's installed or download the correct NDK version."
             exit 1
