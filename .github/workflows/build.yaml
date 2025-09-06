@@ -39,11 +39,24 @@ jobs:
             build-essential automake libtool pkg-config \
             python3 unzip wget cmake ninja-build zip curl perl
 
-      - name: Setup JDK 17
+      - name: Set Up JDK 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
+
+      - name: Set Environment Variables for SDK/NDK
+        run: |
+          echo "==== Setting Up Environment Variables ===="
+          export ANDROID_SDK_ROOT="${{ github.workspace }}/android-sdk"
+          export ANDROID_NDK_HOME="${ANDROID_SDK_ROOT}/ndk/android-ndk-r23c"
+          export ANDROID_NDK="${ANDROID_SDK_ROOT}/ndk/android-ndk-r23c"
+          export ANDROID_API_LEVEL=21
+          echo "ANDROID_SDK_ROOT: $ANDROID_SDK_ROOT"
+          echo "ANDROID_NDK_HOME: $ANDROID_NDK_HOME"
+          echo "ANDROID_NDK: $ANDROID_NDK"
+          echo "ANDROID_API_LEVEL: $ANDROID_API_LEVEL"
+        shell: bash
 
       - name: Install Android SDK and NDK r23c
         env:
@@ -74,39 +87,25 @@ jobs:
           echo "PATH: $PATH"
           echo "==== End Debugging Environment Variables ===="
 
-      - name: Normalize and Debug Paths
-        run: |
-          echo "==== Normalizing and Debugging Paths ===="
-          CONFIG_SITE_IN="${PWD}/depends/config.site.in"
-          CONFIG_SITE="${PWD}/depends/${HOST}/share/config.site"
-
-          echo "Normalized config.site.in path: $CONFIG_SITE_IN"
-          echo "Normalized config.site path: $CONFIG_SITE"
-          
-          if [ ! -f "$CONFIG_SITE_IN" ]; then
-            echo "Error: config.site.in not found at $CONFIG_SITE_IN"
-            exit 1
-          fi
-
-          # Normalize paths to absolute paths
-          ABSOLUTE_CONFIG_SITE_IN=$(realpath "$CONFIG_SITE_IN")
-          ABSOLUTE_CONFIG_SITE=$(realpath "$CONFIG_SITE")
-
-          echo "Absolute config.site.in path: $ABSOLUTE_CONFIG_SITE_IN"
-          echo "Absolute config.site path: $ABSOLUTE_CONFIG_SITE"
-
-          echo "Copying config.site.in to config.site"
-          cp "$ABSOLUTE_CONFIG_SITE_IN" "$ABSOLUTE_CONFIG_SITE"
-          echo "Config site copied to $ABSOLUTE_CONFIG_SITE"
-        shell: bash
-
-      - name: Verify NDK toolchain
+      - name: Verify NDK Toolchain
         run: |
           TOOLBIN="${ANDROID_NDK}/toolchains/llvm/prebuilt/linux-x86_64/bin"
           echo "==== Verifying NDK Toolchain ===="
           test -x "${TOOLBIN}/clang++" || (echo "clang++ not found!" && exit 1)
           "${TOOLBIN}/clang++" --version
           echo "==== Toolchain Verification Complete ===="
+
+      - name: Ensure config.site Exists
+        run: |
+          set -eux
+          CONFIG_SITE_IN="${PWD}/depends/config.site.in"
+          CONFIG_SITE="${PWD}/depends/${HOST}/share/config.site"
+          if [ ! -f "$CONFIG_SITE_IN" ]; then
+            echo "Error: config.site.in not found at $CONFIG_SITE_IN"
+            exit 1
+          fi
+          cp "$CONFIG_SITE_IN" "$CONFIG_SITE"
+          echo "config.site copied successfully"
 
       - name: Build depends (Debug)
         run: |
