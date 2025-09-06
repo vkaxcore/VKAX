@@ -71,7 +71,7 @@ ifneq (,$(filter /%,$(android_prefix)))
 endif
 
 # Export for funcs.mk configured stage
-host_prefix ?= $(android_prefix)
+host_prefix ?= $(notdir $(android_prefix))  # FIXED: ensure host_prefix is relative
 
 # Qt is not needed on Android
 NO_QT ?= 1
