@@ -1,89 +1,79 @@
-# .NOTPARALLEL : 
-# We disable parallel builds to avoid issues with the build process.
+# .NOTPARALLEL: Avoid parallel build issues for certain targets.
 
-# Define the environment variables and paths
+# Define variables
 MAKEOVERRIDES := $(filter V=%,$(MAKEOVERRIDES))
-
-# Directories and paths
-SOURCES_PATH ?= $(BASEDIR)/sources
-WORK_PATH = $(BASEDIR)/work
-BASE_CACHE ?= $(BASEDIR)/built
-SDK_PATH ?= $(BASEDIR)/SDKs
-PATCHES_PATH = $(BASEDIR)/patches
-BASEDIR = $(CURDIR)
+BASEDIR := $(CURDIR)
+WORK_PATH := $(BASEDIR)/work
+BASE_CACHE := $(BASEDIR)/built
+SDK_PATH := $(BASEDIR)/SDKs
+HOST := $(shell ./config.guess)
+HOST_ID_SALT := salt
+BUILD_ID_SALT := salt
 HASH_LENGTH := 11
 DOWNLOAD_CONNECT_TIMEOUT := 30
 
-# Build configurations
-BUILD = $(shell ./config.guess)
-HOST ?= $(BUILD)
-HOST_ID_SALT ?= salt
-BUILD_ID_SALT ?= salt
-
-# Package handling
-NO_QT ?=
-NO_PROTOBUF ?=
-NO_OPENSSL ?=
-NO_WALLET ?=
-NO_ZMQ ?=
-NO_UPNP ?=
-NO_NATPMP ?=
-FALLBACK_DOWNLOAD_PATH ?= https://bitcoincore.org/depends-sources
-
-# Base directories for build
-base_build_dir = $(WORK_PATH)/build
-base_staging_dir = $(WORK_PATH)/staging
-base_download_dir = $(WORK_PATH)/download
-
-# Canonical host
+# Default build directories
+base_build_dir := $(WORK_PATH)/build
+base_staging_dir := $(WORK_PATH)/staging
+base_download_dir := $(WORK_PATH)/download
 canonical_host := $(shell ./config.sub $(HOST))
 build := $(shell ./config.sub $(BUILD))
 
-# Arch and OS for host
-build_arch = $(firstword $(subst -, ,$(build)))
-build_vendor = $(word 2, $(subst -, ,$(build)))
+# Set up the host architecture and OS
+build_arch := $(firstword $(subst -, ,$(build)))
+build_vendor := $(word 2,$(subst -, ,$(build)))
 full_build_os := $(subst $(build_arch)-$(build_vendor)-,,$(build))
 build_os := $(findstring linux,$(full_build_os))
 build_os += $(findstring darwin,$(full_build_os))
 build_os := $(strip $(build_os))
 ifeq ($(build_os),)
-build_os = $(full_build_os)
+  build_os := $(full_build_os)
 endif
 
-host_arch = $(firstword $(subst -, ,$(canonical_host)))
-host_vendor = $(word 2, $(subst -, ,$(canonical_host)))
+# Host specific architecture and OS
+host_arch := $(firstword $(subst -, ,$(canonical_host)))
+host_vendor := $(word 2,$(subst -, ,$(canonical_host)))
 full_host_os := $(subst $(host_arch)-$(host_vendor)-,,$(canonical_host))
 host_os := $(findstring linux,$(full_host_os))
 host_os += $(findstring darwin,$(full_host_os))
 host_os += $(findstring mingw32,$(full_host_os))
 
 ifeq (android,$(findstring android,$(full_host_os)))
-host_os := android
+  host_os := android
 endif
 
 host_os := $(strip $(host_os))
 ifeq ($(host_os),)
-host_os = $(full_host_os)
+  host_os := $(full_host_os)
 endif
 
-# Host-specific prefix and build directories
-$(host_arch)_$(host_os)_prefix = $(BASEDIR)/$(host)
-$(host_arch)_$(host_os)_host = $(host)
-host_prefix = $($(host_arch)_$(host_os)_prefix)
+# Path to NDK and dependencies
+ANDROID_NDK := $(BASEDIR)/android-sdk/ndk/android-ndk-r23c
+ANDROID_API := 21
+HOST_PREFIX := $(BASEDIR)/$(HOST)
+host_prefix := $(host_prefix)/native
 
-# Ensure host_prefix is relative
-build_prefix = $(host_prefix)/native
-build_host = $(build)
+# Define the toolchain
+ANDROID_TOOLCHAIN_BIN := $(ANDROID_NDK)/toolchains/llvm/prebuilt/linux-x86_64/bin
+android_CC := $(ANDROID_TOOLCHAIN_BIN)/aarch64-linux-android$(ANDROID_API)-clang
+android_CXX := $(ANDROID_TOOLCHAIN_BIN)/aarch64-linux-android$(ANDROID_API)-clang++
+android_AR := $(ANDROID_TOOLCHAIN_BIN)/llvm-ar
+android_RANLIB := $(ANDROID_TOOLCHAIN_BIN)/llvm-ranlib
+android_STRIP := $(ANDROID_TOOLCHAIN_BIN)/llvm-strip
+android_SYSROOT := $(ANDROID_NDK)/toolchains/llvm/prebuilt/linux-x86_64/sysroot
 
-# Define how to print debug info
-AT_$(V) :=
-AT_ := @
-AT := $(AT_$(V))
+# Package management
+PACKAGES := miniupnpc boost openssl protobuf zmq
+native_packages := $(PACKAGES)
 
-# Default target
-all: install
+# Handle patches and source directories
+PATCHES_PATH := $(BASEDIR)/patches
+SOURCES_PATH := $(BASEDIR)/sources
 
-# Include necessary makefiles
+# Meta dependencies
+meta_depends := Makefile funcs.mk builders/default.mk hosts/default.mk hosts/$(host_os).mk builders/$(build_os).mk
+
+# Include necessary makefiles for host and builder-specific settings
 include hosts/$(host_os).mk
 include hosts/default.mk
 include builders/$(build_os).mk
@@ -98,22 +88,28 @@ build_id_string += $(shell $(build_CXX) --version 2>/dev/null)
 build_id_string += $(shell $(build_RANLIB) --version 2>/dev/null)
 build_id_string += $(shell $(build_STRIP) --version 2>/dev/null)
 
-# Handle miniupnpc package
-package = miniupnpc
-$(package)_version = 2.0.20180203
-$(package)_download_path = https://miniupnp.tuxfamily.org/files/
-$(package)_file_name = $(package)-$($(package)_version).tar.gz
-$(package)_sha256_hash = 90dda8c7563ca6cd4a83e23b3c66dbbea89603a1675bfdb852897c2c9cc220b7
-$(package)_patches = dont_use_wingen.patch
+# Rule for generating config.site file
+$(host_prefix)/share/config.site: config.site.in $(host_prefix)/.stamp_$(final_build_id)
+	$(AT)@mkdir -p $(@D)
+	$(AT)sed -e 's|@HOST@|$(host)|' \
+            -e 's|@CC@|$(host_CC)|' \
+            -e 's|@CXX@|$(host_CXX)|' \
+            -e 's|@AR@|$(host_AR)|' \
+            -e 's|@RANLIB@|$(host_RANLIB)|' \
+            -e 's|@STRIP@|$(host_STRIP)|' \
+            -e 's|@CFLAGS@|$(strip $(host_CFLAGS) $(host_$(release_type)_CFLAGS))|' \
+            -e 's|@CXXFLAGS@|$(strip $(host_CXXFLAGS) $(host_$(release_type)_CXXFLAGS))|' \
+            -e 's|@LDFLAGS@|$(strip $(host_LDFLAGS) $(host_$(release_type)_LDFLAGS))|' \
+            -e 's|@no_qt@|$(NO_QT)|' \
+            -e 's|@no_zmq@|$(NO_ZMQ)|' \
+            -e 's|@no_upnp@|$(NO_UPNP)|' \
+            $< > $@
 
-# Include miniupnpc.mk
-include packages/miniupnpc.mk
-
-# Build ID generation for versioning
+# Final build ID calculation based on version and configuration
 final_build_id_long += $(shell $(build_SHA256SUM) config.site.in)
 final_build_id += $(shell echo -n "$(final_build_id_long)" | $(build_SHA256SUM) | cut -c-$(HASH_LENGTH))
 
-# Ensure config.site is generated correctly
+# Build dependencies
 $(host_prefix)/.stamp_$(final_build_id): $(native_packages) $(packages)
 	$(AT)rm -rf $(@D)
 	$(AT)mkdir -p $(@D)
@@ -122,11 +118,7 @@ $(host_prefix)/.stamp_$(final_build_id): $(native_packages) $(packages)
 	$(AT)cd $(@D); $(foreach package,$^, tar xf $($(package)_cached); )
 	$(AT)touch $@
 
-# Target for miniupnpc (requires the patch)
-miniupnpc:
-	$(MAKE) -C depends/packages/miniupnpc
-
-# Ensure that checksums for downloaded files are correct
+# Dependencies download and verification
 define check_or_remove_cached
   mkdir -p $(BASE_CACHE)/$(host)/$(package) && cd $(BASE_CACHE)/$(host)/$(package); \
   $(build_SHA256SUM) -c $($(package)_cached_checksum) >/dev/null 2>/dev/null || \
@@ -143,21 +135,19 @@ endef
 
 check-packages:
 	@$(foreach package,$(all_packages),$(call check_or_remove_cached,$(package));)
-check-sources:
-	@$(foreach package,$(all_packages),$(call check_or_remove_sources,$(package));)
 
-check-packages: check-sources
-
+# Clean the build environment
 clean-all: clean
 	@rm -rf $(SOURCES_PATH) x86_64* i686* mips* arm* aarch64* riscv32* riscv64*
 
 clean:
 	@rm -rf $(WORK_PATH) $(BASE_CACHE) $(BUILD)
 
+# Installation rule
 install: check-packages $(host_prefix)/share/config.site
 
+# Package downloads
 download-one: check-sources $(all_sources)
-
 download-osx:
 	@$(MAKE) -s HOST=x86_64-apple-darwin download-one
 download-linux:
@@ -166,6 +156,7 @@ download-win:
 	@$(MAKE) -s HOST=x86_64-w64-mingw32 download-one
 download: download-osx download-linux download-win
 
+# Add stages for all packages
 $(foreach package,$(all_packages),$(eval $(call ext_add_stages,$(package))))
 
-.PHONY: install cached clean clean-all download-one download-osx download-linux download-win download check-packages check-sources miniupnpc
+.PHONY: install clean clean-all download-one download-osx download-linux download-win download check-packages check-sources
