@@ -79,8 +79,11 @@ jobs:
           set -eux
           TOOLCHAIN_BIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
           
-          # Check if clang++ exists in the toolchain directory for the correct API level
-          test -x "$TOOLCHAIN_BIN/${HOST}${ANDROID_API}-clang++"
+          # Check if clang++ exists for the correct API level
+          if [ ! -x "$TOOLCHAIN_BIN/${HOST}${ANDROID_API}-clang++" ]; then
+            echo "clang++ for API level ${ANDROID_API} not found"
+            exit 1
+          fi
           
           # Create symlinks for clang and clang++
           ln -sf "${TOOLCHAIN_BIN}/${HOST}${ANDROID_API}-clang"  "${TOOLCHAIN_BIN}/${HOST}-clang"
