@@ -97,6 +97,11 @@ include builders/$(build_os).mk
 include builders/default.mk
 include packages/packages.mk
 
+# Ensure ANDROID_SDK is defined in environment
+ifeq ($(ANDROID_SDK),)
+  $(error "ANDROID_SDK environment variable is not set. Please set it before building.")
+endif
+
 # Build ID generation for versioning
 build_id_string := $(BUILD_ID_SALT)
 build_id_string += $(shell $(build_CC) --version 2>/dev/null)
