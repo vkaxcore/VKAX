@@ -1,68 +1,73 @@
-depends/packages/ndk.mk
-# modules: pins • env/paths • helpers • targets(ndk_add_to_path, ndk_create_wrapper, ndk_install)
-# include-guard required to stop duplicate target redefinitions from multiple includes.
+# depends/packages/ndk.mk
+# Modules: [G] include-guard • [E] env/NDK root • [H] host tag • [B] toolchain bin • [X] PATH export (once) • [T] targets ndk_* (no-op safe) • [D] debug echo (V=1)
+# Critical: [G] prevents duplicate "overriding recipe" warnings; [E] no hardcoded revs, uses ANDROID_NDK_HOME/ROOT; [X] exports PATH globally only once, zero side effects.
+# Intent: provide toolchain discovery and stable PATH for Android depends; CI installs NDK r25.2; never mention r23c; legacy-friendly for Bitcoin/Dash-style depends.
 
-ifndef VKAX_NDK_MK_INCLUDED
+ifndef VKAX_NDK_MK_INCLUDED                                   # [G]
 VKAX_NDK_MK_INCLUDED := 1
 
-package := ndk
-# Directory name as installed by sdkmanager; keep in sync with workflow
-$(package)_version_dir := 25.2.9519653
+# [E] Discover NDK root from environment (preferred: ANDROID_NDK_HOME); fail early if missing.
+ANDROID_NDK ?= $(or $(ANDROID_NDK_HOME),$(ANDROID_NDK_ROOT))
+ifeq ($(strip $(ANDROID_NDK)),)
+  $(error ANDROID_NDK not set; export ANDROID_NDK_HOME (e.g. $${ANDROID_SDK_ROOT}/ndk/25.2.9519653))
+endif
+export ANDROID_NDK_HOME := $(ANDROID_NDK)
 
-# Safe default DEPENDS_DIR if undefined (avoid writing to /)
-ifeq ($(origin DEPENDS_DIR), undefined)
-DEPENDS_DIR := $(CURDIR)
+# [H] Determine host tag for prebuilt toolchain (linux-x86_64 on GitHub runners; darwin-x86_64/arm64 locally).
+UNAME_S ?= $(shell uname -s)
+UNAME_M ?= $(shell uname -m)
+
+ifeq ($(UNAME_S),Darwin)
+  _NDK_HOST_OS := darwin
+else ifeq ($(UNAME_S),Linux)
+  _NDK_HOST_OS := linux
+else
+  _NDK_HOST_OS := windows
 endif
 
-# Respect environment; workflow installs the NDK (no downloads here)
-ANDROID_API ?= 25
-NDK_HOME    ?= $(or $(ANDROID_NDK_HOME),$(ANDROID_NDK_ROOT),$(ANDROID_NDK),$(addsuffix /ndk/$(package)_version_dir,$(ANDROID_SDK_ROOT)))
-TOOLCHAIN_BIN := $(NDK_HOME)/toolchains/llvm/prebuilt/linux-x86_64/bin
-
-# Internal staging for wrappers and an env file other packages can source
-$(package)_install_dir := $(abspath $(DEPENDS_DIR))/$(package)-$($(package)_version_dir)
-$(package)_env_file    := $(abspath $(DEPENDS_DIR))/.env
-
-# Helper macros
-download = curl -fL --retry 5 --retry-delay 2 "$1" -o "$2"
-extract  = unzip -q "$2" -d "$3"
-
-# Verbose pins when V=1
-ifneq ($(V),)
-$(info [ndk.mk] ANDROID_API=$(ANDROID_API))
-$(info [ndk.mk] NDK_HOME=$(NDK_HOME))
-$(info [ndk.mk] TOOLCHAIN_BIN=$(TOOLCHAIN_BIN))
+ifneq (,$(filter aarch64 arm64,$(UNAME_M)))
+  _NDK_HOST_ARCH := arm64
+else
+  _NDK_HOST_ARCH := x86_64
 endif
 
-# Export NDK paths for downstream steps
-$(package)_add_to_path:
-	@echo "[ndk] export toolchain bin to PATH"
-	@mkdir -p "$(dir $($(package)_env_file))"
-	@echo "ANDROID_NDK_HOME=$(NDK_HOME)" >> "$($(package)_env_file)"
-	@echo "ANDROID_NDK_ROOT=$(NDK_HOME)" >> "$($(package)_env_file)"
-	@echo "ANDROID_NDK=$(NDK_HOME)" >> "$($(package)_env_file)"
-	@echo "PATH=$(TOOLCHAIN_BIN):$$PATH" >> "$($(package)_env_file)"
+NDK_HOST_TAG ?= $(_NDK_HOST_OS)-$(_NDK_HOST_ARCH)
 
-# Create ${HOST}${ANDROID_API}-clang(++) wrappers only if the NDK doesn't ship them
-$(package)_create_wrapper:
-	@echo "[ndk] creating wrappers for API $(ANDROID_API)"
-	@mkdir -p "$($(package)_install_dir)/bin"
-	@CC_TGT="aarch64-linux-android$(ANDROID_API)-clang"; \
-	CXX_TGT="aarch64-linux-android$(ANDROID_API)-clang++"; \
-	if [ -x "$(TOOLCHAIN_BIN)/$$CC_TGT" ] && [ -x "$(TOOLCHAIN_BIN)/$$CXX_TGT" ]; then \
-	  cp -f "$(TOOLCHAIN_BIN)/$$CC_TGT"  "$($(package)_install_dir)/bin/" || true; \
-	  cp -f "$(TOOLCHAIN_BIN)/$$CXX_TGT" "$($(package)_install_dir)/bin/" || true; \
-	else \
-	  printf '%s\n' '#!/usr/bin/env bash' "exec '$(TOOLCHAIN_BIN)/clang' --target=aarch64-linux-android$(ANDROID_API) \"\$$@\"" > "$($(package)_install_dir)/bin/$$CC_TGT"; \
-	  printf '%s\n' '#!/usr/bin/env bash' "exec '$(TOOLCHAIN_BIN)/clang++' --target=aarch64-linux-android$(ANDROID_API) \"\$$@\"" > "$($(package)_install_dir)/bin/$$CXX_TGT"; \
-	  chmod +x "$($(package)_install_dir)/bin/$$CC_TGT" "$($(package)_install_dir)/bin/$$CXX_TGT"; \
-	fi
-	@echo "[ndk] wrappers ready under $($(package)_install_dir)/bin"
+# [B] LLVM toolchain bin path (r25+ layout) and sysroot; validate existence for fast failure.
+NDK_BIN     ?= $(ANDROID_NDK)/toolchains/llvm/prebuilt/$(NDK_HOST_TAG)/bin
+NDK_SYSROOT ?= $(NDK_BIN)/../sysroot
+ifeq ($(wildcard $(NDK_BIN)),)
+  $(error NDK toolchain bin not found: "$(NDK_BIN)"; check ANDROID_NDK and NDK_HOST_TAG="$(NDK_HOST_TAG)")
+endif
 
-# Public entrypoint
-$(package)_install: $(package)_add_to_path $(package)_create_wrapper
-	@echo "[ndk] install complete (NDK=$(NDK_HOME) API=$(ANDROID_API))"
+# [X] Export PATH globally once; guard against re-prefixing if included indirectly by other packages.
+ifeq (,$(findstring $(NDK_BIN),$(PATH)))
+  export PATH := $(NDK_BIN):$(PATH)
+endif
 
-.PHONY: $(package)_install $(package)_add_to_path $(package)_create_wrapper
+# [T] Historical hooks expected by some recipes; keep them benign and idempotent.
+.PHONY: ndk_add_to_path ndk_create_wrapper ndk_install ndk_env
+
+ndk_add_to_path:
+	@echo "[ndk.mk] PATH contains NDK_BIN=$(NDK_BIN)"
+
+ndk_create_wrapper:
+	@true
+
+ndk_install:
+	@true
+
+# [D] Optional diagnostics when V=1 for CI triage.
+ifeq ($(V),1)
+ndk_env:
+	@echo "[ndk.mk] ANDROID_NDK=$(ANDROID_NDK)"
+	@echo "[ndk.mk] NDK_HOST_TAG=$(NDK_HOST_TAG)"
+	@echo "[ndk.mk] NDK_BIN=$(NDK_BIN)"
+	@echo "[ndk.mk] NDK_SYSROOT=$(NDK_SYSROOT)"
+else
+ndk_env:
+	@true
+endif
+
 endif  # VKAX_NDK_MK_INCLUDED
-# depends/packages/ndk.mk • Setvin • 2025-09-06
+# depends/packages/ndk.mk • Setvin • 2025-09-06 • end-of-file
