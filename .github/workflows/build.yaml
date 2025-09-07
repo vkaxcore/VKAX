@@ -1,8 +1,8 @@
 # File: .github/workflows/build.yaml
-# Purpose: Android aarch64 cross-build (daemon + cli + tx) without Qt
-# Notes: ASCII-only, no tabs, no bidi chars. Avoid YAML-heredoc pitfalls.
+# Purpose: Android cross-builds (daemon + cli + tx) for aarch64 and armv7, no Qt
+# Notes: ASCII-only, no tabs, no bidi chars.
 
-name: VKAX Android Build
+name: VKAX Android Builds
 
 on:
   workflow_dispatch:
@@ -16,12 +16,23 @@ env:
   LC_ALL: C
   LANG: C
   ANDROID_API: "25"
-  HOST: aarch64-linux-android
 
 jobs:
-  android-aarch64-daemon:
-    name: Android aarch64 (daemon + cli + tx, no Qt)
+  android-daemon:
+    name: Android ${{ matrix.arch }} (daemon + cli + tx, no Qt)
     runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: aarch64
+            host: aarch64-linux-android
+            clang_target: aarch64-linux-android
+            addr_model: 64
+          - arch: armv7
+            host: arm-linux-androideabi
+            clang_target: armv7a-linux-androideabi
+            addr_model: 32
     defaults:
       run:
         shell: bash
@@ -72,27 +83,27 @@ jobs:
           echo "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
           echo "$ANDROID_SDK_ROOT/ndk/25.2.9519653/toolchains/llvm/prebuilt/linux-x86_64/bin" >> "$GITHUB_PATH"
 
-      - name: Verify NDK toolchain and create wrappers if needed
+      - name: Verify NDK toolchain and set CC/CXX
         env:
-          HOST: ${{ env.HOST }}
           ANDROID_API: ${{ env.ANDROID_API }}
         run: |
           set -eux
           TOOLCHAIN_BIN="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin"
-          WANT_CXX="$TOOLCHAIN_BIN/${HOST}${ANDROID_API}-clang++"
-          WANT_CC="$TOOLCHAIN_BIN/${HOST}${ANDROID_API}-clang"
+          TARGET_PREFIX="${{ matrix.clang_target }}${ANDROID_API}"
+          WANT_CXX="$TOOLCHAIN_BIN/${TARGET_PREFIX}-clang++"
+          WANT_CC="$TOOLCHAIN_BIN/${TARGET_PREFIX}-clang"
           WRAP_DIR="$RUNNER_TEMP/ndk-cc"
           mkdir -p "$WRAP_DIR"
           if [ -x "$WANT_CXX" ] && [ -x "$WANT_CC" ]; then
-            echo "CC=${HOST}${ANDROID_API}-clang" >> "$GITHUB_ENV"
-            echo "CXX=${HOST}${ANDROID_API}-clang++" >> "$GITHUB_ENV"
+            echo "CC=${TARGET_PREFIX}-clang" >> "$GITHUB_ENV"
+            echo "CXX=${TARGET_PREFIX}-clang++" >> "$GITHUB_ENV"
           else
-            printf '%s\n' '#!/usr/bin/env bash' "exec \"$TOOLCHAIN_BIN/clang\" --target=${HOST}${ANDROID_API} \"\$@\"" > "$WRAP_DIR/${HOST}${ANDROID_API}-clang"
-            printf '%s\n' '#!/usr/bin/env bash' "exec \"$TOOLCHAIN_BIN/clang++\" --target=${HOST}${ANDROID_API} \"\$@\"" > "$WRAP_DIR/${HOST}${ANDROID_API}-clang++"
-            chmod +x "$WRAP_DIR/${HOST}${ANDROID_API}-clang" "$WRAP_DIR/${HOST}${ANDROID_API}-clang++"
+            printf '%s\n' '#!/usr/bin/env bash' "exec \"$TOOLCHAIN_BIN/clang\" --target=${TARGET_PREFIX} \"\$@\"" > "$WRAP_DIR/${TARGET_PREFIX}-clang"
+            printf '%s\n' '#!/usr/bin/env bash' "exec \"$TOOLCHAIN_BIN/clang++\" --target=${TARGET_PREFIX} \"\$@\"" > "$WRAP_DIR/${TARGET_PREFIX}-clang++"
+            chmod +x "$WRAP_DIR/${TARGET_PREFIX}-clang" "$WRAP_DIR/${TARGET_PREFIX}-clang++"
             echo "$WRAP_DIR" >> "$GITHUB_PATH"
-            echo "CC=${HOST}${ANDROID_API}-clang" >> "$GITHUB_ENV"
-            echo "CXX=${HOST}${ANDROID_API}-clang++" >> "$GITHUB_ENV"
+            echo "CC=${TARGET_PREFIX}-clang" >> "$GITHUB_ENV"
+            echo "CXX=${TARGET_PREFIX}-clang++" >> "$GITHUB_ENV"
           fi
           echo "AR=llvm-ar" >> "$GITHUB_ENV"
           echo "RANLIB=llvm-ranlib" >> "$GITHUB_ENV"
@@ -102,17 +113,21 @@ jobs:
           set -eux
           mkdir -p depends "$HOME/.boost-build"
           TOOLCHAIN_BIN="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin"
-          CANDIDATE="$TOOLCHAIN_BIN/${HOST}${ANDROID_API}-clang++"
+          TARGET_PREFIX="${{ matrix.clang_target }}${ANDROID_API}"
+          CANDIDATE="$TOOLCHAIN_BIN/${TARGET_PREFIX}-clang++"
           if [ -x "$CANDIDATE" ]; then
             COMPILER_PATH="$CANDIDATE"
           else
-            COMPILER_PATH="$(command -v "${HOST}${ANDROID_API}-clang++" || true)"
+            COMPILER_PATH="$(command -v "${TARGET_PREFIX}-clang++" || true)"
             if [ -z "$COMPILER_PATH" ]; then COMPILER_PATH="$(command -v "$CXX")"; fi
           fi
-          cat > depends/user-config.jam << 'EOF'
-          using clang : aarch64 : COMPILER_PLACEHOLDER : <target-os>android <architecture>arm <address-model>64 ;
-          EOF
-          sed -i "s|COMPILER_PLACEHOLDER|${COMPILER_PATH}|g" depends/user-config.jam
+          case "${{ matrix.arch }}" in
+            aarch64) ADDRESS_MODEL=64 ;;
+            armv7) ADDRESS_MODEL=32 ;;
+          esac
+          cat > depends/user-config.jam << EOF
+using clang : android-${{ matrix.arch }} : ${COMPILER_PATH} : <target-os>android <architecture>arm <address-model>${ADDRESS_MODEL} ;
+EOF
           cp depends/user-config.jam "$HOME/.boost-build/user-config.jam"
           echo "BOOST_BUILD_PATH=$PWD/depends" >> "$GITHUB_ENV"
 
@@ -125,7 +140,7 @@ jobs:
 
       - name: Build depends (no Qt)
         env:
-          HOST: ${{ env.HOST }}
+          HOST: ${{ matrix.host }}
           ANDROID_API: ${{ env.ANDROID_API }}
           ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
         run: |
@@ -138,7 +153,7 @@ jobs:
 
       - name: Configure project
         env:
-          HOST: ${{ env.HOST }}
+          HOST: ${{ matrix.host }}
           ANDROID_API: ${{ env.ANDROID_API }}
         run: |
           set -eux
@@ -164,11 +179,11 @@ jobs:
           set -eux
           mkdir -p artifacts
           cp -v src/vkax* artifacts/ || true
-          tar -C artifacts -czf "vkax-android-aarch64-${GITHUB_SHA::7}.tar.gz" .
+          tar -C artifacts -czf "vkax-android-${{ matrix.arch }}-${GITHUB_SHA::7}.tar.gz" .
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: vkax-android-aarch64
-          path: vkax-android-aarch64-*.tar.gz
+          name: vkax-android-${{ matrix.arch }}
+          path: vkax-android-${{ matrix.arch }}-*.tar.gz
           if-no-files-found: warn
