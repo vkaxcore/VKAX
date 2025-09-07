@@ -15,7 +15,6 @@ env:
   COMPRESS_DIR: vkax-compress
   LC_ALL: C
   LANG: C
-  ANDROID_API: "25"
 
 jobs:
   android-daemon:
@@ -29,10 +28,14 @@ jobs:
             host: aarch64-linux-android
             clang_target: aarch64-linux-android
             addr_model: 64
+            api: "21"
           - arch: armv7
             host: arm-linux-androideabi
             clang_target: armv7a-linux-androideabi
             addr_model: 32
+            api: "21"
+    env:
+      ANDROID_API: ${{ matrix.api }}
     defaults:
       run:
         shell: bash
@@ -84,8 +87,6 @@ jobs:
           echo "$ANDROID_SDK_ROOT/ndk/25.2.9519653/toolchains/llvm/prebuilt/linux-x86_64/bin" >> "$GITHUB_PATH"
 
       - name: Verify NDK toolchain and set CC/CXX
-        env:
-          ANDROID_API: ${{ env.ANDROID_API }}
         run: |
           set -eux
           TOOLCHAIN_BIN="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin"
@@ -141,8 +142,6 @@ EOF
       - name: Build depends (no Qt)
         env:
           HOST: ${{ matrix.host }}
-          ANDROID_API: ${{ env.ANDROID_API }}
-          ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
         run: |
           set -eux
           BUILD_TRIPLET="$(./depends/config.guess)"
@@ -154,7 +153,6 @@ EOF
       - name: Configure project
         env:
           HOST: ${{ matrix.host }}
-          ANDROID_API: ${{ env.ANDROID_API }}
         run: |
           set -eux
           export PKG_CONFIG_PATH="$PWD/depends/${HOST}/lib/pkgconfig"
