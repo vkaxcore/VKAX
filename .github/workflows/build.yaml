@@ -1,8 +1,7 @@
 # .github/workflows/build.yaml
-# VKAX Android CI (arm64, Qt enabled) — Modules: [A] checkout [B] JDK/tools [C] SDK/NDK r25.2 pin [D] preflight NDk [E] depends (V=1 + heartbeat) [F] configure daemons [G] qmake+androiddeployqt APK [H] diagnostics/artifacts
-# Critical lines: [1] job guard exact branch • [2] NDK/SDK pin • [3] CC/CXX wrapper fallback • [4] depends NO_QT=0 with --trace/+heartbeat • [5] qmake detection • [6] androiddeployqt packaging
-# Notes: one workflow only; no r23c guards; YAML-safe comments; outputs both daemon tarball and any APK found; legacy-safe for Bitcoin/Dash style depends.
-
+# VKAX Android CI (arm64, Qt-capable) — Modules: [A] checkout [B] JDK/tools [C] SDK/NDK r25.2 pin [D] toolchain CC/CXX [E] preflight NDK [F] depends (V=1 + heartbeat)
+# [G] daemon configure/build/package [H] optional Qt qmake + androiddeployqt APK [I] diagnostics/artifacts
+# Critical lines: [1] strict branch guard • [2] NDK pin 25.2.9519653 • [3] CC/CXX wrapper fallback • [4] verbose depends with heartbeat • [5] pkg-config sysrooting • [6] APK packaging
 name: VKAX Android Build (arm64, Qt)
 
 on:
@@ -22,16 +21,17 @@ env:
   COMPRESS_DIR: vkax-compress
   LC_ALL: C
   LANG: C
-  ANDROID_API: "25"                # [2]
-  HOST: aarch64-linux-android
+  ANDROID_API: "25"                 # [2] Target API
+  HOST: aarch64-linux-android       # Android ABI
 
 jobs:
   android-aarch64:
     if: ${{ github.ref == 'refs/heads/v100.11.5-android' || (github.event_name == 'workflow_dispatch' && (github.event.inputs.ref == '' || github.event.inputs.ref == 'v100.11.5-android')) }}  # [1]
     runs-on: ubuntu-22.04
-    timeout-minutes: 120
+    timeout-minutes: 150
 
     steps:
+      # [A] checkout
       - name: Checkout
         uses: actions/checkout@v4
         with:
@@ -39,26 +39,29 @@ jobs:
           lfs: true
           ref: ${{ github.event.inputs.ref || 'v100.11.5-android' }}
 
-      - name: "Java: Temurin JDK 11"
+      # [B] JDK/tools
+      - name: Java (Temurin 11)
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "11"
 
-      - name: "System deps"
+      - name: System deps
         run: |
           set -eux
           sudo apt-get update
           sudo apt-get install -y build-essential automake autoconf libtool pkg-config \
-                                  python3 unzip wget curl cmake ninja-build dos2unix xz-utils file zip binutils
+                                  python3 unzip wget curl cmake ninja-build dos2unix \
+                                  xz-utils file zip binutils ccache
 
-      - name: "Determinism"
+      - name: Determinism + build tame
         run: |
           set -eux
           echo "SOURCE_DATE_EPOCH=$(git log -1 --pretty=%ct || echo 0)" >> "$GITHUB_ENV"
           echo "MAKEFLAGS=-j2" >> "$GITHUB_ENV"
 
-      - name: "Android: SDK + NDK r25.2 (pin)"   # [2]
+      # [C] SDK/NDK r25.2 pin
+      - name: Android SDK + NDK r25.2 (pin)
         env:
           ANDROID_SDK_ROOT: ${{ github.workspace }}/android-sdk
         run: |
@@ -80,7 +83,8 @@ jobs:
           echo "$ANDROID_SDK_ROOT/build-tools/34.0.0" >> "$GITHUB_PATH"
           echo "$ANDROID_SDK_ROOT/ndk/25.2.9519653/toolchains/llvm/prebuilt/linux-x86_64/bin" >> "$GITHUB_PATH"
 
-      - name: "NDK toolchain: CC/CXX/AR/RANLIB (wrapper fallback)"   # [3]
+      # [D] toolchain CC/CXX + ccache wrapper
+      - name: NDK toolchain CC/CXX/AR/RANLIB (ccache if present)
         env:
           HOST: ${{ env.HOST }}
           ANDROID_API: ${{ env.ANDROID_API }}
@@ -101,8 +105,13 @@ jobs:
             echo "CC=$CC_TGT"  >> "$GITHUB_ENV"; echo "CXX=$CXX_TGT" >> "$GITHUB_ENV"
           fi
           echo "AR=llvm-ar" >> "$GITHUB_ENV"; echo "RANLIB=llvm-ranlib" >> "$GITHUB_ENV"
+          # ccache opt-in (speeds repeated sub-builds; harmless if cold)
+          echo "CC=\"ccache $CC_TGT\""   >> "$GITHUB_ENV"
+          echo "CXX=\"ccache $CXX_TGT\"" >> "$GITHUB_ENV"
+          echo "CCACHE_DIR=$HOME/.ccache" >> "$GITHUB_ENV"
 
-      - name: "preflight: ndk include + env sanity"   # quick visibility for double-includes
+      # [E] preflight NDK + include sites
+      - name: Preflight: ndk include + env sanity
         run: |
           set -eux
           echo "=== include ndk.mk sites ==="
@@ -112,14 +121,15 @@ jobs:
           echo "=== make -n ndk_* ==="
           make -C depends -n ndk_add_to_path ndk_create_wrapper ndk_install V=1 || true
 
-      - name: "depends: config.guess/sub + EOL"
+      - name: depends hygiene (config.guess/sub + EOL)
         run: |
           set -eux
           find depends -type f \( -name "*.mk" -o -name "*.sh" \) -print0 | xargs -0 dos2unix || true
           [ -x depends/config.guess ] || { cp -f /usr/share/misc/config.guess depends/config.guess && chmod +x depends/config.guess; }
           [ -x depends/config.sub ]   || { cp -f /usr/share/misc/config.sub   depends/config.sub   && chmod +x depends/config.sub; }
 
-      - name: "depends: build (Qt ENABLED) — verbose + heartbeat"    # [4]
+      # [F] depends build (Qt enabled by default; comment NO_QT=1 to force daemons-only)
+      - name: depends build (Qt ENABLED) — verbose + heartbeat
         env:
           HOST: ${{ env.HOST }}
           ANDROID_API: ${{ env.ANDROID_API }}
@@ -142,14 +152,17 @@ jobs:
           kill $HB 2>/dev/null || true
           trap - EXIT
 
-      - name: "configure: vkaxd/cli/tx"
+      # [G] configure/build/package daemons (no GUI)
+      - name: Configure vkaxd/cli/tx (Android)
         env:
           HOST: ${{ env.HOST }}
         run: |
           set -eux
           export PKG_CONFIG_PATH="$PWD/depends/${HOST}/lib/pkgconfig"
+          export PKG_CONFIG_LIBDIR="$PKG_CONFIG_PATH"
+          export PKG_CONFIG_SYSROOT_DIR="$PWD/depends/${HOST}"
           export CPPFLAGS="-I$PWD/depends/${HOST}/include"
-          export LDFLAGS="-L$PWD/depends/${HOST}/lib"
+          export LDFLAGS="-L$PWD/depends/${HOST}/lib -fuse-ld=lld"
           [ -f "./depends/${HOST}/share/config.site" ] && export CONFIG_SITE="$PWD/depends/${HOST}/share/config.site" || true
           [ -x ./autogen.sh ] && ./autogen.sh || autoreconf -fi || true
           ./configure \
@@ -163,51 +176,49 @@ jobs:
             CC="${CC}" CXX="${CXX}" AR=llvm-ar RANLIB=llvm-ranlib \
             CXXFLAGS="-O2 -fPIC"
 
-      - name: "build + package: vkaxd/cli/tx"
+      - name: Build + package daemons
         env:
           COIN_NAME: ${{ env.COIN_NAME }}
           BUILD_DIR: ${{ env.BUILD_DIR }}
           COMPRESS_DIR: ${{ env.COMPRESS_DIR }}
         run: |
           set -eux
-          make -j2 src/vkaxd src/vkax-cli src/vkax-tx
+          stdbuf -oL -eL make -j2 src/vkaxd src/vkax-cli src/vkax-tx
           mkdir -p "$BUILD_DIR" "$COMPRESS_DIR"
+          llvm-strip -s src/vkaxd src/vkax-cli src/vkax-tx || true
           cp -f src/vkaxd src/vkax-cli src/vkax-tx "$BUILD_DIR/"
           tar -czf "$COMPRESS_DIR/${COIN_NAME}-android-aarch64-daemons.tar.gz" -C "$BUILD_DIR" .
 
-      - name: "Qt: qmake build (detect .pro)"     # [5]
+      # [H] optional Qt APK (auto-skip if no .pro)
+      - name: Qt build (qmake) and APK package (androiddeployqt)
         env:
           HOST: ${{ env.HOST }}
-        run: |
-          set -eux
-          QMAKE="$PWD/depends/${HOST}/native/bin/qmake"
-          test -x "$QMAKE" || { echo "qmake not found: $QMAKE"; exit 2; }
-          PRO_FILE=""
-          [ -z "$PRO_FILE" ] && PRO_FILE="$(ls -1 src/qt/*.pro 2>/dev/null | head -n1 || true)"
-          [ -z "$PRO_FILE" ] && PRO_FILE="$(git ls-files | grep -E '(?:^|/)qt/.*\.pro$|(?:^|/)(vkax|bitcoin).*?-qt\.pro$' | head -n1 || true)"
-          if [ -z "$PRO_FILE" ]; then
-            echo "::warning:: No .pro found; skipping Qt build."; exit 0
-          fi
-          echo "Using qmake: $QMAKE"; echo "Project: $PRO_FILE"
-          "$QMAKE" -spec android-clang CONFIG+=release "$PRO_FILE"
-          stdbuf -oL -eL make -j2
-
-      - name: "Qt: package APK with androiddeployqt"   # [6]
-        env:
           ANDROID_SDK_ROOT: ${{ env.ANDROID_SDK_ROOT }}
           ANDROID_HOME: ${{ env.ANDROID_HOME }}
           ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
           ANDROID_API: ${{ env.ANDROID_API }}
           JAVA_HOME: ${{ env.JAVA_HOME }}
-          HOST: ${{ env.HOST }}
         run: |
           set -eux
-          DEPLOY="$(ls -1 *.json android-*-deployment-settings.json 2>/dev/null | head -n1 || true)"
-          if [ -z "$DEPLOY" ]; then
-            DEPLOY="$(find . -maxdepth 3 -name '*deployment-settings.json' | head -n1 || true)"
+          QMAKE="$PWD/depends/${HOST}/native/bin/qmake"
+          if [ ! -x "$QMAKE" ]; then
+            echo "::notice:: qmake not found; skipping Qt build."
+            exit 0
           fi
+          PRO_FILE=""
+          [ -z "$PRO_FILE" ] && PRO_FILE="$(ls -1 src/qt/*.pro 2>/dev/null | head -n1 || true)"
+          [ -z "$PRO_FILE" ] && PRO_FILE="$(git ls-files | grep -E '(?:^|/)qt/.*\.pro$|(?:^|/)(vkax|bitcoin).*?-qt\.pro$' | head -n1 || true)"
+          if [ -z "$PRO_FILE" ]; then
+            echo "::notice:: No .pro found; skipping APK packaging."
+            exit 0
+          fi
+          "$QMAKE" -spec android-clang CONFIG+=release "$PRO_FILE"
+          stdbuf -oL -eL make -j2
+          DEPLOY="$(ls -1 *.json android-*-deployment-settings.json 2>/dev/null | head -n1 || true)"
+          [ -n "$DEPLOY" ] || DEPLOY="$(find . -maxdepth 3 -name '*deployment-settings.json' | head -n1 || true)"
           if [ -z "$DEPLOY" ]; then
-            echo "::notice:: No android-deployment-settings.json produced; skipping APK packaging."; exit 0
+            echo "::notice:: No deployment-settings.json produced; skipping APK."
+            exit 0
           fi
           ANDROIDDEPLOYQT="$PWD/depends/${HOST}/native/bin/androiddeployqt"
           test -x "$ANDROIDDEPLOYQT" || { echo "androiddeployqt not found: $ANDROIDDEPLOYQT"; exit 5; }
@@ -215,20 +226,21 @@ jobs:
           mkdir -p "$OUTDIR"
           "$ANDROIDDEPLOYQT" --input "$DEPLOY" --output "$OUTDIR" \
             --android-platform "android-${ANDROID_API}" --jdk "$JAVA_HOME" --verbose --gradle
-          echo "APK search:"; find "$OUTDIR" -name "*.apk" -print
+          find "$OUTDIR" -name "*.apk" -print || true
 
-      - name: "diagnostics: env, versions, file/readelf, logs"
+      # [I] diagnostics + artifacts
+      - name: Diagnostics
         if: always()
         run: |
           set -x
-          env | egrep 'ANDROID|^CC=|^CXX=|^AR=|^RANLIB|^JAVA_HOME|SOURCE_DATE_EPOCH|MAKEFLAGS' | sort || true
+          env | egrep 'ANDROID|^CC=|^CXX=|^AR=|^RANLIB|^JAVA_HOME|SOURCE_DATE_EPOCH|MAKEFLAGS|PKG_CONFIG' | sort || true
           javac -version || true
           python3 --version || true
-          file $(find . -maxdepth 3 -type f -name "*.so" -o -name "*.apk" || true) || true
+          file $(find "$BUILD_DIR" -maxdepth 1 -type f -print 2>/dev/null) 2>/dev/null || true
           for f in "$BUILD_DIR"/* 2>/dev/null; do readelf -h "$f" || true; readelf -d "$f" || true; done
-          find . -name config.log -print -exec tail -100 {} \; || true
+          find . -name config.log -print -exec tail -120 {} \; || true
 
-      - name: "artifact: daemons + APK(s) + logs"
+      - name: Artifacts: daemons + APK + logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -238,4 +250,4 @@ jobs:
             apk-out/**/*.apk
             **/*.apk
             logs/depends.log
-# .github/workflows/build.yaml • Setvin • 2025-09-06 • Setvin
+# .github/workflows/build.yaml • Setvin • 2025-09-06 • end-of-file
