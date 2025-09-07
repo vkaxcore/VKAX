@@ -37,10 +37,14 @@ jobs:
         shell: bash
     steps:
       - uses: actions/checkout@v4
-        with: { lfs: true, fetch-depth: 0 }
+        with:
+          lfs: true
+          fetch-depth: 0
 
       - uses: actions/setup-java@v4
-        with: { distribution: temurin, java-version: "11" }
+        with:
+          distribution: temurin
+          java-version: "11"
 
       - name: Install tools
         run: |
@@ -59,7 +63,7 @@ jobs:
           restore-keys: |
             ccache-${{ runner.os }}-${{ matrix.arch }}-api${{ env.ANDROID_API }}-
 
-      - name: Install Android SDK + NDK
+      - name: Install Android SDK + NDK (safe license accept)
         env:
           ANDROID_SDK_ROOT: ${{ github.workspace }}/android-sdk
         run: |
@@ -70,13 +74,28 @@ jobs:
             unzip -q /tmp/clt.zip -d "$ANDROID_SDK_ROOT/cmdline-tools"
             mv "$ANDROID_SDK_ROOT/cmdline-tools/cmdline-tools" "$ANDROID_SDK_ROOT/cmdline-tools/latest"
           fi
+
           export PATH="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH"
-          yes | sdkmanager --licenses >/dev/null
-          sdkmanager "platform-tools" "platforms:android-${ANDROID_API}" "ndk;${ANDROID_NDK_VER}"
+
+          # Accept licenses WITHOUT using a pipe to `yes` (avoids Broken pipe under pipefail)
+          sdkmanager --update >/dev/null 2>&1 || true
+          sdkmanager --licenses >/dev/null 2>&1 <<< $'y\ny\ny\ny\ny\ny\ny\n'
+
+          # Install platform + NDK
+          sdkmanager \
+            "platform-tools" \
+            "platforms;android-${ANDROID_API}" \
+            "ndk;${ANDROID_NDK_VER}"
+
           {
             echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
+            echo "ANDROID_SDK=$ANDROID_SDK_ROOT"
+            echo "ANDROID_HOME=$ANDROID_SDK_ROOT"
             echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/${ANDROID_NDK_VER}"
+            echo "ANDROID_NDK_ROOT=$ANDROID_SDK_ROOT/ndk/${ANDROID_NDK_VER}"
+            echo "ANDROID_NDK=$ANDROID_SDK_ROOT/ndk/${ANDROID_NDK_VER}"
           } >> "$GITHUB_ENV"
+
           {
             echo "$ANDROID_SDK_ROOT/platform-tools"
             echo "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin"
@@ -115,13 +134,12 @@ jobs:
           if [ -x "$CANDIDATE" ]; then COMPILER_PATH="$CANDIDATE"; else COMPILER_PATH="$(command -v "${TARGET_PREFIX}-clang++" || true)"; fi
           [ -n "$COMPILER_PATH" ] || { echo "clang++ for $TARGET_PREFIX not found"; exit 1; }
           [ "${{ matrix.arch }}" = "aarch64" ] && ADDRESS_MODEL=64 || ADDRESS_MODEL=32
-          # Use printf instead of heredoc so YAML never parses colons
           printf 'using clang : android-%s : %s : <target-os>android <architecture>arm <address-model>%s ;\n' \
             "${{ matrix.arch }}" "${COMPILER_PATH}" "${ADDRESS_MODEL}" > depends/user-config.jam
           cp depends/user-config.jam "$HOME/.boost-build/user-config.jam"
           echo "BOOST_BUILD_PATH=$PWD/depends" >> "$GITHUB_ENV"
 
-      - name: Prepare depends scripts
+      - name: Prep depends
         run: |
           set -Eeuo pipefail
           find depends -type f \( -name "*.mk" -o -name "*.sh" \) -print0 | xargs -0 dos2unix || true
