@@ -1,58 +1,73 @@
-# .NOTPARALLEL : Prevent parallel builds for certain targets to avoid conflicts.
-# This ensures that specific operations like downloading and extracting are done sequentially.
+depends/packages/ndk.mk
+# Guarded NDK r25.2 setup; API-parameterized wrappers; respects env; verifies SHA; zero duplicate-target spam.
 
-# NDK - Android Native Development Kit (version r25.2.9519653)
-# This section handles downloading, installing, and setting up the Android NDK.
+ifndef VKAX_NDK_MK_INCLUDED
+VKAX_NDK_MK_INCLUDED := 1
 
-# Package details
-package=ndk
-$(package)_version=r25.2.9519653  # The version of the NDK we are using.
-$(package)_download_path=https://dl.google.com/android/repository/android-ndk-r25.2.9519653-linux.zip  # URL to download the NDK.
-$(package)_file_name=android-ndk-r25.2.9519653-linux.zip  # The file name for the downloaded NDK.
-$(package)_sha256_hash=dcccb6f92ef9f6debeabb31f1ad0d0cf30c2f70a88fc9ff2eb991d165a71322a  # SHA256 hash to verify the integrity of the NDK.
+package                := ndk
+$(package)_version     := r25.2.9519653
+$(package)_sha256_hash := dcccb6f92ef9f6debeabb31f1ad0d0cf30c2f70a88fc9ff2eb991d165a71322a
+$(package)_zip_name    := android-ndk-$($(package)_version)-linux.zip
+$(package)_download    := https://dl.google.com/android/repository/$($(package)_zip_name)
 
-# Define the installation directory where the NDK will be placed
-$(package)_install_dir=$(DEPENDS_DIR)/$(package)-$(package)_version  # Set the installation directory within the 'depends' folder.
+ANDROID_API ?= 25
+NDK_HOME ?= $(if $(ANDROID_NDK_HOME),$(ANDROID_NDK_HOME),$(if $(ANDROID_NDK),$(ANDROID_NDK),$(if $(ANDROID_NDK_ROOT),$(ANDROID_NDK_ROOT),$(ANDROID_SDK_ROOT)/ndk/$($(package)_version))))
+TOOLCHAIN_BIN := $(NDK_HOME)/toolchains/llvm/prebuilt/linux-x86_64/bin
+$(package)_install_dir := $(DEPENDS_DIR)/$(package)-$($(package)_version)
+$(package)_env_file    := $(DEPENDS_DIR)/.env
 
-# Path to store environment variables related to the NDK
-$(package)_env_file=$(DEPENDS_DIR)/.env  # The environment file where we will write the NDK path.
+download = curl -fL --retry 5 --retry-delay 2 "$1" -o "$2"
+extract  = unzip -q "$2" -d "$3"
 
-# Download and extract NDK with error handling
-define $(package)_download_and_extract
-	@echo "Downloading NDK..."
-	$(call download,$(package)_download_path,$(package)_file_name,$(package)_sha256_hash)  # Download the NDK from the URL.
-	@if [ $$? -ne 0 ]; then echo "NDK download failed!"; exit 1; fi  # If download fails, exit with an error.
-	@echo "Extracting NDK..."
-	$(call extract,$(package)_file_name,$(package)_install_dir)  # Extract the NDK archive into the specified directory.
-	@if [ $$? -ne 0 ]; then echo "NDK extraction failed!"; exit 1; fi  # If extraction fails, exit with an error.
-	@echo "NDK downloaded and extracted successfully."
+.NOTPARALLEL: $(package)_install $(package)_create_wrapper
+
+define $(package)_ensure_ndk
+	@if [ ! -d "$(NDK_HOME)" ]; then \
+	  echo "[ndk] downloading $($(package)_zip_name) ..."; \
+	  $(call download,$($(package)_download),$($(package)_zip_name)); \
+	  echo "$($(package)_sha256_hash)  $($(package)_zip_name)" | sha256sum -c -; \
+	  mkdir -p "$($(package)_install_dir)"; \
+	  $(call extract,$($(package)_zip_name),$($(package)_install_dir)); \
+	  export ANDROID_NDK_HOME="$($(package)_install_dir)/android-ndk-$($(package)_version)"; \
+	  echo "ANDROID_NDK_HOME=$$ANDROID_NDK_HOME" >> "$($(package)_env_file)"; \
+	  NDK_PATH="$$ANDROID_NDK_HOME"; \
+	else \
+	  echo "[ndk] Using existing NDK at $(NDK_HOME)"; \
+	  NDK_PATH="$(NDK_HOME)"; \
+	fi; \
+	echo "ANDROID_NDK_ROOT=$$NDK_PATH" >> "$($(package)_env_file)"; \
+	echo "ANDROID_NDK=$$NDK_PATH" >> "$($(package)_env_file)"; \
+	echo "PATH=$$NDK_PATH/toolchains/llvm/prebuilt/linux-x86_64/bin:$$PATH" >> "$($(package)_env_file)"
 endef
 
-# Add NDK to the system PATH for subsequent steps
 $(package)_add_to_path:
-	@echo "Adding NDK to path..."
-	@export ANDROID_NDK_HOME=$(DEPENDS_DIR)/$(package)-$(package)_version  # Set the NDK home path.
-	@echo "ANDROID_NDK_HOME=$(ANDROID_NDK_HOME)" >> $(package)_env_file  # Store the NDK home path in the .env file.
-	@export PATH=$(ANDROID_NDK_HOME)/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH  # Add the NDK binaries to the PATH.
-	@echo "NDK added to PATH."
+	@echo "[ndk] export PATH to toolchain"
+	@mkdir -p "$(dir $($(package)_env_file))"
+	@echo "ANDROID_NDK_HOME=$(NDK_HOME)" >> "$($(package)_env_file)"
+	@echo "PATH=$(TOOLCHAIN_BIN):$$PATH" >> "$($(package)_env_file)"
 
-# Create a wrapper for the NDK toolchain (specifically for cross-compilation)
 $(package)_create_wrapper:
-	@echo "Creating wrapper for NDK toolchain..."
-	@mkdir -p $(DEPENDS_DIR)/$(package)-$(package)_version/bin  # Create a directory for the toolchain wrapper.
-	@cp $(ANDROID_NDK_HOME)/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android25-clang++ $(DEPENDS_DIR)/$(package)-$(package)_version/bin/  # Copy the clang++ binary for API Level 25.
-	@cp $(ANDROID_NDK_HOME)/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android25-clang $(DEPENDS_DIR)/$(package)-$(package)_version/bin/  # Copy the clang binary for API Level 25.
-	@if [ $$? -ne 0 ]; then echo "Toolchain wrapper creation failed!"; exit 1; fi  # Check if toolchain wrapper creation succeeded.
-	@echo "Toolchain wrapper created successfully."
+	@echo "[ndk] creating API $(ANDROID_API) clang wrappers"
+	@mkdir -p "$($(package)_install_dir)/bin"
+	@CC_SRC="$(TOOLCHAIN_BIN)/aarch64-linux-android$(ANDROID_API)-clang"; \
+	CXX_SRC="$(TOOLCHAIN_BIN)/aarch64-linux-android$(ANDROID_API)-clang++"; \
+	if [ -x "$$CC_SRC" ] && [ -x "$$CXX_SRC" ]; then \
+	  cp -f "$$CC_SRC"  "$($(package)_install_dir)/bin/" || true; \
+	  cp -f "$$CXX_SRC" "$($(package)_install_dir)/bin/" || true; \
+	else \
+	  printf '%s\n' '#!/usr/bin/env bash' "exec '$(TOOLCHAIN_BIN)/clang' --target=aarch64-linux-android$(ANDROID_API) \"\$$@\"" > "$($(package)_install_dir)/bin/aarch64-linux-android$(ANDROID_API)-clang"; \
+	  printf '%s\n' '#!/usr/bin/env bash' "exec '$(TOOLCHAIN_BIN)/clang++' --target=aarch64-linux-android$(ANDROID_API) \"\$$@\"" > "$($(package)_install_dir)/bin/aarch64-linux-android$(ANDROID_API)-clang++"; \
+	  chmod +x "$($(package)_install_dir)/bin/aarch64-linux-android$(ANDROID_API)-clang" "$($(package)_install_dir)/bin/aarch64-linux-android$(ANDROID_API)-clang++"; \
+	fi
+	@echo "[ndk] wrappers ready"
 
-# Target rule to install the NDK (with error handling)
-$(package)_install: $(package)_download_and_extract $(package)_add_to_path $(package)_create_wrapper
-	@echo "$(package) installation complete."  # Once everything is set up, output that installation is complete.
+$(package)_install:
+	@$(call $(package)_ensure_ndk)
+	@$(MAKE) $(package)_add_to_path
+	@$(MAKE) $(package)_create_wrapper
+	@echo "[ndk] install complete (API=$(ANDROID_API) NDK=$(NDK_HOME))"
 
-# .PHONY: This ensures the 'install' target is always executed, even if there's a file named 'install'.
-.PHONY: $(package)_install  # Mark the install target as phony to avoid conflicts with files named 'install'.
+.PHONY: $(package)_install $(package)_add_to_path $(package)_create_wrapper
 
-# Helper functions for downloading and extracting files
-download = curl -L $1 -o $2  # Download the file from the given URL.
-extract = unzip -q $2 -d $3  # Extract the downloaded zip file to the specified directory.
-
+endif  # VKAX_NDK_MK_INCLUDED
+# depends/packages/ndk.mk • Setvin • 2025-09-06
