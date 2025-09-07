@@ -1,7 +1,8 @@
 # .github/workflows/build.yaml
-# VKAX Android CI (arm64, Qt-capable) — Modules: [A] checkout [B] JDK/tools [C] SDK/NDK r25.2 pin [D] toolchain CC/CXX [E] preflight NDK [F] depends (V=1 + heartbeat)
-# [G] daemon configure/build/package [H] optional Qt qmake + androiddeployqt APK [I] diagnostics/artifacts
-# Critical lines: [1] strict branch guard • [2] NDK pin 25.2.9519653 • [3] CC/CXX wrapper fallback • [4] verbose depends with heartbeat • [5] pkg-config sysrooting • [6] APK packaging
+# [file] .github/workflows/build.yaml
+# [purpose] Android arm64 CI with pinned SDK/NDK r25.2, verbose depends, daemon tarball, optional Qt APK via androiddeployqt.
+# [labels] [1] branch guard [2] SDK/NDK pin [3] CC/CXX setup [4] preflight [5] depends build [6] daemon build [7] Qt+APK [8] diagnostics/artifacts
+
 name: VKAX Android Build (arm64, Qt)
 
 on:
@@ -21,8 +22,8 @@ env:
   COMPRESS_DIR: vkax-compress
   LC_ALL: C
   LANG: C
-  ANDROID_API: "25"                 # [2] Target API
-  HOST: aarch64-linux-android       # Android ABI
+  ANDROID_API: "25"
+  HOST: aarch64-linux-android
 
 jobs:
   android-aarch64:
@@ -31,7 +32,6 @@ jobs:
     timeout-minutes: 150
 
     steps:
-      # [A] checkout
       - name: Checkout
         uses: actions/checkout@v4
         with:
@@ -39,29 +39,27 @@ jobs:
           lfs: true
           ref: ${{ github.event.inputs.ref || 'v100.11.5-android' }}
 
-      # [B] JDK/tools
-      - name: Java (Temurin 11)
+      - name: "Java: Temurin 11"
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "11"
 
-      - name: System deps
+      - name: "System deps"
         run: |
           set -eux
           sudo apt-get update
           sudo apt-get install -y build-essential automake autoconf libtool pkg-config \
                                   python3 unzip wget curl cmake ninja-build dos2unix \
-                                  xz-utils file zip binutils ccache
+                                  xz-utils file zip binutils
 
-      - name: Determinism + build tame
+      - name: "Determinism"
         run: |
           set -eux
           echo "SOURCE_DATE_EPOCH=$(git log -1 --pretty=%ct || echo 0)" >> "$GITHUB_ENV"
           echo "MAKEFLAGS=-j2" >> "$GITHUB_ENV"
 
-      # [C] SDK/NDK r25.2 pin
-      - name: Android SDK + NDK r25.2 (pin)
+      - name: "Android: SDK + NDK r25.2 (pin)"  # [2]
         env:
           ANDROID_SDK_ROOT: ${{ github.workspace }}/android-sdk
         run: |
@@ -83,8 +81,7 @@ jobs:
           echo "$ANDROID_SDK_ROOT/build-tools/34.0.0" >> "$GITHUB_PATH"
           echo "$ANDROID_SDK_ROOT/ndk/25.2.9519653/toolchains/llvm/prebuilt/linux-x86_64/bin" >> "$GITHUB_PATH"
 
-      # [D] toolchain CC/CXX + ccache wrapper
-      - name: NDK toolchain CC/CXX/AR/RANLIB (ccache if present)
+      - name: "NDK toolchain CC/CXX/AR/RANLIB"  # [3]
         env:
           HOST: ${{ env.HOST }}
           ANDROID_API: ${{ env.ANDROID_API }}
@@ -95,23 +92,21 @@ jobs:
           CC_TGT="${HOST}${ANDROID_API}-clang"
           CXX_TGT="${HOST}${ANDROID_API}-clang++"
           if [ -x "$TOOLCHAIN_BIN/$CC_TGT" ] && [ -x "$TOOLCHAIN_BIN/$CXX_TGT" ]; then
-            echo "CC=$CC_TGT"  >> "$GITHUB_ENV"; echo "CXX=$CXX_TGT" >> "$GITHUB_ENV"
+            echo "CC=$CC_TGT"  >> "$GITHUB_ENV"
+            echo "CXX=$CXX_TGT" >> "$GITHUB_ENV"
           else
             WRAP_DIR="$RUNNER_TEMP/ndk-cc"; mkdir -p "$WRAP_DIR"
             printf '%s\n' '#!/usr/bin/env bash' "exec '$TOOLCHAIN_BIN/clang' --target=${HOST}${ANDROID_API} \"\$@\""  > "$WRAP_DIR/$CC_TGT"
             printf '%s\n' '#!/usr/bin/env bash' "exec '$TOOLCHAIN_BIN/clang++' --target=${HOST}${ANDROID_API} \"\$@\"" > "$WRAP_DIR/$CXX_TGT"
             chmod +x "$WRAP_DIR/$CC_TGT" "$WRAP_DIR/$CXX_TGT"
             echo "$WRAP_DIR" >> "$GITHUB_PATH"
-            echo "CC=$CC_TGT"  >> "$GITHUB_ENV"; echo "CXX=$CXX_TGT" >> "$GITHUB_ENV"
+            echo "CC=$CC_TGT"  >> "$GITHUB_ENV"
+            echo "CXX=$CXX_TGT" >> "$GITHUB_ENV"
           fi
-          echo "AR=llvm-ar" >> "$GITHUB_ENV"; echo "RANLIB=llvm-ranlib" >> "$GITHUB_ENV"
-          # ccache opt-in (speeds repeated sub-builds; harmless if cold)
-          echo "CC=\"ccache $CC_TGT\""   >> "$GITHUB_ENV"
-          echo "CXX=\"ccache $CXX_TGT\"" >> "$GITHUB_ENV"
-          echo "CCACHE_DIR=$HOME/.ccache" >> "$GITHUB_ENV"
+          echo "AR=llvm-ar" >> "$GITHUB_ENV"
+          echo "RANLIB=llvm-ranlib" >> "$GITHUB_ENV"
 
-      # [E] preflight NDK + include sites
-      - name: Preflight: ndk include + env sanity
+      - name: "Preflight: ndk include + env sanity"  # [4]
         run: |
           set -eux
           echo "=== include ndk.mk sites ==="
@@ -121,15 +116,14 @@ jobs:
           echo "=== make -n ndk_* ==="
           make -C depends -n ndk_add_to_path ndk_create_wrapper ndk_install V=1 || true
 
-      - name: depends hygiene (config.guess/sub + EOL)
+      - name: "depends hygiene (config.guess/sub + EOL)"
         run: |
           set -eux
           find depends -type f \( -name "*.mk" -o -name "*.sh" \) -print0 | xargs -0 dos2unix || true
           [ -x depends/config.guess ] || { cp -f /usr/share/misc/config.guess depends/config.guess && chmod +x depends/config.guess; }
           [ -x depends/config.sub ]   || { cp -f /usr/share/misc/config.sub   depends/config.sub   && chmod +x depends/config.sub; }
 
-      # [F] depends build (Qt enabled by default; comment NO_QT=1 to force daemons-only)
-      - name: depends build (Qt ENABLED) — verbose + heartbeat
+      - name: "depends build (Qt ENABLED) — verbose + heartbeat"  # [5]
         env:
           HOST: ${{ env.HOST }}
           ANDROID_API: ${{ env.ANDROID_API }}
@@ -152,8 +146,7 @@ jobs:
           kill $HB 2>/dev/null || true
           trap - EXIT
 
-      # [G] configure/build/package daemons (no GUI)
-      - name: Configure vkaxd/cli/tx (Android)
+      - name: "Configure vkaxd/cli/tx (Android)"  # [6]
         env:
           HOST: ${{ env.HOST }}
         run: |
@@ -162,7 +155,7 @@ jobs:
           export PKG_CONFIG_LIBDIR="$PKG_CONFIG_PATH"
           export PKG_CONFIG_SYSROOT_DIR="$PWD/depends/${HOST}"
           export CPPFLAGS="-I$PWD/depends/${HOST}/include"
-          export LDFLAGS="-L$PWD/depends/${HOST}/lib -fuse-ld=lld"
+          export LDFLAGS="-L$PWD/depends/${HOST}/lib"
           [ -f "./depends/${HOST}/share/config.site" ] && export CONFIG_SITE="$PWD/depends/${HOST}/share/config.site" || true
           [ -x ./autogen.sh ] && ./autogen.sh || autoreconf -fi || true
           ./configure \
@@ -176,7 +169,7 @@ jobs:
             CC="${CC}" CXX="${CXX}" AR=llvm-ar RANLIB=llvm-ranlib \
             CXXFLAGS="-O2 -fPIC"
 
-      - name: Build + package daemons
+      - name: "Build + package daemons"
         env:
           COIN_NAME: ${{ env.COIN_NAME }}
           BUILD_DIR: ${{ env.BUILD_DIR }}
@@ -189,8 +182,7 @@ jobs:
           cp -f src/vkaxd src/vkax-cli src/vkax-tx "$BUILD_DIR/"
           tar -czf "$COMPRESS_DIR/${COIN_NAME}-android-aarch64-daemons.tar.gz" -C "$BUILD_DIR" .
 
-      # [H] optional Qt APK (auto-skip if no .pro)
-      - name: Qt build (qmake) and APK package (androiddeployqt)
+      - name: "Qt build (qmake) and APK package (androiddeployqt)"  # [7]
         env:
           HOST: ${{ env.HOST }}
           ANDROID_SDK_ROOT: ${{ env.ANDROID_SDK_ROOT }}
@@ -228,19 +220,24 @@ jobs:
             --android-platform "android-${ANDROID_API}" --jdk "$JAVA_HOME" --verbose --gradle
           find "$OUTDIR" -name "*.apk" -print || true
 
-      # [I] diagnostics + artifacts
-      - name: Diagnostics
+      - name: "Diagnostics"  # [8]
         if: always()
         run: |
           set -x
           env | egrep 'ANDROID|^CC=|^CXX=|^AR=|^RANLIB|^JAVA_HOME|SOURCE_DATE_EPOCH|MAKEFLAGS|PKG_CONFIG' | sort || true
           javac -version || true
           python3 --version || true
-          file $(find "$BUILD_DIR" -maxdepth 1 -type f -print 2>/dev/null) 2>/dev/null || true
-          for f in "$BUILD_DIR"/* 2>/dev/null; do readelf -h "$f" || true; readelf -d "$f" || true; done
+          find . -maxdepth 3 -type f \( -name "*.so" -o -name "*.apk" \) -print0 | xargs -0r file || true
+          if [ -d "$BUILD_DIR" ]; then
+            for f in "$BUILD_DIR"/*; do
+              [ -f "$f" ] || continue
+              readelf -h "$f" || true
+              readelf -d "$f" || true
+            done
+          fi
           find . -name config.log -print -exec tail -120 {} \; || true
 
-      - name: Artifacts: daemons + APK + logs
+      - name: "Artifacts: daemons + APK + logs"
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -250,4 +247,4 @@ jobs:
             apk-out/**/*.apk
             **/*.apk
             logs/depends.log
-# .github/workflows/build.yaml • Setvin • 2025-09-06 • end-of-file
+# .github/workflows/build.yaml • Setvin • 2025-09-07
