@@ -4,7 +4,7 @@ on:
   push:
     branches:
       - v100.11.5-android
-  workflow_dispatch: {}
+  workflow_dispatch:
 
 env:
   BRANCH_LOCK: v100.11.5-android
@@ -46,8 +46,9 @@ jobs:
         run: |
           set -eux
           sudo apt-get update
-          sudo apt-get install -y build-essential automake autoconf libtool pkg-config \
-              python3 unzip wget curl cmake ninja-build dos2unix xz-utils file zip
+          sudo apt-get install -y \
+            build-essential automake autoconf libtool pkg-config \
+            python3 unzip wget curl cmake ninja-build dos2unix xz-utils file zip
 
       - name: Determinism + OOM controls
         run: |
@@ -115,7 +116,10 @@ jobs:
           mkdir -p depends "$HOME/.boost-build"
           TOOLCHAIN_BIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
           COMPILER_PATH="$TOOLCHAIN_BIN/${HOST}${ANDROID_API}-clang++"
-          [ -x "$COMPILER_PATH" ] || COMPILER_PATH="$(command -v "${HOST}${ANDROID_API}-clang++" || command -v "$CXX")"
+          if [ ! -x "$COMPILER_PATH" ]; then
+            COMPILER_PATH="$(command -v "${HOST}${ANDROID_API}-clang++" || true)"
+            [ -z "$COMPILER_PATH" ] && COMPILER_PATH="$(command -v "$CXX")"
+          fi
           printf '%s\n' 'using clang : aarch64' " : ${COMPILER_PATH}" ' : android arm 64 ;' > depends/user-config.jam
           cp depends/user-config.jam "$HOME/.boost-build/user-config.jam"
           echo "BOOST_BUILD_PATH=$PWD/depends" >> "$GITHUB_ENV"
@@ -135,9 +139,11 @@ jobs:
         run: |
           set -eux
           BUILD_TRIPLET="$(./depends/config.guess)"
-          make -C depends -j2 build="$BUILD_TRIPLET" build_os=linux \
-            HOST="$HOST" host="$HOST" ANDROID_NDK="$ANDROID_NDK_HOME" \
-            ANDROID_API="$ANDROID_API" NO_QT=1 V=1
+          make -C depends -j2 \
+            build="$BUILD_TRIPLET" build_os=linux \
+            HOST="$HOST" host="$HOST" \
+            ANDROID_NDK="$ANDROID_NDK_HOME" ANDROID_API="$ANDROID_API" \
+            NO_QT=1 V=1
 
       - name: Configure (vkaxd/cli/tx)
         env:
@@ -149,9 +155,14 @@ jobs:
           export LDFLAGS="-L$PWD/depends/${HOST}/lib"
           [ -f "./depends/${HOST}/share/config.site" ] && export CONFIG_SITE="$PWD/depends/${HOST}/share/config.site" || true
           ./autogen.sh || true
-          ./configure --host="${HOST}" --build="$(./depends/config.guess)" \
-            --prefix="$PWD/depends/${HOST}" --with-incompatible-bdb \
-            --without-gui --disable-bench --disable-tests \
+          ./configure \
+            --host="${HOST}" \
+            --build="$(./depends/config.guess)" \
+            --prefix="$PWD/depends/${HOST}" \
+            --with-incompatible-bdb \
+            --without-gui \
+            --disable-bench \
+            --disable-tests \
             CC="${CC}" CXX="${CXX}" AR=llvm-ar RANLIB=llvm-ranlib \
             CXXFLAGS="-O2 -fPIC"
 
@@ -175,11 +186,17 @@ jobs:
         if: always()
         run: |
           set -x
-          echo "=== env (NDK/SDK) ==="; env | egrep 'ANDROID|^CC=|^CXX=|^AR=|^RANLIB|SOURCE_DATE_EPOCH|MAKEFLAGS' | sort || true
-          echo "=== tool versions ==="; javac -version || true; python3 --version || true
-          echo "=== file(1) ==="; file "$BUILD_DIR"/* || true
-          echo "=== readelf -d ==="; for f in "$BUILD_DIR"/*; do readelf -d "$f" || true; done
-          echo "=== config.log tails ==="; find . -name config.log -print -exec tail -200 {} \; || true
+          echo "=== env (NDK/SDK) ==="
+          env | egrep 'ANDROID|^CC=|^CXX=|^AR=|^RANLIB|SOURCE_DATE_EPOCH|MAKEFLAGS' | sort || true
+          echo "=== tool versions ==="
+          javac -version || true
+          python3 --version || true
+          echo "=== file(1) ==="
+          file "$BUILD_DIR"/* || true
+          echo "=== readelf -d ==="
+          for f in "$BUILD_DIR"/*; do readelf -d "$f" || true; done
+          echo "=== config.log tails ==="
+          find . -name config.log -print -exec tail -200 {} \; || true
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
