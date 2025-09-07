@@ -1,7 +1,4 @@
 # File: .github/workflows/build.yaml
-# Purpose: Android cross-builds (daemon + cli + tx) for aarch64 and armv7, no Qt
-# Notes: ASCII-only, no tabs, no bidi chars.
-
 name: VKAX Android Builds
 
 on:
@@ -9,17 +6,22 @@ on:
   push:
     branches: [ main, v100.11.5-android, dev ]
 
+permissions:
+  contents: read
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
-  COIN_NAME: vkax
-  BUILD_DIR: vkax-build
-  COMPRESS_DIR: vkax-compress
-  LC_ALL: C
-  LANG: C
+  ANDROID_API: "21"
+  ANDROID_NDK_VER: "25.2.9519653"
 
 jobs:
   android-daemon:
-    name: Android ${{ matrix.arch }} (daemon + cli + tx, no Qt)
+    name: Android ${{ matrix.arch }} (daemon/cli/tx)
     runs-on: ubuntu-22.04
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
@@ -27,123 +29,110 @@ jobs:
           - arch: aarch64
             host: aarch64-linux-android
             clang_target: aarch64-linux-android
-            addr_model: 64
-            api: "21"
           - arch: armv7
             host: arm-linux-androideabi
             clang_target: armv7a-linux-androideabi
-            addr_model: 32
-            api: "21"
-    env:
-      ANDROID_API: ${{ matrix.api }}
     defaults:
       run:
         shell: bash
     steps:
       - uses: actions/checkout@v4
-        with:
-          lfs: true
+        with: { lfs: true, fetch-depth: 0 }
 
-      - name: Set up JDK 11
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: "11"
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: "11" }
 
-      - name: Install required tools
+      - name: Install tools
         run: |
-          set -eux
+          set -Eeuo pipefail
           sudo apt-get update
           sudo apt-get install -y \
             build-essential automake autoconf libtool pkg-config \
             python3 unzip wget curl cmake ninja-build dos2unix \
-            xz-utils file
+            xz-utils file ccache
 
-      - name: Install Android SDK + NDK (r25c)
+      - name: Cache ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.ccache
+          key: ccache-${{ runner.os }}-${{ matrix.arch }}-api${{ env.ANDROID_API }}-${{ hashFiles('**/configure.ac', '**/Makefile.am', 'depends/**', 'src/**') }}
+          restore-keys: |
+            ccache-${{ runner.os }}-${{ matrix.arch }}-api${{ env.ANDROID_API }}-
+
+      - name: Install Android SDK + NDK
         env:
           ANDROID_SDK_ROOT: ${{ github.workspace }}/android-sdk
         run: |
-          set -eux
-          if [ ! -d "$ANDROID_SDK_ROOT" ]; then
+          set -Eeuo pipefail
+          if [ ! -d "$ANDROID_SDK_ROOT/cmdline-tools/latest" ]; then
             mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools"
             wget -q https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip -O /tmp/clt.zip
             unzip -q /tmp/clt.zip -d "$ANDROID_SDK_ROOT/cmdline-tools"
             mv "$ANDROID_SDK_ROOT/cmdline-tools/cmdline-tools" "$ANDROID_SDK_ROOT/cmdline-tools/latest"
-            export PATH="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH"
-            yes | sdkmanager --licenses >/dev/null
-            sdkmanager \
-              "platform-tools" \
-              "platforms;android-${ANDROID_API}" \
-              "ndk;25.2.9519653"
           fi
-          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> "$GITHUB_ENV"
-          echo "ANDROID_SDK=$ANDROID_SDK_ROOT" >> "$GITHUB_ENV"
-          echo "ANDROID_HOME=$ANDROID_SDK_ROOT" >> "$GITHUB_ENV"
-          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/25.2.9519653" >> "$GITHUB_ENV"
-          echo "ANDROID_NDK_ROOT=$ANDROID_SDK_ROOT/ndk/25.2.9519653" >> "$GITHUB_ENV"
-          echo "ANDROID_NDK=$ANDROID_SDK_ROOT/ndk/25.2.9519653" >> "$GITHUB_ENV"
-          echo "$ANDROID_SDK_ROOT/platform-tools" >> "$GITHUB_PATH"
-          echo "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
-          echo "$ANDROID_SDK_ROOT/ndk/25.2.9519653/toolchains/llvm/prebuilt/linux-x86_64/bin" >> "$GITHUB_PATH"
+          export PATH="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH"
+          yes | sdkmanager --licenses >/dev/null
+          sdkmanager "platform-tools" "platforms:android-${ANDROID_API}" "ndk;${ANDROID_NDK_VER}"
+          {
+            echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
+            echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/${ANDROID_NDK_VER}"
+          } >> "$GITHUB_ENV"
+          {
+            echo "$ANDROID_SDK_ROOT/platform-tools"
+            echo "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin"
+            echo "$ANDROID_SDK_ROOT/ndk/${ANDROID_NDK_VER}/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          } >> "$GITHUB_PATH"
 
-      - name: Verify NDK toolchain and set CC/CXX
+      - name: Toolchain setup
         run: |
-          set -eux
+          set -Eeuo pipefail
           TOOLCHAIN_BIN="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin"
           TARGET_PREFIX="${{ matrix.clang_target }}${ANDROID_API}"
-          WANT_CXX="$TOOLCHAIN_BIN/${TARGET_PREFIX}-clang++"
           WANT_CC="$TOOLCHAIN_BIN/${TARGET_PREFIX}-clang"
-          WRAP_DIR="$RUNNER_TEMP/ndk-cc"
-          mkdir -p "$WRAP_DIR"
-          if [ -x "$WANT_CXX" ] && [ -x "$WANT_CC" ]; then
-            echo "CC=${TARGET_PREFIX}-clang" >> "$GITHUB_ENV"
-            echo "CXX=${TARGET_PREFIX}-clang++" >> "$GITHUB_ENV"
+          WANT_CXX="$TOOLCHAIN_BIN/${TARGET_PREFIX}-clang++"
+          WRAP_DIR="$RUNNER_TEMP/ndk-cc"; mkdir -p "$WRAP_DIR"
+          if [ -x "$WANT_CC" ] && [ -x "$WANT_CXX" ]; then
+            echo "CC=ccache ${TARGET_PREFIX}-clang" >> "$GITHUB_ENV"
+            echo "CXX=ccache ${TARGET_PREFIX}-clang++" >> "$GITHUB_ENV"
           else
-            printf '%s\n' '#!/usr/bin/env bash' "exec \"$TOOLCHAIN_BIN/clang\" --target=${TARGET_PREFIX} \"\$@\"" > "$WRAP_DIR/${TARGET_PREFIX}-clang"
-            printf '%s\n' '#!/usr/bin/env bash' "exec \"$TOOLCHAIN_BIN/clang++\" --target=${TARGET_PREFIX} \"\$@\"" > "$WRAP_DIR/${TARGET_PREFIX}-clang++"
+            printf '%s\n' "#!/usr/bin/env bash" "exec \"$TOOLCHAIN_BIN/clang\" --target=${TARGET_PREFIX} \"\$@\"" > "$WRAP_DIR/${TARGET_PREFIX}-clang"
+            printf '%s\n' "#!/usr/bin/env bash" "exec \"$TOOLCHAIN_BIN/clang++\" --target=${TARGET_PREFIX} \"\$@\"" > "$WRAP_DIR/${TARGET_PREFIX}-clang++"
             chmod +x "$WRAP_DIR/${TARGET_PREFIX}-clang" "$WRAP_DIR/${TARGET_PREFIX}-clang++"
             echo "$WRAP_DIR" >> "$GITHUB_PATH"
-            echo "CC=${TARGET_PREFIX}-clang" >> "$GITHUB_ENV"
-            echo "CXX=${TARGET_PREFIX}-clang++" >> "$GITHUB_ENV"
+            echo "CC=ccache ${TARGET_PREFIX}-clang" >> "$GITHUB_ENV"
+            echo "CXX=ccache ${TARGET_PREFIX}-clang++" >> "$GITHUB_ENV"
           fi
           echo "AR=llvm-ar" >> "$GITHUB_ENV"
           echo "RANLIB=llvm-ranlib" >> "$GITHUB_ENV"
 
-      - name: Configure Boost for Android (user-config.jam)
+      - name: Configure Boost (write user-config.jam safely)
         run: |
-          set -eux
+          set -Eeuo pipefail
           mkdir -p depends "$HOME/.boost-build"
           TOOLCHAIN_BIN="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin"
           TARGET_PREFIX="${{ matrix.clang_target }}${ANDROID_API}"
           CANDIDATE="$TOOLCHAIN_BIN/${TARGET_PREFIX}-clang++"
-          if [ -x "$CANDIDATE" ]; then
-            COMPILER_PATH="$CANDIDATE"
-          else
-            COMPILER_PATH="$(command -v "${TARGET_PREFIX}-clang++" || true)"
-            if [ -z "$COMPILER_PATH" ]; then COMPILER_PATH="$(command -v "$CXX")"; fi
-          fi
-          case "${{ matrix.arch }}" in
-            aarch64) ADDRESS_MODEL=64 ;;
-            armv7) ADDRESS_MODEL=32 ;;
-          esac
-          cat > depends/user-config.jam << EOF
-using clang : android-${{ matrix.arch }} : ${COMPILER_PATH} : <target-os>android <architecture>arm <address-model>${ADDRESS_MODEL} ;
-EOF
+          if [ -x "$CANDIDATE" ]; then COMPILER_PATH="$CANDIDATE"; else COMPILER_PATH="$(command -v "${TARGET_PREFIX}-clang++" || true)"; fi
+          [ -n "$COMPILER_PATH" ] || { echo "clang++ for $TARGET_PREFIX not found"; exit 1; }
+          [ "${{ matrix.arch }}" = "aarch64" ] && ADDRESS_MODEL=64 || ADDRESS_MODEL=32
+          # Use printf instead of heredoc so YAML never parses colons
+          printf 'using clang : android-%s : %s : <target-os>android <architecture>arm <address-model>%s ;\n' \
+            "${{ matrix.arch }}" "${COMPILER_PATH}" "${ADDRESS_MODEL}" > depends/user-config.jam
           cp depends/user-config.jam "$HOME/.boost-build/user-config.jam"
           echo "BOOST_BUILD_PATH=$PWD/depends" >> "$GITHUB_ENV"
 
-      - name: Fix line endings & ensure config.guess/sub
+      - name: Prepare depends scripts
         run: |
-          set -eux
+          set -Eeuo pipefail
           find depends -type f \( -name "*.mk" -o -name "*.sh" \) -print0 | xargs -0 dos2unix || true
           [ -x depends/config.guess ] || { cp -f /usr/share/misc/config.guess depends/config.guess && chmod +x depends/config.guess; }
-          [ -x depends/config.sub ] || { cp -f /usr/share/misc/config.sub depends/config.sub && chmod +x depends/config.sub; }
+          [ -x depends/config.sub ]   || { cp -f /usr/share/misc/config.sub   depends/config.sub   && chmod +x depends/config.sub; }
 
-      - name: Build depends (no Qt)
+      - name: Build depends (NO_QT)
         env:
           HOST: ${{ matrix.host }}
         run: |
-          set -eux
+          set -Eeuo pipefail
           BUILD_TRIPLET="$(./depends/config.guess)"
           make -C depends -j"$(nproc)" \
             build="$BUILD_TRIPLET" build_os=linux \
@@ -154,7 +143,7 @@ EOF
         env:
           HOST: ${{ matrix.host }}
         run: |
-          set -eux
+          set -Eeuo pipefail
           export PKG_CONFIG_PATH="$PWD/depends/${HOST}/lib/pkgconfig"
           export CPPFLAGS="-I$PWD/depends/${HOST}/include"
           export LDFLAGS="-L$PWD/depends/${HOST}/lib"
@@ -164,19 +153,24 @@ EOF
             --prefix="$PWD/depends/${HOST}" \
             --with-incompatible-bdb \
             --without-gui --disable-bench --disable-tests \
-            CC="${CC}" CXX="${CXX}" AR=llvm-ar RANLIB=llvm-ranlib \
+            CC="${CC}" CXX="${CXX}" AR="${AR}" RANLIB="${RANLIB}" \
             CXXFLAGS="-O2 -fPIC"
 
       - name: Build
         run: |
-          set -eux
+          set -Eeuo pipefail
           make -j"$(nproc)"
 
       - name: Package artifacts
         run: |
-          set -eux
+          set -Eeuo pipefail
           mkdir -p artifacts
-          cp -v src/vkax* artifacts/ || true
+          shopt -s nullglob
+          files=(src/vkaxd src/vkax-cli src/vkax-tx)
+          have_any=false; for f in "${files[@]}"; do [ -f "$f" ] && have_any=true; done
+          if ! $have_any; then files=(src/vkax*); [ ${#files[@]} -gt 0 ] || { echo "No vkax binaries produced"; exit 1; }; fi
+          llvm-strip -s "${files[@]}" || true
+          cp -v "${files[@]}" artifacts/
           tar -C artifacts -czf "vkax-android-${{ matrix.arch }}-${GITHUB_SHA::7}.tar.gz" .
 
       - name: Upload artifacts
@@ -184,4 +178,5 @@ EOF
         with:
           name: vkax-android-${{ matrix.arch }}
           path: vkax-android-${{ matrix.arch }}-*.tar.gz
-          if-no-files-found: warn
+          if-no-files-found: error
+          retention-days: 30
