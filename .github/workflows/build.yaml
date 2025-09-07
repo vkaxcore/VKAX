@@ -13,6 +13,358 @@ on:
         description: "Ref (blank = v100.11.5-android)"
         required: false
         default: ""
+# .github/workflows/build.yaml
+# Path: .github/workflows/build.yaml
+# Modules:
+# [A] Triggers/guards       [B] Global env/knobs           [C] Android (arm64 daemons) job
+# [D] Linux matrix (20.04/22.04; amd64 + aarch64-xc)       [E] macOS (arm64/x86_64 auto) job
+# [F] Windows (MinGW UCRT) job                             [G] Shared packaging/diagnostics helpers
+# Why: single workflow, per-OS jobs, deterministic pins, verbose triage, future-compatible with Qt step gated out for now.
+name: VKAX CI (Android + Linux + macOS + Windows)
+
+on:
+  push:
+    branches: [ v100.11.5-android ]
+  pull_request:
+    branches: [ v100.11.5-android ]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Ref (blank = v100.11.5-android)"
+        required: false
+        default: ""
+
+env:
+  COIN_NAME: vkax
+  BUILD_DIR: vkax-build
+  COMPRESS_DIR: vkax-compress
+  LC_ALL: C
+  LANG: C
+  QT_RCC_SOURCE_DATE_OVERRIDE: "1"     # harmless for non-Qt; keeps rcc deterministic when we add GUI later
+  SOURCE_DATE_EPOCH: "0"               # will be overwritten at runtime from git
+  # Android pins
+  ANDROID_API: "25"
+  ANDROID_NDK_VER: "25.2.9519653"
+
+# ----------------------------------------------------------------------------- #
+jobs:
+
+  # [C] ANDROID DAEMONS (aarch64) — current target; Qt wrapper will be added later
+  android-aarch64:
+    if: ${{ github.ref == 'refs/heads/v100.11.5-android' || (github.event_name == 'workflow_dispatch' && (github.event.inputs.ref == '' || github.event.inputs.ref == 'v100.11.5-android')) }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 180
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          lfs: true
+          ref: ${{ github.event.inputs.ref || 'v100.11.5-android' }}
+
+      - name: Determinism/env
+        run: |
+          set -eux
+          echo "SOURCE_DATE_EPOCH=$(git log -1 --pretty=%ct || echo 0)" >> "$GITHUB_ENV"
+          echo "MAKEFLAGS=-j1" >> "$GITHUB_ENV"
+
+      - name: System deps
+        run: |
+          set -eux
+          sudo apt-get update
+          sudo apt-get install -y build-essential automake autoconf libtool pkg-config \
+                                  python3 unzip wget curl cmake ninja-build dos2unix \
+                                  xz-utils file zip binutils strace gdb gettext
+
+      - name: Android SDK + NDK r${{ env.ANDROID_NDK_VER }}
+        env:
+          ANDROID_SDK_ROOT: ${{ github.workspace }}/android-sdk
+        run: |
+          set -eux
+          mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools"
+          if [ ! -d "$ANDROID_SDK_ROOT/cmdline-tools/latest" ]; then
+            wget -q https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip -O /tmp/clt.zip
+            unzip -q /tmp/clt.zip -d "$ANDROID_SDK_ROOT/cmdline-tools"
+            mv "$ANDROID_SDK_ROOT/cmdline-tools/cmdline-tools" "$ANDROID_SDK_ROOT/cmdline-tools/latest"
+          fi
+          export PATH="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH"
+          yes | sdkmanager --licenses >/dev/null
+          sdkmanager "platform-tools" "platforms;android-${{ env.ANDROID_API }}" "build-tools;34.0.0" "ndk;${{ env.ANDROID_NDK_VER }}"
+          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> "$GITHUB_ENV"
+          echo "ANDROID_HOME=$ANDROID_SDK_ROOT" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/${{ env.ANDROID_NDK_VER }}" >> "$GITHUB_ENV"
+          echo "$ANDROID_SDK_ROOT/platform-tools" >> "$GITHUB_PATH"
+          echo "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+          echo "$ANDROID_SDK_ROOT/build-tools/34.0.0" >> "$GITHUB_PATH"
+          echo "$ANDROID_SDK_ROOT/ndk/${{ env.ANDROID_NDK_VER }}/toolchains/llvm/prebuilt/linux-x86_64/bin" >> "$GITHUB_PATH"
+
+      - name: Pin GNU make 4.4 (local)
+        run: |
+          set -eux
+          MAKE_PREFIX="$HOME/make-4.4"
+          test -x "$MAKE_PREFIX/bin/make" || {
+            wget -q https://ftp.gnu.org/gnu/make/make-4.4.tar.gz -O /tmp/make-4.4.tar.gz
+            tar -C /tmp -xzf /tmp/make-4.4.tar.gz
+            (cd /tmp/make-4.4 && ./configure --prefix="$MAKE_PREFIX" && make -j2 && make install)
+          }
+          echo "$MAKE_PREFIX/bin" >> "$GITHUB_PATH"
+          echo "MAKE=$MAKE_PREFIX/bin/make" >> "$GITHUB_ENV"
+          "$MAKE_PREFIX/bin/make" --version
+
+      - name: Toolchain CC/CXX for aarch64
+        env:
+          HOST: aarch64-linux-android
+          ANDROID_API: ${{ env.ANDROID_API }}
+          ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
+        run: |
+          set -eux
+          TOOLCHAIN_BIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          CC_TGT="${HOST}${ANDROID_API}-clang"
+          CXX_TGT="${HOST}${ANDROID_API}-clang++"
+          if [ -x "$TOOLCHAIN_BIN/$CC_TGT" ] && [ -x "$TOOLCHAIN_BIN/$CXX_TGT" ]; then
+            echo "CC=$CC_TGT"  >> "$GITHUB_ENV"
+            echo "CXX=$CXX_TGT" >> "$GITHUB_ENV"
+          else
+            WRAP_DIR="$RUNNER_TEMP/ndk-cc"; mkdir -p "$WRAP_DIR"
+            printf '%s\n' '#!/usr/bin/env bash' "exec '$TOOLCHAIN_BIN/clang' --target=${HOST}${ANDROID_API} \"\$@\""  > "$WRAP_DIR/$CC_TGT"
+            printf '%s\n' '#!/usr/bin/env bash' "exec '$TOOLCHAIN_BIN/clang++' --target=${HOST}${ANDROID_API} \"\$@\"" > "$WRAP_DIR/$CXX_TGT"
+            chmod +x "$WRAP_DIR/$CC_TGT" "$WRAP_DIR/$CXX_TGT"
+            echo "$WRAP_DIR" >> "$GITHUB_PATH"
+            echo "CC=$CC_TGT"  >> "$GITHUB_ENV"
+            echo "CXX=$CXX_TGT" >> "$GITHUB_ENV"
+          fi
+          echo "AR=llvm-ar" >> "$GITHUB_ENV"
+          echo "RANLIB=llvm-ranlib" >> "$GITHUB_ENV"
+
+      - name: Preflight (mk includes, CRLF, config.guess)
+        run: |
+          set -eux
+          echo "=== include ndk.mk sites ==="
+          grep -RIn --color=never -E '^[^#]*include.+/ndk\.mk' depends || true
+          echo "=== CRLF scan (should be empty) ==="
+          grep -RIl $'\r' depends || true
+          find depends -type f \( -name "*.mk" -o -name "*.sh" \) -print0 | xargs -0 dos2unix || true
+          [ -x depends/config.guess ] || { cp -f /usr/share/misc/config.guess depends/config.guess && chmod +x depends/config.guess; }
+          [ -x depends/config.sub ]   || { cp -f /usr/share/misc/config.sub   depends/config.sub   && chmod +x depends/config.sub; }
+
+      - name: depends build (NO Qt) — j1 + heartbeat + strace
+        env:
+          HOST: aarch64-linux-android
+          ANDROID_API: ${{ env.ANDROID_API }}
+          ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
+          GNUMAKEFLAGS: "--output-sync=line"
+        run: |
+          set -euo pipefail
+          ulimit -c 0
+          ulimit -s 16384
+          BUILD_TRIPLET="$(./depends/config.guess)"
+          mkdir -p logs
+          ( while sleep 60; do
+              echo "::notice:: [heartbeat] depends alive $(date -u +%T)"
+              ps -eo pid,pcpu,pmem,stat,comm --sort=-pcpu | head -n 12 || true
+            done ) & HB=$!
+          trap 'kill $HB 2>/dev/null || true' EXIT
+          stdbuf -oL -eL strace -f -qq -o logs/make.strace -- \
+            "$MAKE" -C depends --trace V=1 \
+              build="$BUILD_TRIPLET" build_os=linux \
+              HOST="$HOST" host="$HOST" \
+              ANDROID_NDK="$ANDROID_NDK_HOME" ANDROID_API="$ANDROID_API" \
+              NO_QT=1 -j1 2>&1 | tee logs/depends.log
+          kill $HB 2>/dev/null || true
+          trap - EXIT
+
+      - name: Configure vkaxd/cli/tx
+        env: { HOST: aarch64-linux-android }
+        run: |
+          set -eux
+          export PKG_CONFIG_PATH="$PWD/depends/${HOST}/lib/pkgconfig"
+          export PKG_CONFIG_LIBDIR="$PKG_CONFIG_PATH"
+          export PKG_CONFIG_SYSROOT_DIR="$PWD/depends/${HOST}"
+          export CPPFLAGS="-I$PWD/depends/${HOST}/include"
+          export LDFLAGS="-L$PWD/depends/${HOST}/lib -fuse-ld=lld"
+          [ -f "./depends/${HOST}/share/config.site" ] && export CONFIG_SITE="$PWD/depends/${HOST}/share/config.site" || true
+          [ -x ./autogen.sh ] && ./autogen.sh || autoreconf -fi || true
+          ./configure \
+            --host="${HOST}" \
+            --build="$(./depends/config.guess)" \
+            --prefix="$PWD/depends/${HOST}" \
+            --with-incompatible-bdb \
+            --without-gui \
+            --disable-bench \
+            --disable-tests \
+            CC="${CC}" CXX="${CXX}" AR=llvm-ar RANLIB=llvm-ranlib \
+            CXXFLAGS="-O2 -fPIC"
+
+      - name: Build + package daemons
+        run: |
+          set -eux
+          stdbuf -oL -eL "$MAKE" -j2 src/vkaxd src/vkax-cli src/vkax-tx
+          mkdir -p "$BUILD_DIR" "$COMPRESS_DIR"
+          llvm-strip -s src/vkaxd src/vkax-cli src/vkax-tx || true
+          cp -f src/vkaxd src/vkax-cli src/vkax-tx "$BUILD_DIR/"
+          tar -czf "$COMPRESS_DIR/${COIN_NAME}-android-aarch64-daemons.tar.gz" -C "$BUILD_DIR" .
+
+      - name: Diagnostics (always)
+        if: always()
+        run: |
+          set -x
+          env | egrep 'ANDROID|^MAKE=|^CC=|^CXX=|^AR=|^RANLIB=|^JAVA_HOME|SOURCE_DATE_EPOCH|MAKEFLAGS|PKG_CONFIG' | sort || true
+          javac -version || true
+          python3 --version || true
+          find . -maxdepth 3 -type f \( -name "*.so" -o -name "*.apk" \) -print0 | xargs -0r file || true
+          if [ -d "$BUILD_DIR" ]; then
+            for f in "$BUILD_DIR"/*; do [ -f "$f" ] || continue; readelf -h "$f" || true; readelf -d "$f" || true; done
+          fi
+          tail -n 200 logs/make.strace 2>/dev/null || true
+          tail -n 200 logs/depends.log 2>/dev/null || true
+
+      - name: Upload artifacts (android daemons + logs)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vkax-android-aarch64-daemons-and-logs
+          path: |
+            ${{ env.COMPRESS_DIR }}/vkax-android-aarch64-daemons.tar.gz
+            logs/depends.log
+            logs/make.strace
+
+  # [D] LINUX (Ubuntu 20.04/22.04; amd64 native, aarch64 cross)
+  linux:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ ubuntu-20.04, ubuntu-22.04 ]
+        arch: [ amd64, arm64 ]
+    env:
+      HOST_AMD64: x86_64-pc-linux-gnu
+      HOST_ARM64: aarch64-linux-gnu
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0, lfs: true }
+      - name: Env + deps
+        run: |
+          set -eux
+          echo "SOURCE_DATE_EPOCH=$(git log -1 --pretty=%ct || echo 0)" >> "$GITHUB_ENV"
+          sudo apt-get update
+          sudo apt-get install -y build-essential automake autoconf libtool pkg-config \
+                                  python3 g++-aarch64-linux-gnu gcc-aarch64-linux-gnu \
+                                  dos2unix xz-utils file binutils cmake ninja-build
+      - name: depends build
+        run: |
+          set -eux
+          HOST="${{ matrix.arch == 'amd64' && env.HOST_AMD64 || env.HOST_ARM64 }}"
+          MAKEFLAGS="-j$(nproc)" make -C depends V=1 HOST="$HOST" NO_QT=1
+      - name: configure/build
+        run: |
+          set -eux
+          HOST="${{ matrix.arch == 'amd64' && env.HOST_AMD64 || env.HOST_ARM64 }}"
+          export PKG_CONFIG_PATH="$PWD/depends/${HOST}/lib/pkgconfig"
+          export CPPFLAGS="-I$PWD/depends/${HOST}/include"
+          export LDFLAGS="-L$PWD/depends/${HOST}/lib"
+          [ -x ./autogen.sh ] && ./autogen.sh || autoreconf -fi || true
+          ./configure --host="$HOST" --prefix="$PWD/depends/$HOST" --with-incompatible-bdb --without-gui --disable-tests --disable-bench
+          make -j$(nproc) src/vkaxd src/vkax-cli src/vkax-tx
+      - name: package
+        run: |
+          set -eux
+          HOST="${{ matrix.arch == 'amd64' && env.HOST_AMD64 || env.HOST_ARM64 }}"
+          mkdir -p "$BUILD_DIR" "$COMPRESS_DIR"
+          strip -s src/vkaxd src/vkax-cli src/vkax-tx || true
+          cp -f src/vkaxd src/vkax-cli src/vkax-tx "$BUILD_DIR/"
+          tar -czf "$COMPRESS_DIR/${COIN_NAME}-linux-${{ matrix.arch }}-daemons.tar.gz" -C "$BUILD_DIR" .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vkax-linux-${{ matrix.os }}-${{ matrix.arch }}-daemons
+          path: ${{ env.COMPRESS_DIR }}/*.tar.gz
+
+  # [E] macOS (arm64 on macos-14; x86_64 on macos-13 if needed)
+  macos:
+    runs-on: macos-14
+    env:
+      HOST: arm64-apple-darwin
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0, lfs: true }
+      - name: Xcode/SDK
+        run: |
+          set -eux
+          xcodebuild -version
+          echo "SDKROOT=$(xcrun --sdk macosx --show-sdk-path)" >> "$GITHUB_ENV"
+      - name: brew deps
+        run: |
+          set -eux
+          brew update
+          brew install automake libtool pkg-config coreutils gnu-tar || true
+      - name: depends build
+        run: |
+          set -eux
+          MAKEFLAGS=-j$(sysctl -n hw.ncpu) make -C depends V=1 HOST="${HOST}" NO_QT=1
+      - name: configure/build
+        run: |
+          set -eux
+          export PKG_CONFIG_PATH="$PWD/depends/${HOST}/lib/pkgconfig"
+          export CPPFLAGS="-I$PWD/depends/${HOST}/include"
+          export LDFLAGS="-L$PWD/depends/${HOST}/lib"
+          [ -x ./autogen.sh ] && ./autogen.sh || autoreconf -fi || true
+          ./configure --host="${HOST}" --prefix="$PWD/depends/${HOST}" --with-incompatible-bdb --without-gui --disable-tests --disable-bench
+          make -j$(sysctl -n hw.ncpu) src/vkaxd src/vkax-cli src/vkax-tx
+      - name: package
+        run: |
+          set -eux
+          mkdir -p "$BUILD_DIR" "$COMPRESS_DIR"
+          strip -x src/vkaxd src/vkax-cli src/vkax-tx || true
+          cp -f src/vkaxd src/vkax-cli src/vkax-tx "$BUILD_DIR/"
+          tar -czf "$COMPRESS_DIR/${COIN_NAME}-macos-arm64-daemons.tar.gz" -C "$BUILD_DIR" .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vkax-macos-arm64-daemons
+          path: ${{ env.COMPRESS_DIR }}/*.tar.gz
+
+  # [F] Windows (MinGW UCRT via MSYS2) — daemons only
+  windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0, lfs: true }
+      - uses: msys2/setup-msys2@v2
+        with:
+          update: true
+          install: >-
+            base-devel
+            mingw-w64-ucrt-x86_64-toolchain
+            mingw-w64-ucrt-x86_64-pkgconf
+            git unzip zip
+      - name: Build depends (ucrt)
+        run: |
+          set -eux
+          export PATH="/ucrt64/bin:$PATH"
+          make -C depends V=1 HOST=x86_64-w64-mingw32 NO_QT=1
+      - name: configure/build
+        run: |
+          set -eux
+          export PATH="/ucrt64/bin:$PATH"
+          export PKG_CONFIG_PATH="$PWD/depends/x86_64-w64-mingw32/lib/pkgconfig"
+          export CPPFLAGS="-I$PWD/depends/x86_64-w64-mingw32/include"
+          export LDFLAGS="-L$PWD/depends/x86_64-w64-mingw32/lib"
+          [ -x ./autogen.sh ] && ./autogen.sh || autoreconf -fi || true
+          ./configure --host=x86_64-w64-mingw32 --prefix="$PWD/depends/x86_64-w64-mingw32" --with-incompatible-bdb --without-gui --disable-tests --disable-bench
+          make -j2 src/vkaxd.exe src/vkax-cli.exe src/vkax-tx.exe
+      - name: package
+        run: |
+          set -eux
+          mkdir -p "$BUILD_DIR" "$COMPRESS_DIR"
+          cp -f src/vkaxd.exe src/vkax-cli.exe src/vkax-tx.exe "$BUILD_DIR/"
+          /usr/bin/zip -j "$COMPRESS_DIR/${COIN_NAME}-windows-ucrt64-daemons.zip" "$BUILD_DIR"/*.exe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vkax-windows-ucrt64-daemons
+          path: ${{ env.COMPRESS_DIR }}/*.zip
+# .github/workflows/build.yaml  • Setvin • 2025-09-07
 
 env:
   COIN_NAME: vkax
