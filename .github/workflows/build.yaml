@@ -1,7 +1,6 @@
 # .github/workflows/build.yaml
-# [file] .github/workflows/build.yaml
-# [purpose] Android arm64 CI (daemons only) with pinned SDK/NDK r25.2, robust visibility, and segfault triage.
-# [labels] [1] guard [2] pins [3] toolchain [4] preflight [5] depends (j1 + heartbeat + strace) [6] configure/build/package [7] diagnostics/artifacts
+# VKAX Android CI (arm64, daemons) — pinned SDK/NDK r25.2, heartbeat, -j1 triage; optional Qt/APK intentionally omitted until a .pro exists.
+# Guard: locked branch; Pins: platforms;android-25, build-tools 34.0.0, ndk 25.2.9519653; Toolchain: aarch64-linux-android25-clang/++; Visibility: strace + logs.
 
 name: VKAX Android Build (arm64, daemons)
 
@@ -27,7 +26,7 @@ env:
 
 jobs:
   android-aarch64:
-    if: ${{ github.ref == 'refs/heads/v100.11.5-android' || (github.event_name == 'workflow_dispatch' && (github.event.inputs.ref == '' || github.event.inputs.ref == 'v100.11.5-android')) }}  # [1]
+    if: ${{ github.ref == 'refs/heads/v100.11.5-android' || (github.event_name == 'workflow_dispatch' && (github.event.inputs.ref == '' || github.event.inputs.ref == 'v100.11.5-android')) }}
     runs-on: ubuntu-22.04
     timeout-minutes: 150
 
@@ -57,9 +56,9 @@ jobs:
         run: |
           set -eux
           echo "SOURCE_DATE_EPOCH=$(git log -1 --pretty=%ct || echo 0)" >> "$GITHUB_ENV"
-          echo "MAKEFLAGS=-j1" >> "$GITHUB_ENV"   # force single job during triage
+          echo "MAKEFLAGS=-j1" >> "$GITHUB_ENV"
 
-      - name: Android SDK + NDK r25.2 (pin)  # [2]
+      - name: Android SDK + NDK r25.2 (pin)
         env:
           ANDROID_SDK_ROOT: ${{ github.workspace }}/android-sdk
         run: |
@@ -81,7 +80,7 @@ jobs:
           echo "$ANDROID_SDK_ROOT/build-tools/34.0.0" >> "$GITHUB_PATH"
           echo "$ANDROID_SDK_ROOT/ndk/25.2.9519653/toolchains/llvm/prebuilt/linux-x86_64/bin" >> "$GITHUB_PATH"
 
-      - name: NDK toolchain CC/CXX/AR/RANLIB  # [3]
+      - name: NDK toolchain CC/CXX/AR/RANLIB
         env:
           HOST: ${{ env.HOST }}
           ANDROID_API: ${{ env.ANDROID_API }}
@@ -106,7 +105,7 @@ jobs:
           echo "AR=llvm-ar" >> "$GITHUB_ENV"
           echo "RANLIB=llvm-ranlib" >> "$GITHUB_ENV"
 
-      - name: Preflight: mk includes + CRLF + make version  # [4]
+      - name: Preflight: mk includes + CRLF + make version
         run: |
           set -eux
           echo "=== include ndk.mk sites ==="
@@ -120,7 +119,7 @@ jobs:
           echo "=== make --version ==="
           make --version
 
-      - name: depends build (NO Qt) — j1 + heartbeat + strace  # [5]
+      - name: depends build (NO Qt) — j1 + heartbeat + strace
         env:
           HOST: ${{ env.HOST }}
           ANDROID_API: ${{ env.ANDROID_API }}
@@ -137,7 +136,6 @@ jobs:
               ps -eo pid,pcpu,pmem,stat,comm --sort=-pcpu | head -n 12 || true
             done ) & HB=$!
           trap 'kill $HB 2>/dev/null || true' EXIT
-          # strace to catch segfault site; quiet (-qq) to reduce noise
           stdbuf -oL -eL strace -f -qq -o logs/make.strace -- \
             make -C depends --trace V=1 \
               build="$BUILD_TRIPLET" build_os=linux \
@@ -147,7 +145,7 @@ jobs:
           kill $HB 2>/dev/null || true
           trap - EXIT
 
-      - name: Configure vkaxd/cli/tx (Android)  # [6]
+      - name: Configure vkaxd/cli/tx (Android)
         env:
           HOST: ${{ env.HOST }}
         run: |
@@ -198,11 +196,11 @@ jobs:
               readelf -d "$f" || true
             done
           fi
-          echo "=== dmesg tail (kernel kills/segfaults) ==="
+          echo "=== dmesg tail ==="
           dmesg | tail -n 100 || true
-          echo "=== strace last 200 lines (make) ==="
+          echo "=== strace tail ==="
           tail -n 200 logs/make.strace 2>/dev/null || true
-          echo "=== depends.log last 200 lines ==="
+          echo "=== depends.log tail ==="
           tail -n 200 logs/depends.log 2>/dev/null || true
 
       - name: Artifacts
