@@ -1,9 +1,12 @@
-# Existing rule
+# .gitattributes
+# Path: .gitattributes
+# Why: enforce LF; keep Make/Qt/pro files sane; enable export-subst for version stamping
+* text=auto eol=lf
+*.sh  text eol=lf
+*.mk  text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.pro text eol=lf
+*.pri text eol=lf
 src/clientversion.cpp export-subst
-
-# Ensure Makefiles and *.mk use LF (required for GNU make)
-Makefile text eol=lf
-*.mk     text eol=lf
-
-# (optional but strongly recommended)
-*.sh     text eol=lf
+# .gitattributes  • Setvin • 2025-09-07
