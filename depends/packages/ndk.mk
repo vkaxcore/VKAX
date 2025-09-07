@@ -1,12 +1,12 @@
 depends/packages/ndk.mk
-# modules: pins • paths/env • helpers • targets(ndk_add_to_path, ndk_create_wrapper, ndk_install)
-# include-guard prevents duplicate recipe definitions when packages/ndk.mk is included more than once.
+# modules: pins • env/paths • helpers • targets(ndk_add_to_path, ndk_create_wrapper, ndk_install)
+# include-guard required to stop duplicate target redefinitions from multiple includes.
 
 ifndef VKAX_NDK_MK_INCLUDED
 VKAX_NDK_MK_INCLUDED := 1
 
 package := ndk
-# Installed directory name used by sdkmanager (keep in sync with workflow)
+# Directory name as installed by sdkmanager; keep in sync with workflow
 $(package)_version_dir := 25.2.9519653
 
 # Safe default DEPENDS_DIR if undefined (avoid writing to /)
@@ -14,7 +14,7 @@ ifeq ($(origin DEPENDS_DIR), undefined)
 DEPENDS_DIR := $(CURDIR)
 endif
 
-# Respect env; do not download here (workflow installs NDK)
+# Respect environment; workflow installs the NDK (no downloads here)
 ANDROID_API ?= 25
 NDK_HOME    ?= $(or $(ANDROID_NDK_HOME),$(ANDROID_NDK_ROOT),$(ANDROID_NDK),$(addsuffix /ndk/$(package)_version_dir,$(ANDROID_SDK_ROOT)))
 TOOLCHAIN_BIN := $(NDK_HOME)/toolchains/llvm/prebuilt/linux-x86_64/bin
@@ -27,7 +27,7 @@ $(package)_env_file    := $(abspath $(DEPENDS_DIR))/.env
 download = curl -fL --retry 5 --retry-delay 2 "$1" -o "$2"
 extract  = unzip -q "$2" -d "$3"
 
-# Verbose pinning when V=1
+# Verbose pins when V=1
 ifneq ($(V),)
 $(info [ndk.mk] ANDROID_API=$(ANDROID_API))
 $(info [ndk.mk] NDK_HOME=$(NDK_HOME))
@@ -43,7 +43,7 @@ $(package)_add_to_path:
 	@echo "ANDROID_NDK=$(NDK_HOME)" >> "$($(package)_env_file)"
 	@echo "PATH=$(TOOLCHAIN_BIN):$$PATH" >> "$($(package)_env_file)"
 
-# Create ${HOST}${ANDROID_API}-clang(++) wrappers if the NDK doesn't ship them
+# Create ${HOST}${ANDROID_API}-clang(++) wrappers only if the NDK doesn't ship them
 $(package)_create_wrapper:
 	@echo "[ndk] creating wrappers for API $(ANDROID_API)"
 	@mkdir -p "$($(package)_install_dir)/bin"
@@ -65,5 +65,4 @@ $(package)_install: $(package)_add_to_path $(package)_create_wrapper
 
 .PHONY: $(package)_install $(package)_add_to_path $(package)_create_wrapper
 endif  # VKAX_NDK_MK_INCLUDED
-
 # depends/packages/ndk.mk • Setvin • 2025-09-06
