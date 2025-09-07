@@ -1,8 +1,10 @@
 # depends/Makefile
-# Modules: [A] shell flags • [B] paths/knobs • [C] host/build detect • [D] host_os route • [E] include order • [F] targets • [G] clean • [H] debug
-# Critical: real TABs for recipes; single include of packages/ndk.mk; relative staging preserved.
-SHELL := /usr/bin/env bash                    # [A]
-.SHELLFLAGS := -o pipefail -c                 # [A]
+# Path: depends/Makefile
+# Modules: [A] shell strict  [B] paths/knobs  [C] host/build detect  [D] host_os route  [E] includes (single ndk.mk)  [F] targets  [G] clean  [H] introspect
+# Why: sane include order; tabbed recipes; relative staging; fixes duplicate ndk.mk and flattened lines issues.
+
+SHELL := /usr/bin/env bash
+.SHELLFLAGS := -o pipefail -c
 
 # [B]
 top := $(abspath .)
@@ -36,7 +38,7 @@ ifeq ($(findstring linux,$(host)),linux)
   host_os := linux
 endif
 
-# [E] include order
+# [E]
 include hosts/default.mk
 ifeq ($(host_os),linux)
   include hosts/linux.mk
@@ -57,9 +59,7 @@ include funcs.mk
 # [F]
 .PHONY: all packages native_packages download clean clean-all print-vars
 all: $(packages)
-
 packages: $(packages)
-
 native_packages: $(native_packages)
 
 download:
@@ -87,5 +87,4 @@ print-vars:
 	echo "BUILD_PATH=$(BUILD_PATH)"; \
 	echo "BASE_CACHE=$(BASE_CACHE)"; \
 	echo "SDK_PATH=$(SDK_PATH)"
-
-# depends/Makefile • Setvin • 2025-09-07
+# depends/Makefile  • Setvin • 2025-09-07
