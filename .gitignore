@@ -1,162 +1,38 @@
-*.sublime-project
-*.sublime-workspace
-todo.txt
-reset-files.bash
-
-*.tar.gz
-
-*.exe
-src/vkax
-src/vkaxd
-src/vkax-cli
-src/vkax-tx
-src/vkax-wallet
-src/test/fuzz
-!src/test/fuzz/*.*
-src/test/test_vkax
-src/qt/test/test_vkax-qt
-src/qt/res/css/colors/*
-src/bench/bench_vkax
-
-# autoreconf
-Makefile.in
-aclocal.m4
-autom4te.cache/
-build-aux/config.guess
-build-aux/config.sub
-build-aux/depcomp
-build-aux/install-sh
-build-aux/ltmain.sh
-build-aux/m4/libtool.m4
-build-aux/m4/lt~obsolete.m4
-build-aux/m4/ltoptions.m4
-build-aux/m4/ltsugar.m4
-build-aux/m4/ltversion.m4
-build-aux/missing
-build-aux/compile
-build-aux/test-driver
-config.cache
-config.log
-config.status
-configure
-libtool
-src/config/dash-config.h
-src/config/dash-config.h.in
-src/config/stamp-h1
-src/obj
-share/setup.nsi
-share/qt/Info.plist
-
-src/univalue/gen
-
-src/qt/*.moc
-src/qt/moc_*.cpp
-src/qt/forms/ui_*.h
-
-src/qt/test/moc*.cpp
-libconftest.dylib*
-
-.deps
-.dirstamp
-.libs
-.*.swp
-*~
-*.bak
-*.rej
-*.orig
-*.pyc
-*.o
-*.o-*
-*.a
-*.pb.cc
-*.pb.h
-*.dat
-
-*.log
-*.trs
-*.dmg
-*.iso
-
-*.json.h
-*.raw.h
-
-# Only ignore unexpected patches
-*.patch
-!contrib/guix/patches/*.patch
-!depends/patches/**/*.patch
-
-#libtool object files
-*.lo
-*.la
-
-# Compilation and Qt preprocessor part
-*.qm
-Makefile
-!depends/Makefile
-vkax-qt
-Vkax-Qt.app
-background.tiff*
-!/depends/Makefile
-
-# Qt Creator
-Makefile.am.user
-
-# Unit-tests
-Makefile.test
-vkax-qt_test
-
-# Resources cpp
-qrc_*.cpp
-
-# Mac specific
+# .gitignore
+# Path: .gitignore
+# Modules: [A] OS junk  [B] build outputs  [C] depends caches  [D] Android SDK/NDK local  [E] IDE
 .DS_Store
-build
-*.dSYM
+Thumbs.db
 
-#lcov
-*.gcno
-*.gcda
-/*.info
-test_dash.coverage/
-total.coverage/
-coverage_percent.txt
-
-#build tests
-linux-coverage-build
-linux-build
-win32-build
-test/config.ini
-test/cache/*
-
-!src/leveldb*/Makefile
-
-.cproject
-.project
-.autotools
-/doc/doxygen/
-
-libdashconsensus.pc
-contrib/devtools/split-debug.sh
-src/qt/dash-qt.bash
-qa/pull-tester/tests-config.sh
-
-#development symlinks
-vkax-cli
-vkaxd
-vkax-qt
-make
-
-/docker/bin
-
-# CLion
-.idea
-cmake-build-debug
-
-# clang-check
-*.plist
-
-osx_volname
+# build outputs
+*.o
+*.a
+*.so
+*.dylib
+*.exe
+*.dll
+*.dSYM/
+*.obj
+*.pdb
+vkax-build/
+vkax-compress/
+build/
 dist/
-*.background.tiff
+out/
+logs/
 
-/guix-build-*
+# depends
+depends/work/
+depends/built/
+depends/sources/
+depends/SDKs/
+
+# Android SDK/NDK (local; CI installs its own)
+android-sdk/
+android-sdk/**
+
+# IDE
+.vscode/
+.idea/
+*.swp
+# .gitignore  • Setvin • 2025-09-07
