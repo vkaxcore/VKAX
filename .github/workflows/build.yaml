@@ -1,17 +1,16 @@
 # .github/workflows/build.yaml
-# VKAX Android CI (arm64, daemons) — pinned SDK/NDK r25.2, heartbeat, -j1 triage; optional Qt/APK intentionally omitted until a .pro exists.
-# Guard: locked branch; Pins: platforms;android-25, build-tools 34.0.0, ndk 25.2.9519653; Toolchain: aarch64-linux-android25-clang/++; Visibility: strace + logs.
+# VKAX Android CI (arm64 daemons only) — locked to v100.11.5-android; pins SDK/NDK r25.2; builds GNU make 4.4; single-job, verbose triage.
+# [1] guard: literal refs/heads • [2] pins: platform-25/build-tools-34.0.0/ndk-25.2 • [3] make-4.4 local • [4] NDK toolchain CC/CXX • [5] preflight • [6] depends j1 + heartbeat + strace • [7] configure/build/package • [8] diagnostics/artifacts
 
 name: VKAX Android Build (arm64, daemons)
 
 on:
   push:
-    branches:
-      - v100.11.5-android
+    branches: [ v100.11.5-android ]    # [1] branch lock
   workflow_dispatch:
     inputs:
       ref:
-        description: "Ref to build (blank = v100.11.5-android)"
+        description: "Ref (blank = v100.11.5-android)"
         required: false
         default: ""
 
@@ -21,12 +20,12 @@ env:
   COMPRESS_DIR: vkax-compress
   LC_ALL: C
   LANG: C
-  ANDROID_API: "25"
+  ANDROID_API: "25"                    # [2]
   HOST: aarch64-linux-android
 
 jobs:
   android-aarch64:
-    if: ${{ github.ref == 'refs/heads/v100.11.5-android' || (github.event_name == 'workflow_dispatch' && (github.event.inputs.ref == '' || github.event.inputs.ref == 'v100.11.5-android')) }}
+    if: ${{ github.ref == 'refs/heads/v100.11.5-android' || (github.event_name == 'workflow_dispatch' && (github.event.inputs.ref == '' || github.event.inputs.ref == 'v100.11.5-android')) }}  # [1]
     runs-on: ubuntu-22.04
     timeout-minutes: 150
 
@@ -38,7 +37,7 @@ jobs:
           lfs: true
           ref: ${{ github.event.inputs.ref || 'v100.11.5-android' }}
 
-      - name: Java (Temurin 11)
+      - name: Set up Java 11 (Temurin)
         uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -50,15 +49,15 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential automake autoconf libtool pkg-config \
                                   python3 unzip wget curl cmake ninja-build dos2unix \
-                                  xz-utils file zip binutils strace gdb
+                                  xz-utils file zip binutils strace gdb gettext
 
-      - name: Determinism + tame
+      - name: Determinism + tame make
         run: |
           set -eux
           echo "SOURCE_DATE_EPOCH=$(git log -1 --pretty=%ct || echo 0)" >> "$GITHUB_ENV"
-          echo "MAKEFLAGS=-j1" >> "$GITHUB_ENV"
+          echo "MAKEFLAGS=-j1" >> "$GITHUB_ENV"   # single job for stability until green
 
-      - name: Android SDK + NDK r25.2 (pin)
+      - name: Install Android SDK + NDK r25.2 + build-tools 34.0.0   # [2]
         env:
           ANDROID_SDK_ROOT: ${{ github.workspace }}/android-sdk
         run: |
@@ -80,7 +79,20 @@ jobs:
           echo "$ANDROID_SDK_ROOT/build-tools/34.0.0" >> "$GITHUB_PATH"
           echo "$ANDROID_SDK_ROOT/ndk/25.2.9519653/toolchains/llvm/prebuilt/linux-x86_64/bin" >> "$GITHUB_PATH"
 
-      - name: NDK toolchain CC/CXX/AR/RANLIB
+      - name: Pin GNU make 4.4 (local)                                  # [3]
+        run: |
+          set -eux
+          MAKE_PREFIX="$HOME/make-4.4"
+          test -x "$MAKE_PREFIX/bin/make" || {
+            wget -q https://ftp.gnu.org/gnu/make/make-4.4.tar.gz -O /tmp/make-4.4.tar.gz
+            tar -C /tmp -xzf /tmp/make-4.4.tar.gz
+            (cd /tmp/make-4.4 && ./configure --prefix="$MAKE_PREFIX" && make -j2 && make install)
+          }
+          echo "$MAKE_PREFIX/bin" >> "$GITHUB_PATH"
+          echo "MAKE=$MAKE_PREFIX/bin/make" >> "$GITHUB_ENV"
+          "$MAKE_PREFIX/bin/make" --version
+
+      - name: NDK toolchain CC/CXX/AR/RANLIB                              # [4]
         env:
           HOST: ${{ env.HOST }}
           ANDROID_API: ${{ env.ANDROID_API }}
@@ -105,11 +117,11 @@ jobs:
           echo "AR=llvm-ar" >> "$GITHUB_ENV"
           echo "RANLIB=llvm-ranlib" >> "$GITHUB_ENV"
 
-      - name: Preflight: mk includes + CRLF + make version
+      - name: "Preflight: mk includes + CRLF + make version"             # [5]
         run: |
           set -eux
           echo "=== include ndk.mk sites ==="
-          grep -RIn --color=never -E 'include.*ndk\.mk' depends || true
+          grep -RIn --color=never -E '^[^#]*include.+/ndk\.mk' depends || true
           echo "=== CRLF scan (should be empty) ==="
           grep -RIl $'\r' depends || true
           echo "=== EOL normalize ==="
@@ -117,9 +129,9 @@ jobs:
           [ -x depends/config.guess ] || { cp -f /usr/share/misc/config.guess depends/config.guess && chmod +x depends/config.guess; }
           [ -x depends/config.sub ]   || { cp -f /usr/share/misc/config.sub   depends/config.sub   && chmod +x depends/config.sub; }
           echo "=== make --version ==="
-          make --version
+          "$MAKE" --version
 
-      - name: depends build (NO Qt) — j1 + heartbeat + strace
+      - name: depends build (NO Qt) — j1 + heartbeat + strace             # [6]
         env:
           HOST: ${{ env.HOST }}
           ANDROID_API: ${{ env.ANDROID_API }}
@@ -137,7 +149,7 @@ jobs:
             done ) & HB=$!
           trap 'kill $HB 2>/dev/null || true' EXIT
           stdbuf -oL -eL strace -f -qq -o logs/make.strace -- \
-            make -C depends --trace V=1 \
+            "$MAKE" -C depends --trace V=1 \
               build="$BUILD_TRIPLET" build_os=linux \
               HOST="$HOST" host="$HOST" \
               ANDROID_NDK="$ANDROID_NDK_HOME" ANDROID_API="$ANDROID_API" \
@@ -145,7 +157,7 @@ jobs:
           kill $HB 2>/dev/null || true
           trap - EXIT
 
-      - name: Configure vkaxd/cli/tx (Android)
+      - name: Configure vkaxd/cli/tx (Android)                            # [7]
         env:
           HOST: ${{ env.HOST }}
         run: |
@@ -168,24 +180,24 @@ jobs:
             CC="${CC}" CXX="${CXX}" AR=llvm-ar RANLIB=llvm-ranlib \
             CXXFLAGS="-O2 -fPIC"
 
-      - name: Build + package daemons
+      - name: Build + package daemons                                     # [7]
         env:
           COIN_NAME: ${{ env.COIN_NAME }}
           BUILD_DIR: ${{ env.BUILD_DIR }}
           COMPRESS_DIR: ${{ env.COMPRESS_DIR }}
         run: |
           set -eux
-          stdbuf -oL -eL make -j2 src/vkaxd src/vkax-cli src/vkax-tx
+          stdbuf -oL -eL "$MAKE" -j2 src/vkaxd src/vkax-cli src/vkax-tx
           mkdir -p "$BUILD_DIR" "$COMPRESS_DIR"
           llvm-strip -s src/vkaxd src/vkax-cli src/vkax-tx || true
           cp -f src/vkaxd src/vkax-cli src/vkax-tx "$BUILD_DIR/"
           tar -czf "$COMPRESS_DIR/${COIN_NAME}-android-aarch64-daemons.tar.gz" -C "$BUILD_DIR" .
 
-      - name: Diagnostics
+      - name: Diagnostics (always)                                        # [8]
         if: always()
         run: |
           set -x
-          env | egrep 'ANDROID|^CC=|^CXX=|^AR=|^RANLIB|^JAVA_HOME|SOURCE_DATE_EPOCH|MAKEFLAGS|PKG_CONFIG' | sort || true
+          env | egrep 'ANDROID|^MAKE=|^CC=|^CXX=|^AR=|^RANLIB=|^JAVA_HOME|SOURCE_DATE_EPOCH|MAKEFLAGS|PKG_CONFIG' | sort || true
           javac -version || true
           python3 --version || true
           find . -maxdepth 3 -type f \( -name "*.so" -o -name "*.apk" \) -print0 | xargs -0r file || true
@@ -203,7 +215,7 @@ jobs:
           echo "=== depends.log tail ==="
           tail -n 200 logs/depends.log 2>/dev/null || true
 
-      - name: Artifacts
+      - name: Upload artifacts (daemons + logs)                           # [8]
         if: always()
         uses: actions/upload-artifact@v4
         with:
