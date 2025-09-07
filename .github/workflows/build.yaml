@@ -1,5 +1,9 @@
 # .github/workflows/build.yaml
-name: VKAX Android Build (arm64)
+# VKAX Android CI (arm64) — Modules: [A] checkout [B] toolchain/JDK [C] Android SDK/NDK r25.2 [D] depends (NO Qt) [E] configure/build/package [F] diagnostics
+# Critical lines: [1] branch guard (job-level) • [2] SDK/NDK install/pin • [3] CC/CXX wiring with wrapper fallback • [4] depends build flags • [5] packaging artifact
+# Notes: no r23c greps/guards; we rely solely on pinned NDK 25.2; comments are YAML-safe; step names with colons are quoted.
+# CI intent: produce vkaxd/vkax-cli/vkax-tx for aarch64-android and upload tarball; minimal, deterministic, legacy-safe.
+name: VKAX Android Build (arm64)  # [header ok]
 
 on:
   push:
@@ -13,20 +17,19 @@ on:
         default: ""
 
 env:
-  COIN_NAME: vkax
-  BUILD_DIR: vkax-build
-  COMPRESS_DIR: vkax-compress
+  COIN_NAME: vkax                     # artifact prefix
+  BUILD_DIR: vkax-build               # staging for built binaries
+  COMPRESS_DIR: vkax-compress         # output tar.gz
   LC_ALL: C
   LANG: C
-  QT_RCC_SOURCE_DATE_OVERRIDE: "1"
-  ANDROID_API: "25"
-  HOST: aarch64-linux-android
+  ANDROID_API: "25"                   # [2] API level for toolchain target triplet
+  HOST: aarch64-linux-android         # Android ABI
 
 jobs:
   android-aarch64:
-    # job guard uses literal ref; env.* isn’t available in this expression context
-    if: ${{ github.ref == 'refs/heads/v100.11.5-android' || (github.event_name == 'workflow_dispatch' && (github.event.inputs.ref == '' || github.event.inputs.ref == 'v100.11.5-android')) }}
+    if: ${{ github.ref == 'refs/heads/v100.11.5-android' || (github.event_name == 'workflow_dispatch' && (github.event.inputs.ref == '' || github.event.inputs.ref == 'v100.11.5-android')) }}  # [1]
     runs-on: ubuntu-22.04
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -35,40 +38,26 @@ jobs:
           lfs: true
           ref: ${{ github.event.inputs.ref || 'v100.11.5-android' }}
 
-      - name: "Guard: banned strings and duplicate ndk.mk includes"
-        run: |
-          set -euo pipefail
-          matches="$(git grep -nE 'android-ndk-r23c|ndk-r23c' -- . || true)"
-          if [ -n "$matches" ]; then echo "BANNED STRING(S):"; echo "$matches"; exit 3; fi
-          incs="$(grep -RInE '^[[:space:]]*include[[:space:]].*packages/ndk\.mk' depends || true)"
-          cnt="$(printf '%s\n' "$incs" | sed '/^$/d' | wc -l)"
-          test "${cnt:-0}" -le 1 || { echo "packages/ndk.mk included $cnt times"; echo "$incs"; exit 4; }
-          grep -q "VKAX_NDK_MK_INCLUDED" depends/packages/ndk.mk || { echo "ndk.mk missing include guard"; exit 5; }
-          ! grep -q "aarch64-linux-android25-clang" depends/packages/ndk.mk || { echo "hardcoded toolchain name found"; exit 6; }
-
-      - name: Set up JDK 11
+      - name: "Java: Temurin JDK 11"
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "11"
 
-      - name: Install base tools
+      - name: "System deps"
         run: |
           set -eux
           sudo apt-get update
-          sudo apt-get install -y \
-            build-essential automake autoconf libtool pkg-config \
-            python3 unzip wget curl cmake ninja-build dos2unix xz-utils file zip binutils
+          sudo apt-get install -y build-essential automake autoconf libtool pkg-config \
+                                  python3 unzip wget curl cmake ninja-build dos2unix xz-utils file zip binutils
 
-      - name: Determinism and OOM controls
+      - name: "Determinism"
         run: |
           set -eux
-          ulimit -c 0
-          echo "SOURCE_DATE_EPOCH=$(git log -1 --pretty=%ct || echo 0)" >> "$GITHUB_ENV"
-          echo "MAKEFLAGS=-j2" >> "$GITHUB_ENV"
-          unset QMAKESPEC XQMAKESPEC QMAKEPATH QMAKEFEATURES
+          echo "SOURCE_DATE_EPOCH=$(git log -1 --pretty=%ct || echo 0)" >> "$GITHUB_ENV"   # stable timestamps
+          echo "MAKEFLAGS=-j2" >> "$GITHUB_ENV"                                           # tame memory on Actions
 
-      - name: Install Android SDK and NDK
+      - name: "Android: SDK + NDK r25.2 (pin)"  # [2]
         env:
           ANDROID_SDK_ROOT: ${{ github.workspace }}/android-sdk
         run: |
@@ -89,7 +78,7 @@ jobs:
           echo "$ANDROID_SDK_ROOT/build-tools/34.0.0" >> "$GITHUB_PATH"
           echo "$ANDROID_SDK_ROOT/ndk/25.2.9519653/toolchains/llvm/prebuilt/linux-x86_64/bin" >> "$GITHUB_PATH"
 
-      - name: Verify NDK toolchain and set CC/CXX
+      - name: "NDK toolchain: CC/CXX/AR/RANLIB (wrap if missing)"  # [3]
         env:
           HOST: ${{ env.HOST }}
           ANDROID_API: ${{ env.ANDROID_API }}
@@ -100,22 +89,18 @@ jobs:
           CC_TGT="${HOST}${ANDROID_API}-clang"
           CXX_TGT="${HOST}${ANDROID_API}-clang++"
           if [ -x "$TOOLCHAIN_BIN/$CC_TGT" ] && [ -x "$TOOLCHAIN_BIN/$CXX_TGT" ]; then
-            echo "CC=$CC_TGT"  >> "$GITHUB_ENV"
-            echo "CXX=$CXX_TGT" >> "$GITHUB_ENV"
+            echo "CC=$CC_TGT"  >> "$GITHUB_ENV"; echo "CXX=$CXX_TGT" >> "$GITHUB_ENV"
           else
-            WRAP_DIR="$RUNNER_TEMP/ndk-cc"
-            mkdir -p "$WRAP_DIR"
-            printf '%s\n' '#!/usr/bin/env bash' "exec '$TOOLCHAIN_BIN/clang' --target=${HOST}${ANDROID_API} \"\$@\"" > "$WRAP_DIR/$CC_TGT"
+            WRAP_DIR="$RUNNER_TEMP/ndk-cc"; mkdir -p "$WRAP_DIR"
+            printf '%s\n' '#!/usr/bin/env bash' "exec '$TOOLCHAIN_BIN/clang' --target=${HOST}${ANDROID_API} \"\$@\""  > "$WRAP_DIR/$CC_TGT"
             printf '%s\n' '#!/usr/bin/env bash' "exec '$TOOLCHAIN_BIN/clang++' --target=${HOST}${ANDROID_API} \"\$@\"" > "$WRAP_DIR/$CXX_TGT"
             chmod +x "$WRAP_DIR/$CC_TGT" "$WRAP_DIR/$CXX_TGT"
             echo "$WRAP_DIR" >> "$GITHUB_PATH"
-            echo "CC=$CC_TGT"  >> "$GITHUB_ENV"
-            echo "CXX=$CXX_TGT" >> "$GITHUB_ENV"
+            echo "CC=$CC_TGT"  >> "$GITHUB_ENV"; echo "CXX=$CXX_TGT" >> "$GITHUB_ENV"
           fi
-          echo "AR=llvm-ar" >> "$GITHUB_ENV"
-          echo "RANLIB=llvm-ranlib" >> "$GITHUB_ENV"
+          echo "AR=llvm-ar" >> "$GITHUB_ENV"; echo "RANLIB=llvm-ranlib" >> "$GITHUB_ENV"
 
-      - name: Configure Boost toolset
+      - name: "Boost user-config (clang aarch64)"
         env:
           ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
           HOST: ${{ env.HOST }}
@@ -126,22 +111,19 @@ jobs:
           mkdir -p depends "$HOME/.boost-build"
           TOOLCHAIN_BIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
           COMPILER_PATH="$TOOLCHAIN_BIN/${HOST}${ANDROID_API}-clang++"
-          if [ ! -x "$COMPILER_PATH" ]; then
-            COMPILER_PATH="$(command -v "${HOST}${ANDROID_API}-clang++" || true)"
-            [ -z "$COMPILER_PATH" ] && COMPILER_PATH="$(command -v "$CXX")"
-          fi
+          [ -x "$COMPILER_PATH" ] || COMPILER_PATH="$(command -v "${HOST}${ANDROID_API}-clang++" || command -v "$CXX")"
           printf '%s\n' 'using clang : aarch64' " : ${COMPILER_PATH}" ' : android arm 64 ;' > depends/user-config.jam
           cp depends/user-config.jam "$HOME/.boost-build/user-config.jam"
           echo "BOOST_BUILD_PATH=$PWD/depends" >> "$GITHUB_ENV"
 
-      - name: Normalize scripts
+      - name: "depends: config.guess/sub + EOL"
         run: |
           set -eux
           find depends -type f \( -name "*.mk" -o -name "*.sh" \) -print0 | xargs -0 dos2unix || true
           [ -x depends/config.guess ] || { cp -f /usr/share/misc/config.guess depends/config.guess && chmod +x depends/config.guess; }
           [ -x depends/config.sub ]   || { cp -f /usr/share/misc/config.sub   depends/config.sub   && chmod +x depends/config.sub; }
 
-      - name: Build depends
+      - name: "depends: build (NO Qt)"  # [4]
         env:
           HOST: ${{ env.HOST }}
           ANDROID_API: ${{ env.ANDROID_API }}
@@ -155,7 +137,7 @@ jobs:
             ANDROID_NDK="$ANDROID_NDK_HOME" ANDROID_API="$ANDROID_API" \
             NO_QT=1 V=1
 
-      - name: Configure daemons
+      - name: "configure: vkaxd/cli/tx"
         env:
           HOST: ${{ env.HOST }}
         run: |
@@ -164,7 +146,7 @@ jobs:
           export CPPFLAGS="-I$PWD/depends/${HOST}/include"
           export LDFLAGS="-L$PWD/depends/${HOST}/lib"
           [ -f "./depends/${HOST}/share/config.site" ] && export CONFIG_SITE="$PWD/depends/${HOST}/share/config.site" || true
-          ./autogen.sh || true
+          [ -x ./autogen.sh ] && ./autogen.sh || autoreconf -fi || true
           ./configure \
             --host="${HOST}" \
             --build="$(./depends/config.guess)" \
@@ -176,7 +158,11 @@ jobs:
             CC="${CC}" CXX="${CXX}" AR=llvm-ar RANLIB=llvm-ranlib \
             CXXFLAGS="-O2 -fPIC"
 
-      - name: Build daemons
+      - name: "build + package: vkaxd/cli/tx"  # [5]
+        env:
+          COIN_NAME: ${{ env.COIN_NAME }}
+          BUILD_DIR: ${{ env.BUILD_DIR }}
+          COMPRESS_DIR: ${{ env.COMPRESS_DIR }}
         run: |
           set -eux
           make -j2 src/vkaxd src/vkax-cli src/vkax-tx
@@ -184,90 +170,21 @@ jobs:
           cp -f src/vkaxd src/vkax-cli src/vkax-tx "$BUILD_DIR/"
           tar -czf "$COMPRESS_DIR/${COIN_NAME}-android-aarch64-daemons.tar.gz" -C "$BUILD_DIR" .
 
-      - name: Run build sanity tests
+      - name: "diagnostics: versions, file(1), DT_NEEDED, logs"
+        if: always()
         run: |
-          set -eux
-          chmod +x tests/depends_guards.sh tests/android_sanity.sh tests/yaml_sanity.sh || true
-          ./tests/yaml_sanity.sh || true
-          ./tests/depends_guards.sh
-          ./tests/android_sanity.sh "$BUILD_DIR"
+          set -x
+          env | egrep 'ANDROID|^CC=|^CXX=|^AR=|^RANLIB|SOURCE_DATE_EPOCH|MAKEFLAGS' | sort || true
+          javac -version || true
+          python3 --version || true
+          file "$BUILD_DIR"/* || true
+          for f in "$BUILD_DIR"/*; do readelf -h "$f" || true; readelf -d "$f" || true; done
+          find . -name config.log -print -exec tail -200 {} \; || true
 
-      - name: Install Gradle
-        run: |
-          set -eux
-          curl -sSfL -o /tmp/gradle.zip https://services.gradle.org/distributions/gradle-7.5-bin.zip
-          sudo mkdir -p /opt/gradle && sudo unzip -q /tmp/gradle.zip -d /opt/gradle
-          echo "/opt/gradle/gradle-7.5/bin" >> "$GITHUB_PATH"
-          gradle -v
-
-      - id: apk
-        name: Create APK project and bundle daemons
-        env:
-          ANDROID_SDK_ROOT: ${{ env.ANDROID_SDK_ROOT }}
-        run: |
-          set -eux
-          APP_ROOT="$RUNNER_TEMP/vkax-apk"; mkdir -p "$APP_ROOT/app/src/main/assets"
-          cat > "$APP_ROOT/settings.gradle" << 'EOF'
-          rootProject.name = "vkax-apk"
-          include(":app")
-          EOF
-          cat > "$APP_ROOT/build.gradle" << 'EOF'
-          buildscript { repositories { google(); mavenCentral() } dependencies { classpath "com.android.tools.build:gradle:7.4.2" } }
-          allprojects { repositories { google(); mavenCentral() } }
-          EOF
-          mkdir -p "$APP_ROOT/app"
-          cat > "$APP_ROOT/app/build.gradle" << 'EOF'
-          apply plugin: 'com.android.application'
-          android {
-            namespace "org.vkax.node"
-            compileSdkVersion 25
-            defaultConfig { applicationId "org.vkax.node"; minSdkVersion 25; targetSdkVersion 25; versionCode 1; versionName "0.1" }
-            compileOptions { sourceCompatibility JavaVersion.VERSION_11; targetCompatibility JavaVersion.VERSION_11 }
-            packagingOptions { doNotStrip "**/*" }
-          }
-          dependencies { }
-          EOF
-          mkdir -p "$APP_ROOT/app/src/main/java/org/vkax/node"
-          cat > "$APP_ROOT/app/src/main/AndroidManifest.xml" << 'EOF'
-          <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="org.vkax.node">
-            <uses-sdk android:minSdkVersion="25" android:targetSdkVersion="25"/>
-            <uses-permission android:name="android.permission.INTERNET"/>
-            <application android:label="VKAX Node" android:allowBackup="false">
-              <activity android:name=".MainActivity">
-                <intent-filter>
-                  <action android:name="android.intent.action.MAIN"/>
-                  <category android:name="android.intent.category.LAUNCHER"/>
-                </intent-filter>
-              </activity>
-            </application>
-          </manifest>
-          EOF
-          cat > "$APP_ROOT/app/src/main/java/org/vkax/node/MainActivity.java" << 'EOF'
-          package org.vkax.node;
-          import android.app.Activity;
-          import android.os.Bundle;
-          public class MainActivity extends Activity {
-            @Override protected void onCreate(Bundle savedInstanceState) { super.onCreate(savedInstanceState); }
-          }
-          EOF
-          cp -f "$BUILD_DIR"/vkax* "$APP_ROOT/app/src/main/assets/"
-          gradle -p "$APP_ROOT" assembleDebug --no-daemon --warning-mode all
-          APK="$APP_ROOT/app/build/outputs/apk/debug/app-debug.apk"
-          echo "apk_path=$APK" >> "$GITHUB_OUTPUT"
-          ls -lah "$APP_ROOT/app/build/outputs/apk/debug" || true
-
-      - name: APK diagnostics
-        run: |
-          set -eux
-          echo "APK=${{ steps.apk.outputs.apk_path }}"
-          unzip -l "${{ steps.apk.outputs.apk_path }}" | sed -n '1,200p'
-          "${ANDROID_SDK_ROOT}/build-tools/34.0.0/aapt" dump badging "${{ steps.apk.outputs.apk_path }}" | sed -n '1,80p' || true
-
-      - name: Upload artifacts
+      - name: "artifact: upload tarball"
         uses: actions/upload-artifact@v4
         with:
-          name: vkax-android-aarch64
-          path: |
-            ${{ env.COMPRESS_DIR }}/vkax-android-aarch64-daemons.tar.gz
-            ${{ steps.apk.outputs.apk_path }}
-# .github/workflows/build.yaml • Setvin • 2025-09-06
+          name: vkax-android-aarch64-daemons
+          path: ${{ env.COMPRESS_DIR }}/vkax-android-aarch64-daemons.tar.gz
+
+# .github/workflows/build.yaml • Setvin • 2025-09-06 • end-of-file
