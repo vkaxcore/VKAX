@@ -35,7 +35,7 @@ jobs:
           lfs: true
           ref: ${{ github.event.inputs.ref || env.BRANCH_LOCK }}
 
-      - name: Guard: banned strings (fail fast)
+      - name: "Guard: banned strings (fail fast)"
         run: |
           set -euo pipefail
           matches="$(git grep -nE 'android-ndk-r23c|ndk-r23c' || true)"
