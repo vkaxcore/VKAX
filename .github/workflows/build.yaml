@@ -1,3 +1,4 @@
+.github/workflows/build.yaml
 name: VKAX Android Build (arm64)
 
 on:
@@ -12,7 +13,6 @@ on:
         default: ""
 
 env:
-  BRANCH_LOCK: v100.11.5-android
   COIN_NAME: vkax
   BUILD_DIR: vkax-build
   COMPRESS_DIR: vkax-compress
@@ -24,8 +24,7 @@ env:
 
 jobs:
   android-aarch64:
-    # Skip the entire job if the event ref isn't the locked branch; allow workflow_dispatch only when input matches lock or blank.
-    if: ${{ github.ref == format('refs/heads/{0}', env.BRANCH_LOCK) || (github.event_name == 'workflow_dispatch' && (github.event.inputs.ref == '' || github.event.inputs.ref == env.BRANCH_LOCK)) }}
+    if: ${{ github.ref == 'refs/heads/v100.11.5-android' || (github.event_name == 'workflow_dispatch' && (github.event.inputs.ref == '' || github.event.inputs.ref == 'v100.11.5-android')) }}
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout
@@ -33,15 +32,19 @@ jobs:
         with:
           fetch-depth: 0
           lfs: true
-          ref: ${{ github.event.inputs.ref || env.BRANCH_LOCK }}
+          ref: ${{ github.event.inputs.ref || 'v100.11.5-android' }}
 
-      - name: "Guard: banned strings (fail fast)"
+      - name: "Guard: banned strings and duplicate ndk.mk includes"
         run: |
           set -euo pipefail
-          matches="$(git grep -nE 'android-ndk-r23c|ndk-r23c' || true)"
-          if [ -n "$matches" ]; then
-            echo "BANNED STRING(S) FOUND:"; echo "$matches"; exit 3
-          fi
+          matches="$(git grep -nE 'android-ndk-r23c|ndk-r23c' -- . || true)"
+          if [ -n "$matches" ]; then echo "BANNED STRING(S) FOUND:"; echo "$matches"; exit 3; fi
+          incs="$(grep -RInE '^[[:space:]]*include[[:space:]].*packages/ndk\.mk' depends || true)"
+          echo "$incs"
+          cnt="$(printf '%s\n' "$incs" | sed '/^$/d' | wc -l)"
+          test "${cnt:-0}" -le 1 || { echo "ERROR: packages/ndk.mk included $cnt times"; exit 4; }
+          grep -q "VKAX_NDK_MK_INCLUDED" depends/packages/ndk.mk || { echo "ERROR: ndk.mk missing include guard"; exit 5; }
+          ! grep -q "aarch64-linux-android25-clang" depends/packages/ndk.mk || { echo "ERROR: hardcoded toolchain name found"; exit 6; }
 
       - name: Set up JDK 11
         uses: actions/setup-java@v4
@@ -49,13 +52,13 @@ jobs:
           distribution: temurin
           java-version: "11"
 
-      - name: Install tools
+      - name: Install base tools
         run: |
           set -eux
           sudo apt-get update
           sudo apt-get install -y \
             build-essential automake autoconf libtool pkg-config \
-            python3 unzip wget curl cmake ninja-build dos2unix xz-utils file zip
+            python3 unzip wget curl cmake ninja-build dos2unix xz-utils file zip binutils
 
       - name: Determinism + OOM controls
         run: |
@@ -173,40 +176,106 @@ jobs:
             CC="${CC}" CXX="${CXX}" AR=llvm-ar RANLIB=llvm-ranlib \
             CXXFLAGS="-O2 -fPIC"
 
-      - name: Build
+      - name: Build daemons
         run: |
           set -eux
           make -j2 src/vkaxd src/vkax-cli src/vkax-tx
-
-      - name: Package
-        env:
-          COIN_NAME: ${{ env.COIN_NAME }}
-          BUILD_DIR: ${{ env.BUILD_DIR }}
-          COMPRESS_DIR: ${{ env.COMPRESS_DIR }}
-        run: |
-          set -eux
           mkdir -p "$BUILD_DIR" "$COMPRESS_DIR"
           cp -f src/vkaxd src/vkax-cli src/vkax-tx "$BUILD_DIR/"
           tar -czf "$COMPRESS_DIR/${COIN_NAME}-android-aarch64-daemons.tar.gz" -C "$BUILD_DIR" .
 
-      - name: Diagnostics (always)
-        if: always()
+      - name: Install Gradle 7.5
         run: |
-          set -x
-          echo "=== env (NDK/SDK) ==="
-          env | egrep 'ANDROID|^CC=|^CXX=|^AR=|^RANLIB|SOURCE_DATE_EPOCH|MAKEFLAGS' | sort || true
-          echo "=== tool versions ==="
-          javac -version || true
-          python3 --version || true
-          echo "=== file(1) ==="
-          file "$BUILD_DIR"/* || true
-          echo "=== readelf -d ==="
-          for f in "$BUILD_DIR"/*; do readelf -d "$f" || true; done
-          echo "=== config.log tails ==="
-          find . -name config.log -print -exec tail -200 {} \; || true
+          set -eux
+          curl -sSfL -o /tmp/gradle.zip https://services.gradle.org/distributions/gradle-7.5-bin.zip
+          sudo mkdir -p /opt/gradle && sudo unzip -q /tmp/gradle.zip -d /opt/gradle
+          echo "/opt/gradle/gradle-7.5/bin" >> "$GITHUB_PATH"
+          gradle -v
 
-      - name: Upload artifact
+      - name: Create minimal APK project and bundle daemons as assets
+        env:
+          ANDROID_SDK_ROOT: ${{ env.ANDROID_SDK_ROOT }}
+        run: |
+          set -eux
+          APP_ROOT="$RUNNER_TEMP/vkax-apk"; mkdir -p "$APP_ROOT/app/src/main/assets"
+          # Project files
+          cat > "$APP_ROOT/settings.gradle" << 'EOF'
+          rootProject.name = "vkax-apk"
+          include(":app")
+          EOF
+          cat > "$APP_ROOT/build.gradle" << 'EOF'
+          buildscript {
+            repositories { google(); mavenCentral() }
+            dependencies { classpath "com.android.tools.build:gradle:7.4.2" }
+          }
+          allprojects { repositories { google(); mavenCentral() } }
+          EOF
+          mkdir -p "$APP_ROOT/app"
+          cat > "$APP_ROOT/app/build.gradle" << 'EOF'
+          apply plugin: 'com.android.application'
+          android {
+            namespace "org.vkax.node"
+            compileSdkVersion 25
+            defaultConfig {
+              applicationId "org.vkax.node"
+              minSdkVersion 25
+              targetSdkVersion 25
+              versionCode 1
+              versionName "0.1"
+            }
+            compileOptions {
+              sourceCompatibility JavaVersion.VERSION_11
+              targetCompatibility JavaVersion.VERSION_11
+            }
+            packagingOptions {
+              doNotStrip "**/*"     // keep assets untouched
+            }
+          }
+          dependencies { }
+          EOF
+          mkdir -p "$APP_ROOT/app/src/main/java/org/vkax/node"
+          cat > "$APP_ROOT/app/src/main/AndroidManifest.xml" << 'EOF'
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="org.vkax.node">
+            <uses-sdk android:minSdkVersion="25" android:targetSdkVersion="25"/>
+            <uses-permission android:name="android.permission.INTERNET"/>
+            <application android:label="VKAX Node" android:allowBackup="false">
+              <activity android:name=".MainActivity">
+                <intent-filter>
+                  <action android:name="android.intent.action.MAIN"/>
+                  <category android:name="android.intent.category.LAUNCHER"/>
+                </intent-filter>
+              </activity>
+            </application>
+          </manifest>
+          EOF
+          cat > "$APP_ROOT/app/src/main/java/org/vkax/node/MainActivity.java" << 'EOF'
+          package org.vkax.node;
+          import android.app.Activity;
+          import android.os.Bundle;
+          public class MainActivity extends Activity {
+            @Override protected void onCreate(Bundle savedInstanceState) { super.onCreate(savedInstanceState); }
+          }
+          EOF
+          # Copy built daemons into assets
+          cp -f "$BUILD_DIR"/vkax* "$APP_ROOT/app/src/main/assets/"
+          # Build APK (debug)
+          gradle -p "$APP_ROOT" assembleDebug --no-daemon --warning-mode all
+          # Stash output paths
+          APK="$APP_ROOT/app/build/outputs/apk/debug/app-debug.apk"
+          echo "APK_PATH=$APK" >> "$GITHUB_ENV"
+          ls -lah "$APP_ROOT/app/build/outputs/apk/debug" || true
+
+      - name: APK diagnostics
+        run: |
+          set -eux
+          echo "APK_PATH=$APK_PATH"
+          unzip -l "$APK_PATH" | sed -n '1,200p'
+          "${ANDROID_SDK_ROOT}/build-tools/34.0.0/aapt" dump badging "$APK_PATH" | sed -n '1,80p' || true
+
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: vkax-android-aarch64-daemons
-          path: ${{ env.COMPRESS_DIR }}/vkax-android-aarch64-daemons.tar.gz
+          name: vkax-android-aarch64
+          path: |
+            ${{ env.COMPRESS_DIR }}/vkax-android-aarch64-daemons.tar.gz
+            ${{ env.APK_PATH }}
