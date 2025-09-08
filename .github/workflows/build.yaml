@@ -309,13 +309,18 @@ jobs:
           HOST: ${{ matrix.host }}
         run: |
           set -Eeuo pipefail
+          t0=$(date +%s)
+          out="$(mktemp)"
+          timeout 10s make --no-print-directory -C depends -f hosts/android.mk print-all-host V=1 >"$out"
           {
             echo "## Depends vars"
             echo
             echo '```'
-            make -C depends print-TARGET_HOST print-ANDROID_CLANG_TRIPLE print-ANDROID_API_LEVEL print-host_CC print-host_CXX print-host_LDFLAGS V=1
+            cat "$out"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+          echo "::notice::dump-depends-vars duration=$(( $(date +%s)-t0 ))s"
+
 
       - name: "[VKAX] SDK package assertions"
         run: |
