@@ -466,9 +466,6 @@ jobs:
     timeout-minutes: 45
     env:
       ANDROID_API_LEVEL: "34"
-      ANDROID_SDK: ${{ env.ANDROID_SDK_ROOT }}
-      ANDROID_NDK: ${{ env.ANDROID_SDK_ROOT }}/ndk/${{ env.ANDROID_NDK_VERSION }}
-      ANDROID_TOOLCHAIN_BIN: ${{ env.ANDROID_SDK_ROOT }}/ndk/${{ env.ANDROID_NDK_VERSION }}/toolchains/llvm/prebuilt/linux-x86_64/bin
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -504,6 +501,7 @@ jobs:
             "platform-tools" \
             "platforms;android-34" \
             "ndk;${ANDROID_NDK_VERSION}"
+
       - name: Build depends for native Android (optional)
         shell: bash
         run: |
@@ -808,10 +806,14 @@ jobs:
             dist/**/*
             build/**/*
           if-no-files-found: warn
+
   # =====================================
   # Windows cross (MinGW-w64 on Ubuntu) — produce .exe via depends
   # =====================================
-  $1 ubuntu-22.04
+  windows_cross:
+    name: native • windows-cross • ubuntu-22.04 → mingw64
+    needs: depends_smoke_ubuntu
+    runs-on: ubuntu-22.04
     timeout-minutes: 50
     steps:
       - name: Checkout
