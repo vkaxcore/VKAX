@@ -69,22 +69,25 @@ jobs:
       - name: "[VKAX] Guards in workflows"
         run: |
           set -Eeuo pipefail
-          if matches="$(git --no-pager grep -nH -E '^[[:space:]]*yes[[:space:]]*\|[[:space:]]*sdkmanager[[:space:]]*--licenses([[:space:]]|$)' .github/workflows || true)"; then
-            if [ -n "$matches" ]; then
-              echo "## Forbidden pattern found" >> "$GITHUB_STEP_SUMMARY"
-              { echo '```'; echo "$matches"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
-              echo "::error::Forbidden pattern 'yes | sdkmanager --licenses' in workflows"
-              exit 1
-            fi
+          files="$(git ls-files '.github/workflows/*.yml' '.github/workflows/*.yaml' | grep -v -F '.github/workflows/build.yaml' || true)"
+          [ -z "$files" ] && exit 0
+
+          matches="$(grep -nH -E '^[[:space:]]*yes[[:space:]]*\|[[:space:]]*sdkmanager[[:space:]]*--licenses([[:space:]]|$)' $files || true)"
+          if [ -n "$matches" ]; then
+            echo "## Forbidden pattern found" >> "$GITHUB_STEP_SUMMARY"
+            { echo '```'; echo "$matches"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::Forbidden pattern 'yes | sdkmanager --licenses' in workflows"
+            exit 1
           fi
-          if matches="$(git --no-pager grep -nH -e 'user-config\.jam' -- .github/workflows ':!**/.github/workflows/build.yaml' || true)"; then
-            if [ -n "$matches" ]; then
-              echo "## Illegal user-config.jam references" >> "$GITHUB_STEP_SUMMARY"
-              { echo '```'; echo "$matches"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
-              echo "::error::Workflows must not reference user-config.jam (owned by depends/packages/boost.mk)"
-              exit 1
-            fi
+
+          matches="$(grep -nH -e 'user-config\.jam' $files || true)"
+          if [ -n "$matches" ]; then
+            echo "## Illegal user-config.jam references" >> "$GITHUB_STEP_SUMMARY"
+            { echo '```'; echo "$matches"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::Workflows must not reference user-config.jam (owned by depends/packages/boost.mk)"
+            exit 1
           fi
+
 
 
       - name: "[VKAX] Workflow hygiene"
