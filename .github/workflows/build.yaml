@@ -4,7 +4,7 @@ name: VKAX Android Builds
 on:
   workflow_dispatch:
   push:
-    branches: [ main, v100.11.5-android, dev ]
+    branches: [ main, v100.11.5-androidx, dev ]
 
 permissions:
   contents: read
@@ -213,6 +213,8 @@ jobs:
 
 
       - name: "[VKAX] ndk_install sanity"
+        env:
+          HOST: ${{ matrix.host }}
         run: |
           set -Eeuo pipefail
           make -C depends ndk_install V=1
@@ -228,6 +230,7 @@ jobs:
             echo "- host_tag: \`$host_tag\`"
             echo "- toolchain_bin: \`$toolchain_bin\`"
           } >> "$GITHUB_STEP_SUMMARY"
+
 
       - name: "[VKAX] SDK package assertions"
         run: |
