@@ -203,8 +203,7 @@ jobs:
             if [ -z "$pkgs" ]; then
               echo "_no .stamp_built files found; build may be cached or produced no targets_";
             else
-              printf '%s
-' "$pkgs" | sed 's/^/- /';
+              printf '%s\n' "$pkgs" | sed 's/^/- /'
             fi
           } >> "$GITHUB_STEP_SUMMARY"
           echo ok > .smoke_depends_pass
@@ -253,8 +252,7 @@ jobs:
             if [ -z "$pkgs" ]; then
               echo "_no .stamp_built files found; build may be cached or produced no targets_";
             else
-              printf '%s
-' "$pkgs" | sed 's/^/- /';
+              printf '%s\n' "$pkgs" | sed 's/^/- /'
             fi
           } >> "$GITHUB_STEP_SUMMARY"
           echo ok > .smoke_depends_pass
