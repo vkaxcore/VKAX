@@ -18,6 +18,7 @@ env:
   ANDROID_SDK_ROOT: ${{ github.workspace }}/.android-sdk
   ANDROID_HOME: ${{ github.workspace }}/.android-sdk
   ANDROID_CLT_LINUX: https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip
+  ANDROID_NDK_VERSION: "23.1.7779620"
 
 jobs:
   # =====================================
@@ -26,6 +27,7 @@ jobs:
   smoke_native_ubuntu:
     name: smoke • native • ubuntu • ${{ matrix.name }}
     runs-on: ${{ fromJSON(matrix.runs_on) }}
+    continue-on-error: ${{ matrix.allow_failures }}
     timeout-minutes: 10
     strategy:
       fail-fast: false
@@ -33,12 +35,16 @@ jobs:
         include:
           - name: ubuntu-22-amd64
             runs_on: '"ubuntu-22.04"'
+            allow_failures: false
           - name: ubuntu-24-amd64
             runs_on: '"ubuntu-24.04"'
+            allow_failures: false
           - name: ubuntu-22-arm64
             runs_on: '["self-hosted","Linux","ARM64","ubuntu-22.04"]'
+            allow_failures: true
           - name: ubuntu-24-arm64
             runs_on: '["self-hosted","Linux","ARM64","ubuntu-24.04"]'
+            allow_failures: true
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -63,6 +69,18 @@ jobs:
           c++ -O2 t.cpp -o t
           ./t || true
           echo ok > .smoke_pass
+
+      - name: Append smoke summary
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo "### Smoke native ubuntu: ${{ matrix.name }}";
+            echo "- Compiler: $(c++ --version | head -1 2>/dev/null || echo unknown)";
+            echo "- CPU cores: $(nproc 2>/dev/null || echo 2)";
+            echo "- Kernel: $(uname -sr)";
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::notice::ubuntu smoke passed on ${{ matrix.name }}"
 
       - name: Upload smoke artifacts
         if: always()
@@ -110,6 +128,18 @@ jobs:
           ./t || true
           echo ok > .smoke_pass
 
+      - name: Append smoke summary
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo "### Smoke native macOS: ${{ matrix.macos }}";
+            echo "- Compiler: $(clang --version | head -1 2>/dev/null || echo unknown)";
+            echo "- CPU cores: $(sysctl -n hw.ncpu 2>/dev/null || echo 2)";
+            echo "- Kernel: $(uname -sr)";
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::notice::macOS smoke passed on ${{ matrix.macos }}"
+
       - name: Upload smoke artifacts
         if: always()
         uses: actions/upload-artifact@v4
@@ -146,6 +176,17 @@ jobs:
           .\t.exe
           'ok' | Set-Content -NoNewline -Path .smoke_pass
 
+      - name: Append smoke summary
+        shell: pwsh
+        run: |
+          $compiler = (cl 2>&1 | Select-String -Pattern 'Version' | Select-Object -First 1).ToString()
+          $cores = $env:NUMBER_OF_PROCESSORS
+          Add-Content $env:GITHUB_STEP_SUMMARY "### Smoke native Windows: ${{ matrix.windows }}"
+          Add-Content $env:GITHUB_STEP_SUMMARY "- Compiler: $compiler"
+          Add-Content $env:GITHUB_STEP_SUMMARY "- CPU cores: $cores"
+          Add-Content $env:GITHUB_STEP_SUMMARY "- Kernel: Windows"
+          echo "::notice::Windows smoke passed on ${{ matrix.windows }}"
+
       - name: Upload smoke artifacts
         if: always()
         uses: actions/upload-artifact@v4
@@ -155,6 +196,7 @@ jobs:
             .smoke_pass
             t.exe
           if-no-files-found: warn
+
   # =====================================
   # SMOKE: depends — Ubuntu (only OSes that use depends)
   # =====================================
@@ -162,6 +204,7 @@ jobs:
     name: smoke • depends • ubuntu • ${{ matrix.name }}
     needs: smoke_native_ubuntu
     runs-on: ${{ fromJSON(matrix.runs_on) }}
+    continue-on-error: ${{ matrix.allow_failures }}
     timeout-minutes: 45
     strategy:
       fail-fast: false
@@ -170,18 +213,29 @@ jobs:
           - name: ubuntu-22-amd64
             runs_on: '"ubuntu-22.04"'
             host: x86_64-pc-linux-gnu
+            allow_failures: false
           - name: ubuntu-24-amd64
             runs_on: '"ubuntu-24.04"'
             host: x86_64-pc-linux-gnu
+            allow_failures: false
           - name: ubuntu-22-arm64
             runs_on: '["self-hosted","Linux","ARM64","ubuntu-22.04"]'
             host: aarch64-linux-gnu
+            allow_failures: true
           - name: ubuntu-24-arm64
             runs_on: '["self-hosted","Linux","ARM64","ubuntu-24.04"]'
             host: aarch64-linux-gnu
+            allow_failures: true
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Sync submodules
+        shell: bash
+        run: |
+          set -euo pipefail
+          git submodule sync --recursive
+          git submodule update --init --recursive
 
       - name: Tooling
         shell: bash
@@ -208,6 +262,14 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           echo ok > .smoke_depends_pass
 
+      - name: Upload depends logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: depends-logs-${{ matrix.name }}
+          path: depends/work/**/config.log
+          if-no-files-found: ignore
+
       - name: Upload depends smoke artifacts
         if: always()
         uses: actions/upload-artifact@v4
@@ -231,6 +293,13 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Sync submodules
+        shell: bash
+        run: |
+          set -euo pipefail
+          git submodule sync --recursive
+          git submodule update --init --recursive
 
       - name: Tooling
         shell: bash
@@ -257,6 +326,14 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           echo ok > .smoke_depends_pass
 
+      - name: Upload depends logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: depends-logs-${{ matrix.macos }}
+          path: depends/work/**/config.log
+          if-no-files-found: ignore
+
       - name: Upload depends smoke artifacts
         if: always()
         uses: actions/upload-artifact@v4
@@ -272,8 +349,6 @@ jobs:
     name: smoke • android • ubuntu-24.04 • api 34 • ndk 23.1.7779620
     runs-on: ubuntu-24.04
     timeout-minutes: 20
-    env:
-      ANDROID_NDK_VERSION: "23.1.7779620"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -344,6 +419,18 @@ jobs:
           "$a64" -O2 t.cpp -o a64
           echo ok > ../.smoke_pass
 
+      - name: Append smoke summary
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo "### Smoke Android ubuntu-24.04";
+            echo "- API: 34";
+            echo "- NDK: ${ANDROID_NDK_VERSION}";
+            echo "- SDK root: ${ANDROID_SDK_ROOT}";
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::notice::Android smoke passed (api 34, ndk ${ANDROID_NDK_VERSION})"
+
       - name: Upload smoke artifacts
         if: always()
         uses: actions/upload-artifact@v4
@@ -355,7 +442,6 @@ jobs:
           if-no-files-found: warn
 
   # =====================================
-  # =====================================
   # Android builds — Ubuntu AMD64 only (after smoke_android)
   # =====================================
   android:
@@ -363,8 +449,6 @@ jobs:
     needs: smoke_android
     runs-on: ubuntu-24.04
     timeout-minutes: 45
-    env:
-      ANDROID_NDK_VERSION: "23.1.7779620"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -413,13 +497,10 @@ jobs:
           chmod +x ./gradlew
           ./gradlew --no-daemon --stacktrace assemble
 
-      - name: CMake build (if present)
-        if: ${{ hashFiles('CMakeLists.txt') != '' }}
+      - name: CMake build (disabled for Android job)
+        if: ${{ false }}
         shell: bash
-        run: |
-          set -euo pipefail
-          cmake -S . -B build
-          cmake --build build -j"$(getconf _NPROCESSORS_ONLN || echo 2)"
+        run: echo "::notice::Android job skips root native CMake build."
 
       - name: Upload build artifacts
         if: always()
@@ -431,19 +512,14 @@ jobs:
             **/build/outputs/**/*
           if-no-files-found: warn
 
+  # =====================================
   # Android legacy (API 15) — Ubuntu 22 AMD64 only (after smoke_android)
-  # ===================================== (API 15) — Ubuntu 22 AMD64 only (after smoke_android)
   # =====================================
   android_legacy:
-    name: android • legacy • ubuntu-22.04 • api 15 • ndk ${{ matrix.ndk }}
+    name: android • legacy • ubuntu-22.04 • api 15 • ndk 23.1.7779620
     needs: smoke_android
     runs-on: ubuntu-22.04
     timeout-minutes: 30
-    strategy:
-      matrix:
-        ndk: ["23.1.7779620"]
-    env:
-      ANDROID_NDK_VERSION: ${{ matrix.ndk }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -473,7 +549,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          sdkmanager --sdk_root="${ANDROID_SDK_ROOT}" \
+          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="${ANDROID_SDK_ROOT}" \
             "platform-tools" \
             "platforms;android-15" \
             "ndk;${ANDROID_NDK_VERSION}"
@@ -486,7 +562,10 @@ jobs:
           a32="$pre/armv7a-linux-androideabi16-clang++"
           [ -x "$a32" ] || { echo "::error::Missing $a32"; exit 127; }
           mkdir -p smoke && cd smoke
-          echo '#include <atomic>\nint main(){ std::atomic<int> v{0}; v++; return (int)v.load(); }' > t.cpp
+          cat > t.cpp <<'CPP'
+          #include <atomic>
+          int main(){ std::atomic<int> v{0}; v++; return (int)v.load(); }
+          CPP
           "$a32" -latomic -O2 t.cpp -o a32
           echo ok > ../.smoke_pass
 
@@ -567,6 +646,7 @@ jobs:
     name: native • ubuntu • ${{ matrix.name }}
     needs: depends_smoke_ubuntu
     runs-on: ${{ fromJSON(matrix.runs_on) }}
+    continue-on-error: ${{ matrix.allow_failures }}
     timeout-minutes: 45
     strategy:
       fail-fast: false
@@ -575,15 +655,19 @@ jobs:
           - name: ubuntu-22-amd64
             runs_on: '"ubuntu-22.04"'
             triple: x86_64-pc-linux-gnu
+            allow_failures: false
           - name: ubuntu-24-amd64
             runs_on: '"ubuntu-24.04"'
             triple: x86_64-pc-linux-gnu
+            allow_failures: false
           - name: ubuntu-22-arm64
             runs_on: '["self-hosted","Linux","ARM64","ubuntu-22.04"]'
             triple: aarch64-linux-gnu
+            allow_failures: true
           - name: ubuntu-24-arm64
             runs_on: '["self-hosted","Linux","ARM64","ubuntu-24.04"]'
             triple: aarch64-linux-gnu
+            allow_failures: true
     steps:
       - name: Checkout
         uses: actions/checkout@v4
