@@ -4,6 +4,8 @@
 #   ndk_install: ensures $ANDROID_NDK_HOME/toolchains/llvm/prebuilt/<host>/bin exists
 # Notes:
 #   - ASCII-only, readable. Avoid duplicate rules and misleading "version" labels.
+#   - No network access here. CI provides ANDROID_NDK_HOME/ANDROID_NDK.
+#   - Fails fast with a clear message.
 
 ifndef VKAX_NDK_MK_INCLUDED
 VKAX_NDK_MK_INCLUDED := 1
@@ -14,19 +16,27 @@ package := ndk
 
 $(package)_install:
 	@echo "[ndk.mk] ANDROID_NDK_HOME=$${ANDROID_NDK_HOME:-<unset>}"
-	@if [ -z "$${ANDROID_NDK_HOME:-}" ]; then \
-		echo "[ndk.mk] ERROR: ANDROID_NDK_HOME is not set (CI must export it)"; \
+	@if [ -z "$$ANDROID_NDK_HOME" ] && [ -n "$$ANDROID_NDK" ]; then export ANDROID_NDK_HOME="$$ANDROID_NDK"; fi; \
+	if [ -z "$$ANDROID_NDK_HOME" ]; then \
+		echo "[ndk.mk] ERROR: ANDROID_NDK_HOME is not set"; \
 		exit 1; \
-	fi
-	@host_tag=$$(uname -s | awk '{print tolower($$0)}'); \
-	case "$$host_tag" in linux*) os=linux;; darwin*) os=darwin;; *) os=windows;; esac; \
+	fi; \
+	os=$$(uname -s | tr '[:upper:]' '[:lower:]'); \
+	case "$$os" in \
+	  linux*) os=linux ;; \
+	  darwin*) os=darwin ;; \
+	  msys*|cygwin*|mingw*) os=windows ;; \
+	  *) os=linux ;; \
+	esac; \
 	arch=$$(uname -m); \
 	if echo "$$arch" | grep -qiE 'aarch64|arm64'; then host="$$os-arm64"; else host="$$os-x86_64"; fi; \
 	tool="$$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/$$host/bin"; \
 	if [ ! -d "$$tool" ]; then \
 		echo "[ndk.mk] ERROR: toolchain bin not found under $$tool"; \
+		echo "[ndk.mk] HINT: CI must install ndk;<version> and set ANDROID_NDK_HOME"; \
 		exit 1; \
-	fi
+	fi; \
+	echo "[ndk.mk] OK: $$tool"
 	@true
 
 ndk_install: $(package)_install
@@ -34,4 +44,4 @@ ndk_install: $(package)_install
 
 endif
 
-# Path: depends/packages/ndk.mk | 2025-09-07 UTC
+# Path: depends/packages/ndk.mk | 2025-09-08 UTC
