@@ -103,3 +103,13 @@ ifeq ($(V),1)
   $(info [android.mk] CXX=$(android_CXX))
   $(info [android.mk] LDFLAGS=$(android_LDFLAGS))
 endif
+
+# Aggregate dump
+.PHONY: print-all-host
+print-all-host:
+	@printf '%s=%s\n' 'TARGET_HOST' '$(TARGET_HOST)'
+	@printf '%s=%s\n' 'ANDROID_CLANG_TRIPLE' '$(ANDROID_CLANG_TRIPLE)'
+	@printf '%s=%s\n' 'ANDROID_API_LEVEL' '$(ANDROID_API_LEVEL)'
+	@printf '%s=%s\n' 'host_CC' '$(host_CC)'
+	@printf '%s=%s\n' 'host_CXX' '$(host_CXX)'
+	@printf '%s=%s\n' 'host_LDFLAGS' '$(host_LDFLAGS)'
