@@ -3,7 +3,7 @@ name: CI • Smoke-first + OS builds (Android on Ubuntu AMD64)
 
 on:
   push:
-    branches: ["**"]
+    branches: ["v100.11.5-android/"]
   pull_request:
   workflow_dispatch:
 
@@ -268,131 +268,13 @@ jobs:
   # =====================================
   # SMOKE: Android toolchain — Ubuntu AMD64 only
   # =====================================
-  smoke_android:
-    name: smoke • android • ${{ matrix.os }} • api ${{ matrix.api }} • ndk ${{ matrix.ndk }}
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
-    strategy:
-      fail-fast: false
-      matrix:
-        api: [34]
-        ndk: ["23.1.7779620"]
-        os: [ubuntu-24.04]
-    env:
-      ANDROID_NDK_VERSION: ${{ matrix.ndk }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Normalize shebangs (curly quotes)
-        shell: bash
-        run: |
-          set -euo pipefail
-          while IFS= read -r -d '' f; do
-            head -n1 "$f" | grep -q '^#!' || continue
-            if head -n1 "$f" | grep -qE "[‘’“”]"; then
-              awk 'NR==1{gsub(/‘|’/, "'\''"); gsub(/“|”/, "\"")} {print}' "$f" > "$f.tmp" && mv "$f.tmp" "$f"
-              echo "::warning file=$f,line=1::Fixed curly quotes in shebang (use ASCII quotes)."
-            fi
-          done < <(git ls-files -z)
-
-      - name: Setup Java 11
+  smoke_$1      - name: Setup Java 11
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "11"
 
-      - name: Prepare SDK dirs
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools" "$HOME/.android"
-          touch "$HOME/.android/repositories.cfg"
-
-      - name: Install cmdline-tools
-        shell: bash
-        run: |
-          set -euo pipefail
-          tmp=$(mktemp -d)
-          curl -fsSL "$ANDROID_CLT_LINUX" -o "$tmp/cmdline.zip"
-          unzip -q "$tmp/cmdline.zip" -d "$ANDROID_SDK_ROOT/cmdline-tools"
-          mv "$ANDROID_SDK_ROOT/cmdline-tools/cmdline-tools" "$ANDROID_SDK_ROOT/cmdline-tools/latest"
-          echo "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
-
-      - name: Accept Android licenses (hash-seeded)
-        uses: ./.github/actions/android-accept-licenses
-
-      - name: Install Android packages
-        shell: bash
-        run: |
-          set -euo pipefail
-          sdkmanager --sdk_root="${ANDROID_SDK_ROOT}" \
-            "platform-tools" \
-            "platforms;android-${{ matrix.api }}" \
-            "ndk;${ANDROID_NDK_VERSION}"
-
-      - name: Verify SDK/NDK layout
-        shell: bash
-        run: |
-          set -euo pipefail
-          adb_bin="$ANDROID_SDK_ROOT/platform-tools/adb"
-          plat_dir="$ANDROID_SDK_ROOT/platforms/android-${{ matrix.api }}"
-          ndk_dir="$ANDROID_SDK_ROOT/ndk/${ANDROID_NDK_VERSION}"
-          pre="$ndk_dir/toolchains/llvm/prebuilt/linux-x86_64/bin"
-          [ -x "$adb_bin" ] || { echo "::error::adb missing at $adb_bin"; exit 1; }
-          [ -d "$plat_dir" ] || { echo "::error::Android platform missing: $plat_dir"; exit 1; }
-          [ -d "$ndk_dir" ] || { echo "::error::NDK missing: $ndk_dir"; exit 1; }
-          [ -d "$pre" ] || { echo "::error::NDK prebuilt not found: $pre"; ls -la "$ndk_dir/toolchains/llvm/prebuilt" || true; exit 1; }
-
-      - name: Smoke compile (armv7a+arm64)
-        shell: bash
-        run: |
-          set -euo pipefail
-          pre="$ANDROID_SDK_ROOT/ndk/${ANDROID_NDK_VERSION}/toolchains/llvm/prebuilt/linux-x86_64/bin"
-          a32="$pre/armv7a-linux-androideabi21-clang++"
-          a64="$pre/aarch64-linux-android21-clang++"
-          [ -x "$a32" ] || { echo "::error::Missing $a32"; exit 127; }
-          [ -x "$a64" ] || { echo "::error::Missing $a64"; exit 127; }
-          mkdir -p smoke && cd smoke
-          cat > t.cpp <<'CPP'
-          #include <atomic>
-          int main(){ std::atomic<int> v{0}; v++; return (int)v.load(); }
-          CPP
-          "$a32" -latomic -O2 t.cpp -o a32
-          "$a64" -O2 t.cpp -o a64
-          echo ok > ../.smoke_pass
-
-      - name: Upload smoke artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: smoke-android-${{ matrix.os }}-api${{ matrix.api }}
-          path: |
-            .smoke_pass
-            smoke/**/*
-          if-no-files-found: warn
-
-  # =====================================
-  # Android builds — Ubuntu AMD64 only (after smoke_android)
-  # =====================================
-  android:
-    name: android • build • ubuntu-24.04 • api 34 • ndk ${{ matrix.ndk }}
-    needs: smoke_android
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 45
-    strategy:
-      fail-fast: false
-      matrix:
-        api: [34]
-        ndk: ["23.1.7779620"]
-        os: [ubuntu-24.04]
-    env:
-      ANDROID_NDK_VERSION: ${{ matrix.ndk }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Ensure Android SDK
+      - name: Ensure Android cmdline-tools
         shell: bash
         run: |
           set -euo pipefail
@@ -405,12 +287,20 @@ jobs:
             mv "$ANDROID_SDK_ROOT/cmdline-tools/cmdline-tools" "$ANDROID_SDK_ROOT/cmdline-tools/latest"
             echo "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
           fi
-          sdkmanager --sdk_root="${ANDROID_SDK_ROOT}" \
+
+      - name: Accept Android licenses (hash-seeded)
+        uses: ./.github/actions/android-accept-licenses
+
+      - name: Install Android packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="${ANDROID_SDK_ROOT}" \
             "platform-tools" \
             "platforms;android-${{ matrix.api }}" \
             "ndk;${ANDROID_NDK_VERSION}"
 
-      - name: Gradle build (if present)
+$2
         shell: bash
         run: |
           set -euo pipefail
