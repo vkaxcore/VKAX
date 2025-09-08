@@ -226,31 +226,7 @@ jobs:
           sdkmanager --sdk_root="${ANDROID_SDK_ROOT}" --licenses <<< "$feed" || true
           sdkmanager --sdk_root="${ANDROID_SDK_ROOT}" --update || true
 
-      - name: "[VKAX] Licenses status (post-accept)"
-        if: env.ALLOW_TTY_LICENSE_ACCEPT == '1'
-        id: license_status_post
-        run: |
-          set -Eeuo pipefail
-          out="$(mktemp)"
-          sdkmanager --sdk_root="${ANDROID_SDK_ROOT}" --licenses <<< $'n\n' >"$out" 2>&1 || true
-          if grep -q 'All SDK package licenses accepted' "$out"; then
-            echo ok=true >> "$GITHUB_OUTPUT"
-            echo "::notice::Licenses OK after emergency accept."
-            status="OK"
-          else
-            echo ok=false >> "$GITHUB_OUTPUT"
-            echo "::warning::Licenses still NOT accepted; install may fail."
-            status="NOT_OK"
-          fi
-          {
-            echo "## sdkmanager --licenses status (post-accept)"
-            echo
-            echo "- status: ${status}"
-            echo
-            echo '```'
-            sed -n '1,200p' "$out"
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
+
 
           
 
@@ -357,6 +333,7 @@ jobs:
             sed -n '1,200p' "$inv"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+
 
 
 
