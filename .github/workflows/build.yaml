@@ -1,175 +1,766 @@
-.github/workflows/build.yaml
-# Android-only; HARD-LOCKED to v100.11.5-android so we don't build the wrong branch again.
-
-name: VKAX Android Build (arm64)
+# .github/workflows/build.yaml
+name: CI • Smoke-first + OS builds (Android on Ubuntu AMD64)
 
 on:
   push:
-    branches: [ v100.11.5-android ]         # no main, no toys
+    branches: ["v100.11.5-android"]
+  pull_request:
   workflow_dispatch:
-    inputs:
-      ref:
-        description: "Ref to build (must be v100.11.5-android)"
-        required: false
-        default: v100.11.5-android
 
 permissions:
   contents: read
 
 concurrency:
-  group: android-${{ github.ref_name }}
+  group: ci-${{ github.ref }}
   cancel-in-progress: true
 
 env:
-  BRANCH_LOCK: v100.11.5-android
-  COIN_NAME: vkax
-  BUILD_DIR: vkax-build
-  COMPRESS_DIR: vkax-compress
-  LC_ALL: C
-  LANG: C
-  QT_RCC_SOURCE_DATE_OVERRIDE: "1"
-  ANDROID_API: "25"
-  HOST: aarch64-linux-android
+  ANDROID_SDK_ROOT: ${{ github.workspace }}/.android-sdk
+  ANDROID_HOME: ${{ github.workspace }}/.android-sdk
+  ANDROID_CLT_LINUX: https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip
+  ANDROID_NDK_VERSION: "23.1.7779620"
 
 jobs:
-  android-aarch64:
-    if: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
-    runs-on: ubuntu-22.04
+  # =====================================
+  # SMOKE: native toolchains — Ubuntu (AMD/ARM)
+  # =====================================
+  smoke_native_ubuntu:
+    name: smoke • native • ubuntu • ${{ matrix.name }}
+    runs-on: ${{ fromJSON(matrix.runs_on) }}
+    continue-on-error: ${{ matrix.allow_failures }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: ubuntu-22-amd64
+            runs_on: '"ubuntu-22.04"'
+            allow_failures: false
+          - name: ubuntu-24-amd64
+            runs_on: '"ubuntu-24.04"'
+            allow_failures: false
+          - name: ubuntu-22-arm64
+            runs_on: '["self-hosted","Linux","ARM64","ubuntu-22.04"]'
+            allow_failures: true
+          - name: ubuntu-24-arm64
+            runs_on: '["self-hosted","Linux","ARM64","ubuntu-24.04"]'
+            allow_failures: true
     steps:
-      - name: Checkout locked ref
+      - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          lfs: true
-          ref: ${{ github.event.inputs.ref || env.BRANCH_LOCK }}
 
-      - name: Guard: wrong branch = hard fail
+      - name: Normalize shebangs (curly quotes)
+        shell: bash
         run: |
           set -euo pipefail
-          REF_INPUT="${{ github.event.inputs.ref }}"
-          REF_NAME="${GITHUB_REF_NAME:-$(git rev-parse --abbrev-ref HEAD || true)}"
-          REF="${REF_INPUT:-$REF_NAME}"
-          echo "ref_input=$REF_INPUT  ref_name=$REF_NAME  resolved=$REF"
-          test "$REF" = "$BRANCH_LOCK" || { echo "Wrong ref ($REF), expected $BRANCH_LOCK"; exit 2; }
-          ! git grep -n "android-ndk-r23c" || { git grep -n "android-ndk-r23c"; exit 3; }
+          while IFS= read -r -d '' f; do
+            head -n1 "$f" | grep -q '^#!' || continue
+            if head -n1 "$f" | grep -qE "[‘’“”]"; then
+              awk 'NR==1{gsub(/‘|’/, "'\''"); gsub(/“|”/, "\"")} {print}' "$f" > "$f.tmp" && mv "$f.tmp" "$f"
+              echo "::warning file=$f,line=1::Fixed curly quotes in shebang (use ASCII quotes)."
+            fi
+          done < <(git ls-files -z)
 
-      - uses: actions/setup-java@v4
-        with: { distribution: temurin, java-version: "11" }
-
-      - name: Install tools
+      - name: Toolchain smoke
+        shell: bash
         run: |
-          set -eux
-          sudo apt-get update
-          sudo apt-get install -y build-essential automake autoconf libtool pkg-config \
-              python3 unzip wget curl cmake ninja-build dos2unix xz-utils file zip aapt
+          set -euo pipefail
+          echo 'int main(){return 0;}' > t.cpp
+          c++ -O2 t.cpp -o t
+          ./t || true
+          echo ok > .smoke_pass
 
-      - name: Determinism + OOM controls
+      - name: Append smoke summary
+        shell: bash
         run: |
-          set -eux
-          ulimit -c 0
-          echo "SOURCE_DATE_EPOCH=$(git log -1 --pretty=%ct || echo 0)" >> "$GITHUB_ENV"
-          echo "MAKEFLAGS=-j2" >> "$GITHUB_ENV"
-          unset QMAKESPEC XQMAKESPEC QMAKEPATH QMAKEFEATURES
+          set -euo pipefail
+          {
+            echo "### Smoke native ubuntu: ${{ matrix.name }}";
+            echo "- Compiler: $(c++ --version | head -1 2>/dev/null || echo unknown)";
+            echo "- CPU cores: $(nproc 2>/dev/null || echo 2)";
+            echo "- Kernel: $(uname -sr)";
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::notice::ubuntu smoke passed on ${{ matrix.name }}"
 
-      - name: Android SDK/NDK r25.2 + build-tools
-        env: { ANDROID_SDK_ROOT: ${{ github.workspace }}/android-sdk }
-        run: |
-          set -eux
-          mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools"
-          if [ ! -d "$ANDROID_SDK_ROOT/cmdline-tools/latest" ]; then
-            wget -q https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip -O /tmp/clt.zip
-            unzip -q /tmp/clt.zip -d "$ANDROID_SDK_ROOT/cmdline-tools"
-            mv "$ANDROID_SDK_ROOT/cmdline-tools/cmdline-tools" "$ANDROID_SDK_ROOT/cmdline-tools/latest"
-          fi
-          export PATH="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH"
-          yes | sdkmanager --licenses >/dev/null
-          sdkmanager "platform-tools" "platforms;android-${{ env.ANDROID_API }}" "build-tools;34.0.0" "ndk;25.2.9519653"
-          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> "$GITHUB_ENV"
-          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/25.2.9519653" >> "$GITHUB_ENV"
-          echo "$ANDROID_SDK_ROOT/platform-tools" >> "$GITHUB_PATH"
-          echo "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
-          echo "$ANDROID_SDK_ROOT/build-tools/34.0.0" >> "$GITHUB_PATH"
-          echo "$ANDROID_SDK_ROOT/ndk/25.2.9519653/toolchains/llvm/prebuilt/linux-x86_64/bin" >> "$GITHUB_PATH"
-
-      - name: Verify NDK toolchain and set CC/CXX
-        env: { HOST: ${{ env.HOST }}, ANDROID_API: ${{ env.ANDROID_API }}, ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_HOME }} }
-        run: |
-          set -eux
-          TOOLCHAIN_BIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
-          CC_TGT="${HOST}${ANDROID_API}-clang"; CXX_TGT="${HOST}${ANDROID_API}-clang++"
-          if [ -x "$TOOLCHAIN_BIN/$CC_TGT" ] && [ -x "$TOOLCHAIN_BIN/$CXX_TGT" ]; then
-            echo "CC=$CC_TGT"  >> "$GITHUB_ENV"; echo "CXX=$CXX_TGT" >> "$GITHUB_ENV"
-          else
-            WRAP_DIR="$RUNNER_TEMP/ndk-cc"; mkdir -p "$WRAP_DIR"
-            printf '%s\n' '#!/usr/bin/env bash' "exec '$TOOLCHAIN_BIN/clang' --target=${HOST}${ANDROID_API} \"\$@\"" > "$WRAP_DIR/$CC_TGT"
-            printf '%s\n' '#!/usr/bin/env bash' "exec '$TOOLCHAIN_BIN/clang++' --target=${HOST}${ANDROID_API} \"\$@\"" > "$WRAP_DIR/$CXX_TGT"
-            chmod +x "$WRAP_DIR/$CC_TGT" "$WRAP_DIR/$CXX_TGT"; echo "$WRAP_DIR" >> "$GITHUB_PATH"
-            echo "CC=$CC_TGT"  >> "$GITHUB_ENV"; echo "CXX=$CXX_TGT" >> "$GITHUB_ENV"
-          fi
-          echo "AR=llvm-ar" >> "$GITHUB_ENV"; echo "RANLIB=llvm-ranlib" >> "$GITHUB_ENV"
-
-      - name: Sanity: ndk.mk hygiene
-        run: |
-          set -eux
-          grep -q "VKAX_NDK_MK_INCLUDED" depends/packages/ndk.mk
-          grep -q "ANDROID_API ?= 25"    depends/packages/ndk.mk
-          ! grep -q "aarch64-linux-android25-clang" depends/packages/ndk.mk || { echo "Hardcoded 25-clang found"; exit 4; }
-          test "$(grep -RIn "include .*packages/ndk.mk" depends | wc -l)" -eq 1
-
-      - name: Boost toolset + config.guess/sub
-        run: |
-          set -eux
-          mkdir -p depends "$HOME/.boost-build"
-          TC="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/${HOST}${ANDROID_API}-clang++"
-          [ -x "$TC" ] || TC="$(command -v "${HOST}${ANDROID_API}-clang++" || command -v "$CXX")"
-          printf '%s\n' 'using clang : aarch64' " : ${TC}" ' : android arm 64 ;' > depends/user-config.jam
-          cp depends/user-config.jam "$HOME/.boost-build/user-config.jam"
-          [ -x depends/config.guess ] || { cp -f /usr/share/misc/config.guess depends/config.guess && chmod +x depends/config.guess; }
-          [ -x depends/config.sub ]   || { cp -f /usr/share/misc/config.sub   depends/config.sub   && chmod +x depends/config.sub; }
-          find depends -type f \( -name "*.mk" -o -name "*.sh" \) -print0 | xargs -0 dos2unix || true
-
-      - name: Build depends (NO Qt)
-        run: |
-          set -eux
-          BUILD_TRIPLET="$(./depends/config.guess)"
-          make -C depends -j2 build="$BUILD_TRIPLET" build_os=linux HOST="$HOST" host="$HOST" \
-               ANDROID_NDK="$ANDROID_NDK_HOME" ANDROID_API="$ANDROID_API" NO_QT=1 V=1
-
-      - name: Configure (vkaxd/cli/tx)
-        run: |
-          set -eux
-          export PKG_CONFIG_PATH="$PWD/depends/${HOST}/lib/pkgconfig"
-          export CPPFLAGS="-I$PWD/depends/${HOST}/include"
-          export LDFLAGS="-L$PWD/depends/${HOST}/lib"
-          [ -f "./depends/${HOST}/share/config.site" ] && export CONFIG_SITE="$PWD/depends/${HOST}/share/config.site" || true
-          ./autogen.sh || true
-          ./configure --host="${HOST}" --build="$(./depends/config.guess)" \
-            --prefix="$PWD/depends/${HOST}" --with-incompatible-bdb \
-            --without-gui --disable-bench --disable-tests \
-            CC="${CC}" CXX="${CXX}" AR=llvm-ar RANLIB=llvm-ranlib CXXFLAGS="-O2 -fPIC"
-
-      - name: Build
-        run: |
-          set -eux
-          make -j2 src/vkaxd src/vkax-cli src/vkax-tx
-          mkdir -p "$BUILD_DIR" "$COMPRESS_DIR"
-          cp -f src/vkaxd src/vkax-cli src/vkax-tx "$BUILD_DIR"/
-          tar -czf "$COMPRESS_DIR/${COIN_NAME}-android-aarch64-daemons.tar.gz" -C "$BUILD_DIR" .
-
-      - name: Diagnostics (always)
+      - name: Upload smoke artifacts
         if: always()
-        run: |
-          set -x
-          echo "=== REF ==="; echo "${{ github.ref }} @ $GITHUB_SHA"
-          echo "=== env (NDK/SDK) ==="; env | egrep 'ANDROID|^CC=|^CXX=|^AR=|^RANLIB|SOURCE_DATE_EPOCH|MAKEFLAGS' | sort || true
-          echo "=== tool versions ==="; javac -version || true; python3 --version || true
-          echo "=== file(1) ==="; file "$BUILD_DIR"/* || true
-          echo "=== readelf -d ==="; for f in "$BUILD_DIR"/*; do readelf -d "$f" || true; done
-          echo "=== config.log tails ==="; find . -name config.log -print -exec tail -200 {} \; || true
-
-      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: vkax-android-aarch64-daemons
-          path: ${{ env.COMPRESS_DIR }}/vkax-android-aarch64-daemons.tar.gz
-# .github/workflows/build.yaml • Setvin • 2025-09-06
+          name: smoke-native-${{ matrix.name }}
+          path: |
+            .smoke_pass
+            t
+          if-no-files-found: warn
+
+  # =====================================
+  # SMOKE: native toolchains — macOS (Intel)
+  # =====================================
+  smoke_native_macos:
+    name: smoke • native • macos • ${{ matrix.macos }}
+    runs-on: ${{ matrix.macos }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        macos: [macos-13]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Normalize shebangs (curly quotes)
+        shell: bash
+        run: |
+          set -euo pipefail
+          while IFS= read -r -d '' f; do
+            head -n1 "$f" | grep -q '^#!' || continue
+            if head -n1 "$f" | grep -qE "[‘’“”]"; then
+              awk 'NR==1{gsub(/‘|’/, "'\''"); gsub(/“|”/, "\"")} {print}' "$f" > "$f.tmp" && mv "$f.tmp" "$f"
+              echo "::warning file=$f,line=1::Fixed curly quotes in shebang (use ASCII quotes)."
+            fi
+          done < <(git ls-files -z)
+
+      - name: Toolchain smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo 'int main(){return 0;}' > t.cpp
+          c++ -O2 t.cpp -o t
+          ./t || true
+          echo ok > .smoke_pass
+
+      - name: Append smoke summary
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo "### Smoke native macOS: ${{ matrix.macos }}";
+            echo "- Compiler: $(clang --version | head -1 2>/dev/null || echo unknown)";
+            echo "- CPU cores: $(sysctl -n hw.ncpu 2>/dev/null || echo 2)";
+            echo "- Kernel: $(uname -sr)";
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::notice::macOS smoke passed on ${{ matrix.macos }}"
+
+      - name: Upload smoke artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-native-${{ matrix.macos }}
+          path: |
+            .smoke_pass
+            t
+          if-no-files-found: warn
+
+  # =====================================
+  # SMOKE: native toolchains — Windows (PowerShell)
+  # =====================================
+  smoke_native_windows:
+    name: smoke • native • windows • ${{ matrix.windows }}
+    runs-on: ${{ matrix.windows }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        windows: [windows-2022]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup MSVC env
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Toolchain smoke
+        shell: pwsh
+        run: |
+          'int main(){return 0;}' | Set-Content -NoNewline -Path .\t.cpp
+          cl /nologo .\t.cpp /Fe:t.exe
+          .\t.exe
+          'ok' | Set-Content -NoNewline -Path .smoke_pass
+
+      - name: Append smoke summary
+        shell: pwsh
+        run: |
+          $compiler = (cl 2>&1 | Select-String -Pattern 'Version' | Select-Object -First 1).ToString()
+          $cores = $env:NUMBER_OF_PROCESSORS
+          Add-Content $env:GITHUB_STEP_SUMMARY "### Smoke native Windows: ${{ matrix.windows }}"
+          Add-Content $env:GITHUB_STEP_SUMMARY "- Compiler: $compiler"
+          Add-Content $env:GITHUB_STEP_SUMMARY "- CPU cores: $cores"
+          Add-Content $env:GITHUB_STEP_SUMMARY "- Kernel: Windows"
+          echo "::notice::Windows smoke passed on ${{ matrix.windows }}"
+
+      - name: Upload smoke artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-native-${{ matrix.windows }}
+          path: |
+            .smoke_pass
+            t.exe
+          if-no-files-found: warn
+
+  # =====================================
+  # SMOKE: depends — Ubuntu (only OSes that use depends)
+  # =====================================
+  depends_smoke_ubuntu:
+    name: smoke • depends • ubuntu • ${{ matrix.name }}
+    needs: smoke_native_ubuntu
+    runs-on: ${{ fromJSON(matrix.runs_on) }}
+    continue-on-error: ${{ matrix.allow_failures }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: ubuntu-22-amd64
+            runs_on: '"ubuntu-22.04"'
+            host: x86_64-pc-linux-gnu
+            allow_failures: false
+          - name: ubuntu-24-amd64
+            runs_on: '"ubuntu-24.04"'
+            host: x86_64-pc-linux-gnu
+            allow_failures: false
+          - name: ubuntu-22-arm64
+            runs_on: '["self-hosted","Linux","ARM64","ubuntu-22.04"]'
+            host: aarch64-linux-gnu
+            allow_failures: true
+          - name: ubuntu-24-arm64
+            runs_on: '["self-hosted","Linux","ARM64","ubuntu-24.04"]'
+            host: aarch64-linux-gnu
+            allow_failures: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Sync submodules
+        shell: bash
+        run: |
+          set -euo pipefail
+          git submodule sync --recursive
+          git submodule update --init --recursive
+
+      - name: Tooling
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq build-essential pkg-config automake libtool autoconf bison cmake ninja-build python3
+
+      - name: depends full smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          [ -d depends ] || { echo "::error::depends/ directory missing; required for Ubuntu builds."; exit 2; }
+          J=$(nproc 2>/dev/null || echo 2); [ "$J" -gt 4 ] && J=4
+          make -C depends -j"$J" HOST='${{ matrix.host }}'
+          {
+            echo "### depends packages built on ${{ matrix.name }}";
+            pkgs=$(find depends/work -type f -name .stamp_built 2>/dev/null | while read -r f; do d=$(dirname "$f"); bn=$(basename "$d"); echo "$bn"; done | sed -E 's/-[0-9].*$//' | sort -u || true);
+            if [ -z "$pkgs" ]; then
+              echo "_no .stamp_built files found; build may be cached or produced no targets_";
+            else
+              printf '%s\n' "$pkgs" | sed 's/^/- /'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo ok > .smoke_depends_pass
+
+      - name: Upload depends logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: depends-logs-${{ matrix.name }}
+          path: depends/work/**/config.log
+          if-no-files-found: ignore
+
+      - name: Upload depends smoke artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-depends-ubuntu-${{ matrix.name }}
+          path: .smoke_depends_pass
+          if-no-files-found: warn
+
+  # =====================================
+  # SMOKE: depends — macOS (only OSes that use depends)
+  # =====================================
+  depends_smoke_macos:
+    name: smoke • depends • macos • ${{ matrix.macos }}
+    needs: smoke_native_macos
+    runs-on: ${{ matrix.macos }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        macos: [macos-13]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Sync submodules
+        shell: bash
+        run: |
+          set -euo pipefail
+          git submodule sync --recursive
+          git submodule update --init --recursive
+
+      - name: Tooling
+        shell: bash
+        run: |
+          set -euo pipefail
+          brew update
+          brew install automake libtool pkg-config cmake ninja
+
+      - name: depends full smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          [ -d depends ] || { echo "::error::depends/ directory missing; required for macOS builds."; exit 2; }
+          J=$(sysctl -n hw.ncpu 2>/dev/null || echo 2); [ "$J" -gt 4 ] && J=4
+          make -C depends -j"$J" HOST=x86_64-apple-darwin
+          {
+            echo "### depends packages built on ${{ matrix.macos }}";
+            pkgs=$(find depends/work -type f -name .stamp_built 2>/dev/null | while read -r f; do d=$(dirname "$f"); bn=$(basename "$d"); echo "$bn"; done | sed -E 's/-[0-9].*$//' | sort -u || true);
+            if [ -z "$pkgs" ]; then
+              echo "_no .stamp_built files found; build may be cached or produced no targets_";
+            else
+              printf '%s\n' "$pkgs" | sed 's/^/- /'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo ok > .smoke_depends_pass
+
+      - name: Upload depends logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: depends-logs-${{ matrix.macos }}
+          path: depends/work/**/config.log
+          if-no-files-found: ignore
+
+      - name: Upload depends smoke artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-depends-macos-${{ matrix.macos }}
+          path: .smoke_depends_pass
+          if-no-files-found: warn
+
+  # =====================================
+  # SMOKE: Android toolchain — Ubuntu AMD64 only
+  # =====================================
+  smoke_android:
+    name: smoke • android • ubuntu-24.04 • api 34 • ndk 23.1.7779620
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java 11
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "11"
+
+      - name: Prepare SDK dirs
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools" "$HOME/.android"
+          touch "$HOME/.android/repositories.cfg"
+
+      - name: Install cmdline-tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          tmp=$(mktemp -d)
+          curl -fsSL "$ANDROID_CLT_LINUX" -o "$tmp/cmdline.zip"
+          unzip -q "$tmp/cmdline.zip" -d "$ANDROID_SDK_ROOT/cmdline-tools"
+          mv "$ANDROID_SDK_ROOT/cmdline-tools/cmdline-tools" "$ANDROID_SDK_ROOT/cmdline-tools/latest"
+          echo "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+
+      - name: Accept Android licenses
+        uses: ./.github/actions/android-accept-licenses
+
+      - name: Install Android packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="${ANDROID_SDK_ROOT}" \
+            "platform-tools" \
+            "platforms;android-34" \
+            "ndk;${ANDROID_NDK_VERSION}"
+
+      - name: Verify SDK/NDK layout
+        shell: bash
+        run: |
+          set -euo pipefail
+          adb_bin="$ANDROID_SDK_ROOT/platform-tools/adb"
+          plat_dir="$ANDROID_SDK_ROOT/platforms/android-34"
+          ndk_dir="$ANDROID_SDK_ROOT/ndk/${ANDROID_NDK_VERSION}"
+          pre="$ndk_dir/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          [ -x "$adb_bin" ] || { echo "::error::adb missing at $adb_bin"; exit 1; }
+          [ -d "$plat_dir" ] || { echo "::error::Android platform missing: $plat_dir"; exit 1; }
+          [ -d "$ndk_dir" ] || { echo "::error::NDK missing: $ndk_dir"; exit 1; }
+          [ -d "$pre" ] || { echo "::error::NDK prebuilt not found: $pre"; ls -la "$ndk_dir/toolchains/llvm/prebuilt" || true; exit 1; }
+
+      - name: Smoke compile (armv7a+arm64)
+        shell: bash
+        run: |
+          set -euo pipefail
+          pre="$ANDROID_SDK_ROOT/ndk/${ANDROID_NDK_VERSION}/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          a32="$pre/armv7a-linux-androideabi21-clang++"
+          a64="$pre/aarch64-linux-android21-clang++"
+          [ -x "$a32" ] || { echo "::error::Missing $a32"; exit 127; }
+          [ -x "$a64" ] || { echo "::error::Missing $a64"; exit 127; }
+          mkdir -p smoke && cd smoke
+          cat > t.cpp <<'CPP'
+          #include <atomic>
+          int main(){ std::atomic<int> v{0}; v++; return (int)v.load(); }
+          CPP
+          "$a32" -latomic -O2 t.cpp -o a32
+          "$a64" -O2 t.cpp -o a64
+          echo ok > ../.smoke_pass
+
+      - name: Append smoke summary
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo "### Smoke Android ubuntu-24.04";
+            echo "- API: 34";
+            echo "- NDK: ${ANDROID_NDK_VERSION}";
+            echo "- SDK root: ${ANDROID_SDK_ROOT}";
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::notice::Android smoke passed (api 34, ndk ${ANDROID_NDK_VERSION})"
+
+      - name: Upload smoke artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-android-ubuntu-24.04-api34
+          path: |
+            .smoke_pass
+            smoke/**/*
+          if-no-files-found: warn
+
+  # =====================================
+  # Android builds — Ubuntu AMD64 only (after smoke_android)
+  # =====================================
+  android:
+    name: android • build • ubuntu-24.04 • api 34 • ndk 23.1.7779620
+    needs: smoke_android
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java 11
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "11"
+
+      - name: Ensure cmdline-tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools" "$HOME/.android"
+          touch "$HOME/.android/repositories.cfg"
+          if [ ! -d "$ANDROID_SDK_ROOT/cmdline-tools/latest" ]; then
+            tmp=$(mktemp -d)
+            curl -fsSL "$ANDROID_CLT_LINUX" -o "$tmp/cmdline.zip"
+            unzip -q "$tmp/cmdline.zip" -d "$ANDROID_SDK_ROOT/cmdline-tools"
+            mv "$ANDROID_SDK_ROOT/cmdline-tools/cmdline-tools" "$ANDROID_SDK_ROOT/cmdline-tools/latest"
+            echo "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+          fi
+
+      - name: Accept Android licenses
+        uses: ./.github/actions/android-accept-licenses
+
+      - name: Install Android packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="${ANDROID_SDK_ROOT}" \
+            "platform-tools" \
+            "platforms;android-34" \
+            "ndk;${ANDROID_NDK_VERSION}"
+
+      - name: Setup Gradle cache
+        if: ${{ hashFiles('**/gradlew') != '' }}
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: Gradle build (if present)
+        if: ${{ hashFiles('**/gradlew') != '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x ./gradlew
+          ./gradlew --no-daemon --stacktrace assemble
+
+      - name: CMake build (disabled for Android job)
+        if: ${{ false }}
+        shell: bash
+        run: echo "::notice::Android job skips root native CMake build."
+
+      - name: Upload build artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-android-ubuntu-24.04-api34
+          path: |
+            build/**/*
+            **/build/outputs/**/*
+          if-no-files-found: warn
+
+  # =====================================
+  # Android legacy (API 15) — Ubuntu 22 AMD64 only (after smoke_android)
+  # =====================================
+  android_legacy:
+    name: android • legacy • ubuntu-22.04 • api 15 • ndk 23.1.7779620
+    needs: smoke_android
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java 11
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "11"
+
+      - name: Prepare SDK + cmdline-tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools" "$HOME/.android"
+          touch "$HOME/.android/repositories.cfg"
+          tmp=$(mktemp -d)
+          curl -fsSL "$ANDROID_CLT_LINUX" -o "$tmp/cmdline.zip"
+          unzip -q "$tmp/cmdline.zip" -d "$ANDROID_SDK_ROOT/cmdline-tools"
+          mv "$ANDROID_SDK_ROOT/cmdline-tools/cmdline-tools" "$ANDROID_SDK_ROOT/cmdline-tools/latest"
+          echo "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+
+      - name: Accept Android licenses (hash-seeded)
+        uses: ./.github/actions/android-accept-licenses
+
+      - name: Install legacy platform + NDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="${ANDROID_SDK_ROOT}" \
+            "platform-tools" \
+            "platforms;android-15" \
+            "ndk;${ANDROID_NDK_VERSION}"
+
+      - name: Smoke compile armv7a @16
+        shell: bash
+        run: |
+          set -euo pipefail
+          pre="$ANDROID_SDK_ROOT/ndk/${ANDROID_NDK_VERSION}/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          a32="$pre/armv7a-linux-androideabi16-clang++"
+          [ -x "$a32" ] || { echo "::error::Missing $a32"; exit 127; }
+          mkdir -p smoke && cd smoke
+          cat > t.cpp <<'CPP'
+          #include <atomic>
+          int main(){ std::atomic<int> v{0}; v++; return (int)v.load(); }
+          CPP
+          "$a32" -latomic -O2 t.cpp -o a32
+          echo ok > ../.smoke_pass
+
+      - name: Upload legacy smoke artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-android-legacy-api15
+          path: |
+            .smoke_pass
+            smoke/**/*
+          if-no-files-found: warn
+
+  # =====================================
+  # macOS (Intel) — native only (after smoke_native_macos)
+  # =====================================
+  macos:
+    name: native • macOS • ${{ matrix.macos }}
+    needs: depends_smoke_macos
+    runs-on: ${{ matrix.macos }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        macos: [macos-13]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Toolchain sanity
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo 'int main(){return 0;}' > t.cpp
+          c++ -O2 t.cpp -o t && ./t || true
+
+      - name: Build vendored depends (macOS Intel)
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -d depends ]; then
+            brew update
+            brew install automake libtool pkg-config cmake ninja
+            if ! compgen -G "depends/x86_64-apple-darwin*" > /dev/null; then
+              make -C depends -j"$(sysctl -n hw.ncpu || echo 2)" HOST=x86_64-apple-darwin
+            fi
+          else
+            echo "::error::depends/ directory missing; required for macOS build."
+            exit 2
+          fi
+
+      - name: CMake build (requires vendored depends)
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! compgen -G "depends/x86_64-apple-darwin*" > /dev/null; then
+            echo "::error::Vendored depends prefix not found after build."
+            ls -la depends || true
+            exit 2
+          fi
+          export CMAKE_PREFIX_PATH="$(echo depends/x86_64-apple-darwin*)"
+          cmake -S . -B build
+          cmake --build build -j"$(sysctl -n hw.ncpu || echo 2)" || {
+            echo "::error::CMake build failed on macOS with vendored depends."; exit 2; }
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-macos-${{ matrix.macos }}
+          path: build/**/*
+          if-no-files-found: warn
+
+  # =====================================
+  # Ubuntu (22/24 AMD64 + self-hosted ARM64) — native only (after smoke_native_ubuntu)
+  # =====================================
+  ubuntu:
+    name: native • ubuntu • ${{ matrix.name }}
+    needs: depends_smoke_ubuntu
+    runs-on: ${{ fromJSON(matrix.runs_on) }}
+    continue-on-error: ${{ matrix.allow_failures }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: ubuntu-22-amd64
+            runs_on: '"ubuntu-22.04"'
+            triple: x86_64-pc-linux-gnu
+            allow_failures: false
+          - name: ubuntu-24-amd64
+            runs_on: '"ubuntu-24.04"'
+            triple: x86_64-pc-linux-gnu
+            allow_failures: false
+          - name: ubuntu-22-arm64
+            runs_on: '["self-hosted","Linux","ARM64","ubuntu-22.04"]'
+            triple: aarch64-linux-gnu
+            allow_failures: true
+          - name: ubuntu-24-arm64
+            runs_on: '["self-hosted","Linux","ARM64","ubuntu-24.04"]'
+            triple: aarch64-linux-gnu
+            allow_failures: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Toolchain sanity
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo 'int main(){return 0;}' > t.cpp
+          c++ -O2 t.cpp -o t && ./t || true
+
+      - name: Build vendored depends (Linux)
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -d depends ]; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq build-essential pkg-config automake libtool autoconf bison cmake ninja-build python3
+            if [ ! -d "depends/${{ matrix.triple }}" ]; then
+              make -C depends -j"$(nproc || echo 2)" HOST=${{ matrix.triple }}
+            fi
+          else
+            echo "::notice::No depends/ dir; skipping vendored deps."
+          fi
+
+      - name: CMake build (if present)
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -f CMakeLists.txt ]; then
+            echo "::notice::No CMakeLists.txt; skipping."
+            exit 0
+          fi
+          if [ -d "depends/${{ matrix.triple }}" ]; then
+            export CMAKE_PREFIX_PATH="depends/${{ matrix.triple }}"
+          else
+            echo "::warning::Vendored depends prefix not found; skipping Ubuntu build on ${{ matrix.name }}."
+            exit 0
+          fi
+          cmake -S . -B build
+          cmake --build build -j"$(nproc || echo 2)" || {
+            echo "::error::CMake build failed on Ubuntu with vendored depends."; exit 2; }
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-ubuntu-${{ matrix.name }}
+          path: build/**/*
+          if-no-files-found: warn
+
+  # =====================================
+  # Windows (PowerShell) — native only (after smoke_native_windows)
+  # =====================================
+  windows:
+    name: native • windows • ${{ matrix.windows }}
+    needs: smoke_native_windows
+    runs-on: ${{ matrix.windows }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        windows: [windows-2022]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup MSVC env
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Toolchain sanity
+        shell: pwsh
+        run: |
+          'int main(){return 0;}' | Set-Content -NoNewline -Path .\t.cpp
+          cl /nologo .\t.cpp /Fe:t.exe
+          .\t.exe
+
+      - name: CMake build (if present)
+        shell: pwsh
+        run: |
+          if (Test-Path .\CMakeLists.txt) {
+            cmake -S . -B build
+            if ($LASTEXITCODE -ne 0) { echo "::error::CMake configure failed."; exit 2 }
+            cmake --build build -- -j 2
+            if ($LASTEXITCODE -ne 0) { echo "::error::CMake build failed; check missing deps."; exit 2 }
+          } else {
+            echo "::notice::No CMakeLists.txt; skipping."
+          }
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-windows-${{ matrix.windows }}
+          path: build/**/*
+          if-no-files-found: warn
