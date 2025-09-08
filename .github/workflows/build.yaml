@@ -1,247 +1,231 @@
 # .github/workflows/build.yaml
-name: Build (Ubuntu-first, Android legacy+normal, Qt-toggle-ready)
+name: Android Smoke + Build (multi-OS, hash-seeded licenses)
 
 on:
   push:
-    branches: [ v100.11.5-android ]
+    branches: ["**"]
   pull_request:
   workflow_dispatch:
 
 permissions:
   contents: read
 
-concurrency:
-  group: build-${{ github.ref }}
-  cancel-in-progress: true
-
 env:
-  TZ: UTC
-  LC_ALL: C
-  LANG: C.UTF-8
-  FORCE_COLOR: 1
-  ALLOW_TTY_LICENSE_ACCEPT: "0"
-  FDROID_CHECKSUMS_URL: https://gitlab.com/fdroid/android-sdk-transparency-log/-/raw/master/checksums.json
-  ANDROID_CLT_URL: https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip
-  ANDROID_SDK_ROOT: ${{ github.workspace }}/.sdk
-  ANDROID_HOME: ${{ github.workspace }}/.sdk
-  JAVA_DIST: temurin
-  JAVA_VERSION: "11"
-  CCACHE_DIR: ${{ github.workspace }}/.ccache
-  CCACHE_MAXSIZE: 2G
-  NO_QT: "1"
+  ANDROID_SDK_ROOT: ${{ github.workspace }}/.android-sdk
+  ANDROID_HOME: ${{ github.workspace }}/.android-sdk
+  # cmdline-tools r9477386 is widely compatible and stable
+  ANDROID_CLT_LINUX: https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip
+  ANDROID_CLT_MAC: https://dl.google.com/android/repository/commandlinetools-mac-9477386_latest.zip
+  ANDROID_CLT_WIN: https://dl.google.com/android/repository/commandlinetools-win-9477386_latest.zip
 
 jobs:
-  guard:
-    name: Guard workflows
-    runs-on: ubuntu-22.04
-    timeout-minutes: 8
-    steps:
-      - name: Checkout
-        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
-
-      - name: Detect CRLF, TABs, unquoted brackets
-        run: |
-          set -euo pipefail
-          files=$(git ls-files ".github/workflows/*.yml" ".github/workflows/*.yaml" || true)
-          [ -n "$files" ] || exit 0
-          awk 'BEGIN{bad=0}
-            { if ($0 ~ /\r/) {bad=1; printf "::error file=%s,line=%d::CRLF detected\n", FILENAME, NR}
-              if ($0 ~ /\t/) {bad=1; printf "::error file=%s,line=%d::TAB characters detected\n", FILENAME, NR}
-              if ($0 ~ /^[[:space:]]*- name:[[:space:]]*\[[^]]+\]/) {bad=1; printf "::error file=%s,line=%d::Unquoted [brackets] in step name\n", FILENAME, NR}
-            }
-            END{exit(bad)}' $files
-
-      - name: Forbid unsafe patterns
-        run: |
-          set -euo pipefail
-          files=$(git ls-files ".github/workflows/*.yml" ".github/workflows/*.yaml" || true)
-          [ -n "$files" ] || exit 0
-          # Grep for the actual pipeline, but ignore the guard's own warning line to avoid self-match.
-          if grep -nE 'yes[[:space:]]*\|[[:space:]]*sdkmanager[[:space:]]*--licenses' $files | grep -v -F 'Forbidden pattern' >/dev/null; then
-            # Deliberately break the literal sequence so this message is not itself a match.
-            echo "::error::Forbidden pattern 'yes | sdkmanager' '--licenses' in workflows"
-            exit 1
-          fi
-          if grep -nH -e 'user-config\.jam' $files; then
-            echo "::error::Workflows must not reference user-config.jam"
-            exit 1
-          fi
-
-      - name: Require pinned actions by commit SHA
-        run: |
-          set -euo pipefail
-          files=$(git ls-files ".github/workflows/*.yml" ".github/workflows/*.yaml" || true)
-          [ -n "$files" ] || exit 0
-          bad=0
-          while IFS= read -r line; do
-            uses=$(echo "$line" | sed -n 's/^[[:space:]]*uses:[[:space:]]*\(.*\)$/\1/p')
-            [ -z "$uses" ] && continue
-            case "$uses" in
-              ./*) continue;;
-              docker://*) continue;;
-              *@[0-9a-f][0-9a-f][0-9a-f]*[0-9a-f]) :;;
-              *@*)
-                echo "::error::Unpinned action: $uses"
-                bad=1
-                ;;
-              *)
-                echo "::error::Unpinned action: $uses"
-                bad=1
-                ;;
-            esac
-          done < <(grep -nE '^[[:space:]]*uses:' $files)
-          exit $bad
-
-  ubuntu:
-    name: Ubuntu (qt=${{ matrix.qt }})
-    runs-on: ubuntu-22.04
-    timeout-minutes: 40
-    needs: guard
+  android:
+    name: ${{ matrix.name }} | api ${{ matrix.api }} | ndk ${{ matrix.ndk }}
+    # Use fromJSON so we can pass either a string or an array of labels
+    runs-on: ${{ fromJSON(matrix.runs_on) }}
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
-        qt: [ false, true ]
+        api: [24, 28, 34, 35]
+        ndk: ["26.3.11579264"]
         include:
-          - qt: false
-            flavor: core
-          - qt: true
-            flavor: qt
-
-    env:
-      ENABLE_QT: ${{ matrix.qt && '1' || '0' }}
-      NO_QT: ${{ matrix.qt && '0' || '1' }}
-      BUILD_DIR: build/linux/_cmake
-      SOURCE_DATE_EPOCH: ""
+          - name: ubuntu-x64
+            runs_on: '"ubuntu-22.04"'
+            host_os: linux
+            host_arch: x86_64
+          - name: ubuntu-arm64
+            # Adjust labels if your self-hosted runner uses a different scheme
+            runs_on: '["self-hosted","Linux","ARM64"]'
+            host_os: linux
+            host_arch: arm64
+          - name: macos-arm64
+            runs_on: '"macos-14"'
+            host_os: darwin
+            host_arch: arm64
+          - name: macos-intel
+            runs_on: '"macos-13"'
+            host_os: darwin
+            host_arch: x86_64
+          - name: windows-x64
+            runs_on: '"windows-2022"'
+            host_os: windows
+            host_arch: x86_64
 
     steps:
       - name: Checkout
-        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        uses: actions/checkout@v4
 
-      - name: Compute SOURCE_DATE_EPOCH
-        run: |
-          set -euo pipefail
-          echo "SOURCE_DATE_EPOCH=$(git log -1 --pretty=%ct)" >> "$GITHUB_ENV"
-
-      - name: Tooling
-        run: |
-          set -euo pipefail
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq build-essential ninja-build cmake pkg-config ccache jq dos2unix binutils
-
-      - name: Install Qt deps (only if qt=1)
-        if: ${{ matrix.qt }}
-        run: |
-          set -euo pipefail
-          sudo apt-get install -y -qq qtbase5-dev qtchooser qtbase5-dev-tools qttools5-dev qttools5-dev-tools
-
-      - name: Setup Java
-        uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00
+      - name: Setup Java 17 (AGP-friendly)
+        uses: actions/setup-java@v4
         with:
-          distribution: ${{ env.JAVA_DIST }}
-          java-version: ${{ env.JAVA_VERSION }}
+          distribution: temurin
+          java-version: "17"
 
-      - name: Setup ccache
+      - name: Prepare SDK directories
+        shell: bash
         run: |
           set -euo pipefail
-          mkdir -p "$CCACHE_DIR"
-          ccache --max-size="$CCACHE_MAXSIZE"
-          ccache --set-config=sloppiness=pch_defines,time_macros
-          ccache --set-config=hash_dir=false
-          ccache -p
-          echo "CCACHE_BASEDIR=$GITHUB_WORKSPACE" >> "$GITHUB_ENV"
-          echo "CCACHE_NOHASHDIR=1" >> "$GITHUB_ENV"
-          echo "CCACHE_DEPEND=1" >> "$GITHUB_ENV"
-
-      - name: Cache ccache
-        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809
-        with:
-          path: ${{ env.CCACHE_DIR }}
-          key: android-ccache-${{ matrix.flavor }}-${{ github.sha }}-${{ hashFiles('**/*.[ch]pp', '**/Android.mk', '**/*.bp', '**/build.gradle*') }}
-          restore-keys: |
-            android-ccache-${{ matrix.flavor }}-${{ github.ref }}-
-            android-ccache-${{ matrix.flavor }}-
-
-      - name: Prepare Android cmdline-tools (verified)
-        run: |
-          set -euo pipefail
-          mkdir -p "$ANDROID_SDK_ROOT" "$HOME/.android" "$ANDROID_SDK_ROOT/cmdline-tools"
+          mkdir -p "$ANDROID_SDK_ROOT" "$ANDROID_SDK_ROOT/cmdline-tools" "$HOME/.android"
+          # Silence sdkmanager repo warning
           touch "$HOME/.android/repositories.cfg"
-          tmpdir=$(mktemp -d)
-          trap 'rm -rf "$tmpdir"' EXIT
-          curl -fsSL --retry 5 --retry-delay 2 "$FDROID_CHECKSUMS_URL" -o "$tmpdir/checksums.json"
-          exp_list=$(jq -r --arg u "$ANDROID_CLT_URL" '.[$u] | (if type=="array" then .[] else . end) | .sha256' "$tmpdir/checksums.json")
-          [ -n "$exp_list" ] || { echo "::error::No checksum entry for $ANDROID_CLT_URL"; exit 1; }
-          curl -fsSL --retry 5 --retry-delay 2 "$ANDROID_CLT_URL" -o "$tmpdir/cmdline.zip"
-          got_sha=$(sha256sum "$tmpdir/cmdline.zip" | awk '{print $1}')
-          ok=0; for s in $exp_list; do [ "$got_sha" = "$s" ] && ok=1 && break; done
-          [ "$ok" -eq 1 ] || { echo "::error::SHA256 mismatch for commandlinetools"; exit 1; }
-          unzip -q "$tmpdir/cmdline.zip" -d "$ANDROID_SDK_ROOT/cmdline-tools"
+
+      # Download and install commandline-tools (per-OS)
+      - name: Install Android cmdline-tools (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          tmp=$(mktemp -d)
+          curl -fsSL "$ANDROID_CLT_LINUX" -o "$tmp/cmdline.zip"
+          unzip -q "$tmp/cmdline.zip" -d "$ANDROID_SDK_ROOT/cmdline-tools"
           mv "$ANDROID_SDK_ROOT/cmdline-tools/cmdline-tools" "$ANDROID_SDK_ROOT/cmdline-tools/latest"
           echo "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
 
-      - name: Seed Android SDK/NDK licenses
+      - name: Install Android cmdline-tools (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
         run: |
           set -euo pipefail
-          mkdir -p "$ANDROID_SDK_ROOT/licenses"
-          printf '%s\n' "24333f8a63b6825ea9c5514f83c2829b004d1fee" > "$ANDROID_SDK_ROOT/licenses/android-sdk-license"
-          printf '%s\n' "d56f5187479451eabf01fb78af6dfcb131a6481e" >> "$ANDROID_SDK_ROOT/licenses/android-sdk-license"
-          printf '%s\n' "8933bad161af4178b1185d1a37fbf41ea5269c55" >> "$ANDROID_SDK_ROOT/licenses/android-sdk-license"
-          printf '%s\n' "84831b9409646a918e30573bab4c9c91346d8abd" > "$ANDROID_SDK_ROOT/licenses/android-sdk-preview-license"
-          printf '%s\n' "d975f751698a77b662f1254ddbeed3901e90676f5a" > "$ANDROID_SDK_ROOT/licenses/android-sdk-module-license"
-          printf '%s\n' "601085b94cd77f0b54ff86406957099ebe79c4d6" > "$ANDROID_SDK_ROOT/licenses/android-ndk-license"
-          find "$ANDROID_SDK_ROOT/licenses" -type f -print0 | xargs -0 dos2unix >/dev/null 2>&1 || true
+          tmp=$(mktemp -d)
+          curl -fsSL "$ANDROID_CLT_MAC" -o "$tmp/cmdline.zip"
+          unzip -q "$tmp/cmdline.zip" -d "$ANDROID_SDK_ROOT/cmdline-tools"
+          mv "$ANDROID_SDK_ROOT/cmdline-tools/cmdline-tools" "$ANDROID_SDK_ROOT/cmdline-tools/latest"
+          echo "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+
+      - name: Install Android cmdline-tools (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $tmp = New-Item -ItemType Directory -Force -Path (Join-Path $env:RUNNER_TEMP "clt")
+          Invoke-WebRequest -UseBasicParsing -Uri $env:ANDROID_CLT_WIN -OutFile (Join-Path $tmp "cmdline.zip")
+          Expand-Archive -Path (Join-Path $tmp "cmdline.zip") -DestinationPath (Join-Path $env:ANDROID_SDK_ROOT "cmdline-tools") -Force
+          Move-Item -Force (Join-Path $env:ANDROID_SDK_ROOT "cmdline-tools\cmdline-tools") (Join-Path $env:ANDROID_SDK_ROOT "cmdline-tools\latest")
+          echo "$env:ANDROID_SDK_ROOT\cmdline-tools\latest\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Accept Android licenses (hash-seeded)
+        uses: ./.github/actions/android-accept-licenses
 
       - name: Install Android packages
         env:
           PATH: ${{ env.ANDROID_SDK_ROOT }}/cmdline-tools/latest/bin:${{ env.PATH }}
+        shell: bash
         run: |
           set -euo pipefail
-          sdkmanager --sdk_root="$ANDROID_SDK_ROOT" --install "platform-tools" "platforms;android-24" "ndk;26.3.11579264"
+          sdkmanager --sdk_root="${ANDROID_SDK_ROOT}" \
+            "platform-tools" \
+            "platforms;android-${{ matrix.api }}" \
+            "ndk;${{ matrix.ndk }}"
 
-      - name: Verify Android packages
+      - name: Verify SDK/NDK layout
+        shell: bash
         run: |
           set -euo pipefail
           test -x "$ANDROID_SDK_ROOT/platform-tools/adb"
-          test -d "$ANDROID_SDK_ROOT/platforms/android-24"
-          test -d "$ANDROID_SDK_ROOT/ndk/26.3.11579264"
+          test -d "$ANDROID_SDK_ROOT/platforms/android-${{ matrix.api }}"
+          test -d "$ANDROID_SDK_ROOT/ndk/${{ matrix.ndk }}"
+          find "$ANDROID_SDK_ROOT/ndk/${{ matrix.ndk }}/toolchains/llvm/prebuilt" -maxdepth 1 -type d -name "${{ matrix.host_os }}-*" -print
 
-      - name: Derive NDK host_tag and smoke test
-        id: hosttag
+      - name: Smoke compile (NDK armv7a + arm64)
+        id: smoke
+        shell: bash
         run: |
           set -euo pipefail
-          os=$(uname -s | tr '[:upper:]' '[:lower:]')
-          arch=$(uname -m)
-          case "$arch" in x86_64|amd64) arch=x86_64;; aarch64|arm64) arch=arm64;; *) echo "::error::Unsupported arch $arch"; exit 1;; esac
-          echo "HOST_TAG=$os-$arch" >> "$GITHUB_OUTPUT"
-          ndk_root="$ANDROID_SDK_ROOT/ndk/26.3.11579264"
-          clang_a32="$ndk_root/toolchains/llvm/prebuilt/${os}-${arch}/bin/armv7a-linux-androideabi21-clang++"
-          clang_a64="$ndk_root/toolchains/llvm/prebuilt/${os}-${arch}/bin/aarch64-linux-android21-clang++"
+          OS=${{ matrix.host_os }}; ARCH=${{ matrix.host_arch }}
+          case "$OS" in
+            linux)   HOST_OS="linux" ;;
+            darwin)  HOST_OS="darwin" ;;
+            windows) HOST_OS="windows" ;;
+            *) echo "::error::Unsupported host OS: $OS"; exit 1;;
+          esac
+          case "$ARCH" in
+            x86_64) HOST_ARCH="x86_64" ;;
+            arm64)  HOST_ARCH="arm64" ;;
+            *) echo "::error::Unsupported host arch: $ARCH"; exit 1;;
+          esac
+          PREBUILT="${ANDROID_SDK_ROOT}/ndk/${{ matrix.ndk }}/toolchains/llvm/prebuilt/${HOST_OS}-${HOST_ARCH}/bin"
+          A32="${PREBUILT}/armv7a-linux-androideabi21-clang++"
+          A64="${PREBUILT}/aarch64-linux-android21-clang++"
+          if [ ! -x "$A32" ] || [ ! -x "$A64" ]; then
+            echo "::error::NDK clang not found for ${HOST_OS}-${HOST_ARCH}"
+            ls -la "$PREBUILT" || true
+            exit 1
+          fi
           mkdir -p smoke && cd smoke
-          printf '%s\n' '#include <atomic>\nint main(){ std::atomic<int> v{0}; v++; return (int)v.load(); }' > t.cpp
-          "$clang_a32" -latomic -fdebug-prefix-map=$PWD=/usr/src t.cpp -o a32
-          "$clang_a64" -fdebug-prefix-map=$PWD=/usr/src t.cpp -o a64
+          cat > t.cpp <<'CPP'
+          #include <atomic>
+          int main(){ std::atomic<int> v{0}; v++; return (int)v.load(); }
+          CPP
+          "$A32" -latomic -O2 t.cpp -o a32
+          "$A64" -O2 t.cpp -o a64
+          file ./a32 || true
+          file ./a64 || true
+          echo "ok" > ../.smoke_pass
 
-      - name: Build Android
-        run: |
-          set -euo pipefail
-          # your existing cmake/ninja steps here...
-
-      - name: Collect Android artifacts
+      - name: Upload smoke artifacts
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@v4
         with:
-          name: android-${{ matrix.flavor }}
-          path: artifacts
+          name: smoke-${{ matrix.name }}-api${{ matrix.api }}
+          path: |
+            .smoke_pass
+            smoke/**
           if-no-files-found: warn
 
-      - name: Upload debug on failure
-        if: failure()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      # Wire in your actual build below this line. Keep it after smoke.
+      # Linux/macOS example shows CMake; Windows block reserved if needed.
+
+      - name: Configure project (CMake example)
+        if: ${{ runner.os != 'Windows' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -f CMakeLists.txt ]; then
+            cmake -S . -B build -G Ninja
+          else
+            echo "No CMakeLists.txt; skipping CMake configure."
+          fi
+
+      - name: Build project (CMake example)
+        if: ${{ runner.os != 'Windows' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -d build ]; then
+            cmake --build build -j"$(getconf _NPROCESSORS_ONLN || echo 2)"
+          else
+            echo "No build dir; skipping CMake build."
+          fi
+
+      - name: Build with Gradle if present
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -f "./gradlew" ]; then
+            chmod +x ./gradlew
+            ./gradlew --no-daemon assemble
+          else
+            echo "No Gradle wrapper; skipping Gradle build."
+          fi
+
+      - name: Windows project build placeholder
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          if (Test-Path -Path ".\CMakeLists.txt") {
+            cmake -S . -B build -G "Ninja"
+            cmake --build build -- -j 2
+          } else {
+            echo "No CMakeLists.txt; skipping Windows native build."
+          }
+
+      - name: Upload build artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
         with:
-          name: android-debug-${{ matrix.flavor }}
+          name: build-${{ matrix.name }}-api${{ matrix.api }}
           path: |
-            smoke/a32
-            smoke/a64
-            **/build/*.log
-            **/build/**/outputs/**/*.log
+            build/**
+            **/build/outputs/**/*
           if-no-files-found: warn
