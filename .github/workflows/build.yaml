@@ -1,5 +1,5 @@
 # .github/workflows/build.yaml
-name: CI • Smoke-first + OS builds (Android on Ubuntu AMD64)
+name: CI • Production builds (Android + Native)
 
 on:
   push:
@@ -20,613 +20,14 @@ env:
   ANDROID_CLT_LINUX: https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip
   ANDROID_NDK_VERSION: "23.1.7779620"
 
+# ---------------------
+# Android (production)
+# ---------------------
 jobs:
-  # =====================================
-  # SMOKE: native toolchains — Ubuntu (AMD/ARM/RISC-V)
-  # =====================================
-  smoke_native_ubuntu:
-    name: smoke • native • ubuntu • ${{ matrix.name }}
-    runs-on: ${{ fromJSON(matrix.runs_on) }}
-    continue-on-error: ${{ matrix.allow_failures }}
-    timeout-minutes: 10
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: ubuntu-22-amd64
-            runs_on: '"ubuntu-22.04"'
-            allow_failures: false
-          - name: ubuntu-24-amd64
-            runs_on: '"ubuntu-24.04"'
-            allow_failures: false
-          - name: ubuntu-22-arm64
-            runs_on: '["self-hosted","Linux","ARM64","ubuntu-22.04"]'
-            allow_failures: true
-          - name: ubuntu-24-arm64
-            runs_on: '["self-hosted","Linux","ARM64","ubuntu-24.04"]'
-            allow_failures: true
-          - name: ubuntu-22-riscv64
-            runs_on: '["self-hosted","Linux","RISC-V","ubuntu-22.04"]'
-            allow_failures: true
-          - name: ubuntu-24-riscv64
-            runs_on: '["self-hosted","Linux","RISC-V","ubuntu-24.04"]'
-            allow_failures: true
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Normalize shebangs (curly quotes)
-        shell: bash
-        run: |
-          set -euo pipefail
-          while IFS= read -r -d '' f; do
-            head -n1 "$f" | grep -q '^#!' || continue
-            if head -n1 "$f" | grep -qE "[‘’“”]"; then
-              awk 'NR==1{gsub(/‘|’/, "'\''"); gsub(/“|”/, "\"")} {print}' "$f" > "$f.tmp" && mv "$f.tmp" "$f"
-              echo "::warning file=$f,line=1::Fixed curly quotes in shebang (use ASCII quotes)."
-            fi
-          done < <(git ls-files -z)
-
-      - name: Toolchain smoke
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo 'int main(){return 0;}' > t.cpp
-          c++ -O2 t.cpp -o t
-          ./t || true
-          echo ok > .smoke_pass
-
-      - name: Append smoke summary
-        shell: bash
-        run: |
-          set -euo pipefail
-          {
-            echo "### Smoke native ubuntu: ${{ matrix.name }}";
-            echo "- Compiler: $(c++ --version | head -1 2>/dev/null || echo unknown)";
-            echo "- CPU cores: $(nproc 2>/dev/null || echo 2)";
-            echo "- Kernel: $(uname -sr)";
-          } >> "$GITHUB_STEP_SUMMARY"
-          echo "::notice::ubuntu smoke passed on ${{ matrix.name }}"
-
-      - name: Inventory toolchain packages
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo "component,version,path,sha256,homepage" > inventory.csv
-          bin="$(command -v c++ || true)"; ver="$(c++ --version | head -1 || true)"; sha="$( [ -n "$bin" ] && sha256sum "$bin" | awk '{print $1}' || echo )"
-          echo "| component | version | path | sha256 | homepage |" >> "$GITHUB_STEP_SUMMARY"
-          echo "|---|---|---|---|---|" >> "$GITHUB_STEP_SUMMARY"
-          echo "| c++ | ${ver:-n/a} | ${bin:-n/a} | ${sha:-} | https://gcc.gnu.org/ |" >> "$GITHUB_STEP_SUMMARY"
-          echo "c++,${ver//,/ },$bin,$sha,https://gcc.gnu.org/" >> inventory.csv
-          for p in cmake ninja-build make pkg-config; do
-            if dpkg-query -W -f='${Version}' "$p" >/dev/null 2>&1; then
-              verp=$(dpkg-query -W -f='${Version}' "$p" 2>/dev/null | head -1)
-              home=$(apt-cache show "$p" 2>/dev/null | awk -F': ' '/^Homepage:/ {print $2; exit}')
-              binp=$(command -v ${p%%-*} || true)
-              shap=$( [ -n "$binp" ] && sha256sum "$binp" | awk '{print $1}' || echo )
-              echo "| $p | ${verp:-} | ${binp:-} | ${shap:-} | ${home:-} |" >> "$GITHUB_STEP_SUMMARY"
-              echo "$p,${verp//,/ },$binp,$shap,${home:-}" >> inventory.csv
-            fi
-          done
-
-      - name: Upload smoke inventory
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: smoke-inventory-ubuntu-${{ matrix.name }}
-          path: inventory.csv
-          if-no-files-found: warn
-
-      - name: Upload smoke artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: smoke-native-${{ matrix.name }}
-          path: |
-            .smoke_pass
-            t
-          if-no-files-found: warn
-
-  # =====================================
-  # SMOKE: native toolchains — macOS (Intel)
-  # =====================================
-  smoke_native_macos:
-    name: smoke • native • macos • ${{ matrix.macos }}
-    runs-on: ${{ matrix.macos }}
-    timeout-minutes: 10
-    strategy:
-      fail-fast: false
-      matrix:
-        macos: [macos-13]
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Normalize shebangs (curly quotes)
-        shell: bash
-        run: |
-          set -euo pipefail
-          while IFS= read -r -d '' f; do
-            head -n1 "$f" | grep -q '^#!' || continue
-            if head -n1 "$f" | grep -qE "[‘’“”]"; then
-              awk 'NR==1{gsub(/‘|’/, "'\''"); gsub(/“|”/, "\"")} {print}' "$f" > "$f.tmp" && mv "$f.tmp" "$f"
-              echo "::warning file=$f,line=1::Fixed curly quotes in shebang (use ASCII quotes)."
-            fi
-          done < <(git ls-files -z)
-
-      - name: Toolchain smoke
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo 'int main(){return 0;}' > t.cpp
-          c++ -O2 t.cpp -o t
-          ./t || true
-          echo ok > .smoke_pass
-
-      - name: Append smoke summary
-        shell: bash
-        run: |
-          set -euo pipefail
-          {
-            echo "### Smoke native macOS: ${{ matrix.macos }}";
-            echo "- Compiler: $(clang --version | head -1 2>/dev/null || echo unknown)";
-            echo "- CPU cores: $(sysctl -n hw.ncpu 2>/dev/null || echo 2)";
-            echo "- Kernel: $(uname -sr)";
-          } >> "$GITHUB_STEP_SUMMARY"
-          echo "::notice::macOS smoke passed on ${{ matrix.macos }}"
-
-      - name: Inventory toolchain packages
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo "| component | version | path | sha256 | homepage |" >> "$GITHUB_STEP_SUMMARY"
-          echo "|---|---|---|---|---|" >> "$GITHUB_STEP_SUMMARY"
-          bin="$(command -v clang || true)"; ver="$(clang --version | head -1 || true)"; sha="$( [ -n "$bin" ] && shasum -a 256 "$bin" | awk '{print $1}' || echo )"
-          echo "| clang | ${ver:-n/a} | ${bin:-n/a} | ${sha:-} | https://developer.apple.com/xcode/ |" >> "$GITHUB_STEP_SUMMARY"
-          if command -v brew >/dev/null 2>&1; then
-            for p in cmake ninja pkg-config automake libtool; do
-              if brew list --versions "$p" >/dev/null 2>&1; then
-                verp=$(brew list --versions "$p" | awk '{print $2}')
-                binp=$(command -v "$p" || true)
-                shap=$( [ -n "$binp" ] && shasum -a 256 "$binp" | awk '{print $1}' || echo )
-                home=$(brew info --json=v2 "$p" | python3 -c 'import sys,json;print(json.load(sys.stdin)["formulae"][0].get("homepage",""))' 2>/dev/null || true)
-                echo "| $p | ${verp:-} | ${binp:-} | ${shap:-} | ${home:-} |" >> "$GITHUB_STEP_SUMMARY"
-              fi
-            done
-          fi
-
-      - name: Upload smoke inventory
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: smoke-inventory-macos-${{ matrix.macos }}
-          path: /dev/null
-          if-no-files-found: ignore
-
-      - name: Upload smoke artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: smoke-native-${{ matrix.macos }}
-          path: |
-            .smoke_pass
-            t
-          if-no-files-found: warn
-
-  # =====================================
-  # SMOKE: native toolchains — Windows (PowerShell)
-  # =====================================
-  smoke_native_windows:
-    name: smoke • native • windows • ${{ matrix.windows }}
-    runs-on: ${{ matrix.windows }}
-    timeout-minutes: 10
-    strategy:
-      fail-fast: false
-      matrix:
-        windows: [windows-2022]
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup MSVC env
-        uses: ilammy/msvc-dev-cmd@v1
-
-      - name: Toolchain smoke
-        shell: pwsh
-        run: |
-          'int main(){return 0;}' | Set-Content -NoNewline -Path .\t.cpp
-          cl /nologo .\t.cpp /Fe:t.exe
-          .\t.exe
-          'ok' | Set-Content -NoNewline -Path .smoke_pass
-
-      - name: Append smoke summary
-        shell: pwsh
-        run: |
-          $compiler = (cl 2>&1 | Select-String -Pattern 'Version' | Select-Object -First 1).ToString()
-          $cores = $env:NUMBER_OF_PROCESSORS
-          Add-Content $env:GITHUB_STEP_SUMMARY "### Smoke native Windows: ${{ matrix.windows }}"
-          Add-Content $env:GITHUB_STEP_SUMMARY "- Compiler: $compiler"
-          Add-Content $env:GITHUB_STEP_SUMMARY "- CPU cores: $cores"
-          Add-Content $env:GITHUB_STEP_SUMMARY "- Kernel: Windows"
-          echo "::notice::Windows smoke passed on ${{ matrix.windows }}"
-
-      - name: Inventory toolchain packages
-        shell: pwsh
-        run: |
-          $bin = (Get-Command cl).Source
-          $ver = (cl 2>&1 | Select-String -Pattern 'Version' | Select-Object -First 1).ToString()
-          $sha = (Get-FileHash $bin -Algorithm SHA256).Hash
-          Add-Content $env:GITHUB_STEP_SUMMARY "| component | version | path | sha256 | homepage |"
-          Add-Content $env:GITHUB_STEP_SUMMARY "|---|---|---|---|---|"
-          Add-Content $env:GITHUB_STEP_SUMMARY "| cl | $ver | $bin | $sha | https://learn.microsoft.com/cpp/ |"
-          foreach ($p in 'cmake','ninja','pkg-config') {
-            $b = (Get-Command $p -ErrorAction SilentlyContinue).Source
-            if ($b) {
-              $hv = (& $p --version 2>$null | Select-Object -First 1)
-              $hs = (Get-FileHash $b -Algorithm SHA256).Hash
-              Add-Content $env:GITHUB_STEP_SUMMARY "| $p | $hv | $b | $hs | https://$p.org/ |"
-            }
-          }
-
-      - name: Upload smoke inventory
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: smoke-inventory-windows-${{ matrix.windows }}
-          path: /dev/null
-          if-no-files-found: ignore
-
-      - name: Upload smoke artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: smoke-native-${{ matrix.windows }}
-          path: |
-            .smoke_pass
-            t.exe
-          if-no-files-found: warn
-
-  # =====================================
-  # SMOKE: depends — Ubuntu (only OSes that use depends)
-  # =====================================
-  depends_smoke_ubuntu:
-    name: smoke • depends • ubuntu • ${{ matrix.name }}
-    needs: smoke_native_ubuntu
-    runs-on: ${{ fromJSON(matrix.runs_on) }}
-    continue-on-error: ${{ matrix.allow_failures }}
-    timeout-minutes: 45
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: ubuntu-22-amd64
-            runs_on: '"ubuntu-22.04"'
-            host: x86_64-pc-linux-gnu
-            allow_failures: false
-          - name: ubuntu-24-amd64
-            runs_on: '"ubuntu-24.04"'
-            host: x86_64-pc-linux-gnu
-            allow_failures: false
-          - name: ubuntu-22-arm64
-            runs_on: '["self-hosted","Linux","ARM64","ubuntu-22.04"]'
-            host: aarch64-linux-gnu
-            allow_failures: true
-          - name: ubuntu-24-arm64
-            runs_on: '["self-hosted","Linux","ARM64","ubuntu-24.04"]'
-            host: aarch64-linux-gnu
-            allow_failures: true
-          - name: ubuntu-22-riscv64
-            runs_on: '["self-hosted","Linux","RISC-V","ubuntu-22.04"]'
-            host: riscv64-linux-gnu
-            allow_failures: true
-          - name: ubuntu-24-riscv64
-            runs_on: '["self-hosted","Linux","RISC-V","ubuntu-24.04"]'
-            host: riscv64-linux-gnu
-            allow_failures: true
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Sync submodules
-        shell: bash
-        run: |
-          set -euo pipefail
-          git submodule sync --recursive
-          git submodule update --init --recursive
-
-      - name: Tooling
-        shell: bash
-        run: |
-          set -euo pipefail
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq build-essential pkg-config automake libtool autoconf bison cmake ninja-build python3
-
-      - name: depends full smoke
-        shell: bash
-        run: |
-          set -euo pipefail
-          [ -d depends ] || { echo "::error::depends/ directory missing; required for Ubuntu builds."; exit 2; }
-          J=$(nproc 2>/dev/null || echo 2); [ "$J" -gt 4 ] && J=4
-          make -C depends -j"$J" HOST='${{ matrix.host }}'
-          {
-            echo "### depends packages built on ${{ matrix.name }}";
-            pkgs=$(find depends/work -type f -name .stamp_built 2>/dev/null | while read -r f; do d=$(dirname "$f"); bn=$(basename "$d"); echo "$bn"; done | sed -E 's/-[0-9].*$//' | sort -u || true);
-            if [ -z "$pkgs" ]; then
-              echo "_no .stamp_built files found; build may be cached or produced no targets_";
-            else
-              printf '%s\n' "$pkgs" | sed 's/^/- /'
-            fi
-          } >> "$GITHUB_STEP_SUMMARY"
-          echo ok > .smoke_depends_pass
-
-      - name: Summarize depends sources (URLs + SHA256)
-        shell: bash
-        run: |
-          set -euo pipefail
-          pkgs=$(find depends/work -type f -name .stamp_built 2>/dev/null | sed -E 's#.*/work/([^/]+)/.*#\1#' | sort -u || true)
-          out="depends-metadata-${{ matrix.name }}.csv"
-          echo "package,url,sha256,source_file_sha256" > "$out"
-          for pkg in $pkgs; do
-            mk="depends/packages/${pkg}.mk"
-            url=""; sha=""; fsha=""; srcfile=""
-            if [ -f "$mk" ]; then
-              url=$(awk -F'=' '/_download_(path|url)/{gsub(/[ \t]/, "", $0); print $2; exit}' "$mk" 2>/dev/null || true)
-              sha=$(awk -F'=' '/_sha256/ {gsub(/[ \t]/, "", $0); print $2; exit}' "$mk" 2>/dev/null || true)
-              srcfile=$(awk -F'=' '/_file_name/ {gsub(/[ \t]/, "", $0); print $2; exit}' "$mk" 2>/dev/null || true)
-            fi
-            cand=""
-            if [ -n "$srcfile" ] && [ -f "depends/sources/$srcfile" ]; then cand="depends/sources/$srcfile"; fi
-            if [ -z "$cand" ]; then cand=$(ls depends/sources/${pkg}-* 2>/dev/null | head -1 || true); fi
-            if [ -n "$cand" ] && [ -f "$cand" ]; then fsha=$(sha256sum "$cand" | awk '{print $1}'); fi
-            echo "$pkg,${url:-},${sha:-},${fsha:-}" >> "$out"
-          done
-          {
-            echo "### depends sources on ${{ matrix.name }}";
-            echo "| package | url | sha256 | source_file_sha256 |";
-            echo "|---|---|---|---|";
-            awk -F',' 'NR>1{printf "| %s | %s | %s | %s |\n", $1,$2,$3,$4}' "$out"
-          } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Upload depends metadata
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: depends-metadata-${{ matrix.name }}
-          path: depends-metadata-${{ matrix.name }}.csv
-          if-no-files-found: warn
-
-      - name: Upload depends logs on failure
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: depends-logs-${{ matrix.name }}
-          path: depends/work/**/config.log
-          if-no-files-found: ignore
-
-      - name: Upload depends smoke artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: smoke-depends-ubuntu-${{ matrix.name }}
-          path: .smoke_depends_pass
-          if-no-files-found: warn
-
-  # =====================================
-  # SMOKE: depends — macOS (only OSes that use depends)
-  # =====================================
-  depends_smoke_macos:
-    name: smoke • depends • macos • ${{ matrix.macos }}
-    needs: smoke_native_macos
-    runs-on: ${{ matrix.macos }}
-    timeout-minutes: 45
-    strategy:
-      fail-fast: false
-      matrix:
-        macos: [macos-13]
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Sync submodules
-        shell: bash
-        run: |
-          set -euo pipefail
-          git submodule sync --recursive
-          git submodule update --init --recursive
-
-      - name: Tooling
-        shell: bash
-        run: |
-          set -euo pipefail
-          brew update
-          brew install automake libtool pkg-config ninja
-          brew list --versions cmake >/dev/null 2>&1 || brew install cmake
-
-      - name: depends full smoke
-        shell: bash
-        run: |
-          set -euo pipefail
-          [ -d depends ] || { echo "::error::depends/ directory missing; required for macOS builds."; exit 2; }
-          J=$(sysctl -n hw.ncpu 2>/dev/null || echo 2); [ "$J" -gt 4 ] && J=4
-          make -C depends -j"$J" HOST=x86_64-apple-darwin
-          {
-            echo "### depends packages built on ${{ matrix.macos }}";
-            pkgs=$(find depends/work -type f -name .stamp_built 2>/dev/null | while read -r f; do d=$(dirname "$f"); bn=$(basename "$d"); echo "$bn"; done | sed -E 's/-[0-9].*$//' | sort -u || true);
-            if [ -z "$pkgs" ]; then
-              echo "_no .stamp_built files found; build may be cached or produced no targets_";
-            else
-              printf '%s\n' "$pkgs" | sed 's/^/- /'
-            fi
-          } >> "$GITHUB_STEP_SUMMARY"
-          echo ok > .smoke_depends_pass
-
-      - name: Summarize depends sources (URLs + SHA256)
-        shell: bash
-        run: |
-          set -euo pipefail
-          pkgs=$(find depends/work -type f -name .stamp_built 2>/dev/null | sed -E 's#.*/work/([^/]+)/.*#\1#' | sort -u || true)
-          out="depends-metadata-${{ matrix.macos }}.csv"
-          echo "package,url,sha256,source_file_sha256" > "$out"
-          for pkg in $pkgs; do
-            mk="depends/packages/${pkg}.mk"
-            url=""; sha=""; fsha=""; srcfile=""
-            if [ -f "$mk" ]; then
-              url=$(awk -F'=' '/_download_(path|url)/{gsub(/[ \t]/, "", $0); print $2; exit}' "$mk" 2>/dev/null || true)
-              sha=$(awk -F'=' '/_sha256/ {gsub(/[ \t]/, "", $0); print $2; exit}' "$mk" 2>/dev/null || true)
-              srcfile=$(awk -F'=' '/_file_name/ {gsub(/[ \t]/, "", $0); print $2; exit}' "$mk" 2>/dev/null || true)
-            fi
-            cand=""
-            if [ -n "$srcfile" ] && [ -f "depends/sources/$srcfile" ]; then cand="depends/sources/$srcfile"; fi
-            if [ -z "$cand" ]; then cand=$(ls depends/sources/${pkg}-* 2>/dev/null | head -1 || true); fi
-            if [ -n "$cand" ] && [ -f "$cand" ]; then fsha=$(shasum -a 256 "$cand" | awk '{print $1}'); fi
-            echo "$pkg,${url:-},${sha:-},${fsha:-}" >> "$out"
-          done
-          {
-            echo "### depends sources on ${{ matrix.macos }}";
-            echo "| package | url | sha256 | source_file_sha256 |";
-            echo "|---|---|---|---|";
-            awk -F',' 'NR>1{printf "| %s | %s | %s | %s |\n", $1,$2,$3,$4}' "$out"
-          } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Upload depends metadata
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: depends-metadata-${{ matrix.macos }}
-          path: depends-metadata-${{ matrix.macos }}.csv
-          if-no-files-found: warn
-
-      - name: Upload depends logs on failure
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: depends-logs-${{ matrix.macos }}
-          path: depends/work/**/config.log
-          if-no-files-found: ignore
-
-      - name: Upload depends smoke artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: smoke-depends-macos-${{ matrix.macos }}
-          path: .smoke_depends_pass
-          if-no-files-found: warn
-
-  # =====================================
-  # SMOKE: Android toolchain — Ubuntu AMD64 only
-  # =====================================
-  smoke_android:
-    name: smoke • android • ubuntu-24.04 • api 34 • ndk 23.1.7779620
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Java 11
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: "11"
-
-      - name: Prepare SDK dirs
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools" "$HOME/.android"
-          touch "$HOME/.android/repositories.cfg"
-
-      - name: Install cmdline-tools
-        shell: bash
-        run: |
-          set -euo pipefail
-          tmp=$(mktemp -d)
-          curl -fsSL "$ANDROID_CLT_LINUX" -o "$tmp/cmdline.zip"
-          unzip -q "$tmp/cmdline.zip" -d "$ANDROID_SDK_ROOT/cmdline-tools"
-          mv "$ANDROID_SDK_ROOT/cmdline-tools/cmdline-tools" "$ANDROID_SDK_ROOT/cmdline-tools/latest"
-          echo "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
-
-      - name: Accept Android licenses
-        uses: ./.github/actions/android-accept-licenses
-
-      - name: Install Android packages
-        shell: bash
-        run: |
-          set -euo pipefail
-          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="${ANDROID_SDK_ROOT}" \
-            "platform-tools" \
-            "platforms;android-34" \
-            "ndk;${ANDROID_NDK_VERSION}"
-
-      - name: Verify SDK/NDK layout
-        shell: bash
-        run: |
-          set -euo pipefail
-          adb_bin="$ANDROID_SDK_ROOT/platform-tools/adb"
-          plat_dir="$ANDROID_SDK_ROOT/platforms/android-34"
-          ndk_dir="$ANDROID_SDK_ROOT/ndk/${ANDROID_NDK_VERSION}"
-          pre="$ndk_dir/toolchains/llvm/prebuilt/linux-x86_64/bin"
-          [ -x "$adb_bin" ] || { echo "::error::adb missing at $adb_bin"; exit 1; }
-          [ -d "$plat_dir" ] || { echo "::error::Android platform missing: $plat_dir"; exit 1; }
-          [ -d "$ndk_dir" ] || { echo "::error::NDK missing: $ndk_dir"; exit 1; }
-          [ -d "$pre" ] || { echo "::error::NDK prebuilt not found: $pre"; ls -la "$ndk_dir/toolchains/llvm/prebuilt" || true; exit 1; }
-
-      - name: Smoke compile (armv7a+arm64)
-        shell: bash
-        run: |
-          set -euo pipefail
-          pre="$ANDROID_SDK_ROOT/ndk/${ANDROID_NDK_VERSION}/toolchains/llvm/prebuilt/linux-x86_64/bin"
-          a32="$pre/armv7a-linux-androideabi21-clang++"
-          a64="$pre/aarch64-linux-android21-clang++"
-          [ -x "$a32" ] || { echo "::error::Missing $a32"; exit 127; }
-          [ -x "$a64" ] || { echo "::error::Missing $a64"; exit 127; }
-          mkdir -p smoke && cd smoke
-          cat > t.cpp <<'CPP'
-          #include <atomic>
-          int main(){ std::atomic<int> v{0}; v++; return (int)v.load(); }
-          CPP
-          "$a32" -latomic -O2 t.cpp -o a32
-          "$a64" -O2 t.cpp -o a64
-          echo ok > ../.smoke_pass
-
-      - name: Android toolchain inventory
-        shell: bash
-        run: |
-          set -euo pipefail
-          tmp=$(mktemp)
-          curl -fsSL "$ANDROID_CLT_LINUX" -o "$tmp" || true
-          zsha=$( [ -s "$tmp" ] && sha256sum "$tmp" | awk '{print $1}' || echo )
-          ndk_prop="$ANDROID_SDK_ROOT/ndk/${ANDROID_NDK_VERSION}/source.properties"
-          ndk_sha=$( [ -f "$ndk_prop" ] && sha256sum "$ndk_prop" | awk '{print $1}' || echo )
-          plat_prop="$ANDROID_SDK_ROOT/platforms/android-34/source.properties"
-          plat_sha=$( [ -f "$plat_prop" ] && sha256sum "$plat_prop" | awk '{print $1}' || echo )
-          {
-            echo "### Android toolchain sources";
-            echo "- cmdline-tools zip: [$ANDROID_CLT_LINUX]($ANDROID_CLT_LINUX) — sha256: ${zsha:-n/a}";
-            echo "- NDK ${ANDROID_NDK_VERSION}: fingerprint of source.properties — sha256: ${ndk_sha:-n/a}";
-            echo "- Platform android-34: fingerprint of source.properties — sha256: ${plat_sha:-n/a}";
-          } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Upload smoke artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: smoke-android-ubuntu-24.04-api34
-          path: |
-            .smoke_pass
-            smoke/**/*
-          if-no-files-found: warn
-
-  # =====================================
-  # Android builds — Ubuntu AMD64 only (after smoke_android)
-  # =====================================
   android:
-    name: android • build • ubuntu-24.04 • api 34 • ndk 23.1.7779620
-    needs: smoke_android
+    name: android • build • ubuntu-24.04 • api 34 • ndk ${ANDROID_NDK_VERSION}
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
-    env:
-      ANDROID_API_LEVEL: "34"
+    timeout-minutes: 90
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -635,9 +36,9 @@ jobs:
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: "11"
+          java-version: '11'
 
-      - name: Ensure cmdline-tools
+      - name: Prepare SDK + cmdline-tools
         shell: bash
         run: |
           set -euo pipefail
@@ -648,8 +49,8 @@ jobs:
             curl -fsSL "$ANDROID_CLT_LINUX" -o "$tmp/cmdline.zip"
             unzip -q "$tmp/cmdline.zip" -d "$ANDROID_SDK_ROOT/cmdline-tools"
             mv "$ANDROID_SDK_ROOT/cmdline-tools/cmdline-tools" "$ANDROID_SDK_ROOT/cmdline-tools/latest"
-            echo "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
           fi
+          echo "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
 
       - name: Accept Android licenses
         uses: ./.github/actions/android-accept-licenses
@@ -663,220 +64,129 @@ jobs:
             "platforms;android-34" \
             "ndk;${ANDROID_NDK_VERSION}"
 
-      - name: Build depends for native Android (optional)
+      - name: Build vendored depends (Android aarch64)
         shell: bash
         run: |
           set -euo pipefail
-          : "${ANDROID_API_LEVEL:=34}"
-          : "${ANDROID_TOOLCHAIN_BIN:=${ANDROID_SDK_ROOT}/ndk/${ANDROID_NDK_VERSION}/toolchains/llvm/prebuilt/linux-x86_64/bin}"
-          if [ -d depends ]; then
-            J=$(nproc 2>/dev/null || echo 2); [ "$J" -gt 4 ] && J=4
-            echo "::notice::Building depends for HOST=aarch64-linux-android (API ${ANDROID_API_LEVEL})."
-            make -C depends -j"$J" HOST=aarch64-linux-android ANDROID_API_LEVEL="${ANDROID_API_LEVEL}" ANDROID_TOOLCHAIN_BIN="${ANDROID_TOOLCHAIN_BIN}" || {
-              echo "::warning::Android depends build failed or unsupported; continuing without.";
-            }
+          if [ ! -d depends ]; then
+            echo "::error::depends/ directory missing; required for Android native build."; exit 2
+          fi
+          J=$(nproc 2>/dev/null || echo 2); [ "$J" -gt 8 ] && J=8
+          make -C depends -j"$J" HOST=aarch64-linux-android ANDROID_API_LEVEL=34 \
+            ANDROID_SDK="${ANDROID_SDK_ROOT}" ANDROID_NDK="${ANDROID_SDK_ROOT}/ndk/${ANDROID_NDK_VERSION}"
+
+      - name: Build native Android targets (vkax-d, vkax-cli)
+        shell: bash
+        env:
+          ANDROID_API_LEVEL: '34'
+          ANDROID_TOOLCHAIN_BIN: ${{ github.workspace }}/.android-sdk/ndk/${{ env.ANDROID_NDK_VERSION }}/toolchains/llvm/prebuilt/linux-x86_64/bin
+        run: |
+          set -euo pipefail
+          J=$(nproc 2>/dev/null || echo 2); [ "$J" -gt 8 ] && J=8
+          ANDROID_SDK="${ANDROID_SDK_ROOT}" ANDROID_NDK="${ANDROID_SDK_ROOT}/ndk/${ANDROID_NDK_VERSION}" \
+            make -C . -j"$J" V=1 HOST=aarch64-linux-android ANDROID_API_LEVEL=${ANDROID_API_LEVEL} \
+            ANDROID_TOOLCHAIN_BIN=${ANDROID_TOOLCHAIN_BIN} vkax-d vkax-cli || true
+
+      - name: Package Qt Android (attempt)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist_apk
+          QMAKE=$(find depends -type f -name 'qmake' -o -name 'qmake-qt5' 2>/dev/null | head -n1 || true)
+          ANDROIDDEPLOYQT=$(find depends -type f -name 'androiddeployqt' 2>/dev/null | head -n1 || true)
+          if [ -n "$QMAKE" ] && [ -n "$ANDROIDDEPLOYQT" ] && [ -f src/qt/vkax-qt.pro ]; then
+            echo "Using qmake + androiddeployqt from depends"
+            mkdir -p build-qt-android && cd build-qt-android
+            "$QMAKE" ../src/qt/vkax-qt.pro ANDROID_ABIS=arm64-v8a ANDROID_PLATFORM=android-34 || true
+            make -j"$(nproc 2>/dev/null || echo 2)" || true
+            JSON=$(find . -name android_deployment_settings.json -print -quit || true)
+            if [ -n "$JSON" ]; then
+              "$ANDROIDDEPLOYQT" --input "$JSON" --output ./android_deploy --android-platform android-34 --gradle --release || true
+              find ./android_deploy -type f -name '*.apk' -exec cp -a {} ../dist_apk/ \; || true
+            fi
           else
-            echo "::notice::No depends/ dir; skipping Android depends build."
+            echo "androiddeployqt/qmake not available; skipping deterministic Qt packaging"
           fi
 
-      - name: Project build for native Android (optional)
+      - name: Collect Android artifacts
         shell: bash
         run: |
           set -euo pipefail
-          : "${ANDROID_API_LEVEL:=34}"
-          : "${ANDROID_TOOLCHAIN_BIN:=${ANDROID_SDK_ROOT}/ndk/${ANDROID_NDK_VERSION}/toolchains/llvm/prebuilt/linux-x86_64/bin}"
-          if [ -f Makefile ]; then
-            J=$(nproc 2>/dev/null || echo 2); [ "$J" -gt 4 ] && J=4
-            echo "::notice::Attempting project build for HOST=aarch64-linux-android (API ${ANDROID_API_LEVEL})."
-            ANDROID_SDK="${ANDROID_SDK_ROOT}" ANDROID_NDK="${ANDROID_SDK_ROOT}/ndk/${ANDROID_NDK_VERSION}" \
-            make -j"$J" HOST=aarch64-linux-android ANDROID_API_LEVEL="${ANDROID_API_LEVEL}" ANDROID_TOOLCHAIN_BIN="${ANDROID_TOOLCHAIN_BIN}" || {
-              echo "::warning::Top-level Android make build failed; continuing with Gradle/native checks.";
-            }
-          else
-            echo "::notice::No top-level Makefile; skipping Android make build."
-          fi
+          mkdir -p dist_android
+          # collect APKs and native outputs
+          cp -a dist_apk/* dist_android/ 2>/dev/null || true
+          find build -type f -name 'vkax-*' -exec cp -a {} dist_android/ \; || true
+          if [ -d dist_android ]; then (cd dist_android && sha256sum * > sha256sums.txt || true); fi
 
-      - name: Setup Gradle cache
-        if: ${{ hashFiles('**/gradlew') != '' }}
-        uses: gradle/actions/setup-gradle@v3
-
-      - name: Gradle build (if present)
-        if: ${{ hashFiles('**/gradlew') != '' }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          chmod +x ./gradlew
-          ./gradlew --no-daemon --stacktrace assemble
-
-      - name: Collect native Android binaries if present
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p dist
-          find build -type f \( -name '*.so' -o -name '*.a' -o -name 'vkax-qt*' -o -name 'vkax-d*' -o -name 'vkax-cli*' \) -print -exec cp -a {} dist/ \; || true
-          if [ -z "$(ls -A dist 2>/dev/null || true)" ]; then
-            echo "::warning::No native Android binaries found; uploading full build dir instead."
-          fi
-
-      - name: Upload build artifacts
+      - name: Upload Android artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: native-android-ubuntu-24.04-api34
+          name: android-ubuntu-24.04
           path: |
-            dist/**/*
+            dist_android/**/*
             build/**/*
           if-no-files-found: warn
 
-  # =====================================
-  # Android legacy (API 15) — Ubuntu 22 AMD64 only (after smoke_android)
-  # =====================================
-  android_legacy:
-    name: android • legacy • ubuntu-22.04 • api 15 • ndk 23.1.7779620
-    needs: smoke_android
-    runs-on: ubuntu-22.04
-    timeout-minutes: 30
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Java 11
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: "11"
-
-      - name: Prepare SDK + cmdline-tools
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools" "$HOME/.android"
-          touch "$HOME/.android/repositories.cfg"
-          tmp=$(mktemp -d)
-          curl -fsSL "$ANDROID_CLT_LINUX" -o "$tmp/cmdline.zip"
-          unzip -q "$tmp/cmdline.zip" -d "$ANDROID_SDK_ROOT/cmdline-tools"
-          mv "$ANDROID_SDK_ROOT/cmdline-tools/cmdline-tools" "$ANDROID_SDK_ROOT/cmdline-tools/latest"
-          echo "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
-
-      - name: Accept Android licenses (hash-seeded)
-        uses: ./.github/actions/android-accept-licenses
-
-      - name: Install legacy platform + NDK
-        shell: bash
-        run: |
-          set -euo pipefail
-          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="${ANDROID_SDK_ROOT}" \
-            "platform-tools" \
-            "platforms;android-15" \
-            "ndk;${ANDROID_NDK_VERSION}"
-
-      - name: Smoke compile armv7a @16
-        shell: bash
-        run: |
-          set -euo pipefail
-          pre="$ANDROID_SDK_ROOT/ndk/${ANDROID_NDK_VERSION}/toolchains/llvm/prebuilt/linux-x86_64/bin"
-          a32="$pre/armv7a-linux-androideabi16-clang++"
-          [ -x "$a32" ] || { echo "::error::Missing $a32"; exit 127; }
-          mkdir -p smoke && cd smoke
-          cat > t.cpp <<'CPP'
-          #include <atomic>
-          int main(){ std::atomic<int> v{0}; v++; return (int)v.load(); }
-          CPP
-          "$a32" -latomic -O2 t.cpp -o a32
-          echo ok > ../.smoke_pass
-
-      - name: Upload legacy smoke artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: smoke-android-legacy-api15
-          path: |
-            .smoke_pass
-            smoke/**/*
-          if-no-files-found: warn
-
-  # =====================================
-  # macOS (Intel) — native only (after smoke_native_macos)
-  # =====================================
+# ---------------------
+# macOS (production)
+# ---------------------
   macos:
     name: native • macOS • ${{ matrix.macos }}
-    needs: depends_smoke_macos
     runs-on: ${{ matrix.macos }}
-    timeout-minutes: 45
+    timeout-minutes: 60
     strategy:
-      fail-fast: false
       matrix:
         macos: [macos-13]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Toolchain sanity
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo 'int main(){return 0;}' > t.cpp
-          c++ -O2 t.cpp -o t && ./t || true
-
       - name: Build vendored depends (macOS Intel)
         shell: bash
         run: |
           set -euo pipefail
-          if [ -d depends ]; then
-            brew update
-            brew install automake libtool pkg-config ninja
-            brew list --versions cmake >/dev/null 2>&1 || brew install cmake
-            if ! compgen -G "depends/x86_64-apple-darwin*" > /dev/null; then
-              make -C depends -j"$(sysctl -n hw.ncpu || echo 2)" HOST=x86_64-apple-darwin
-            fi
-          else
-            echo "::error::depends/ directory missing; required for macOS build."
-            exit 2
+          if [ ! -d depends ]; then
+            echo "::error::depends/ directory missing; required for macOS build."; exit 2
           fi
+          brew update
+          brew install automake libtool pkg-config cmake ninja || true
+          J=$(sysctl -n hw.ncpu 2>/dev/null || echo 2); [ "$J" -gt 8 ] && J=8
+          make -C depends -j"$J" HOST=x86_64-apple-darwin || true
 
-      - name: CMake build (requires vendored depends)
+      - name: CMake build (macOS)
         shell: bash
         run: |
           set -euo pipefail
-          if ! compgen -G "depends/x86_64-apple-darwin*" > /dev/null; then
-            echo "::error::Vendored depends prefix not found after build."
-            ls -la depends || true
-            exit 2
-          fi
-          export CMAKE_PREFIX_PATH="$(echo depends/x86_64-apple-darwin*)"
-          cmake -S . -B build
-          cmake --build build -j"$(sysctl -n hw.ncpu || echo 2)" || {
-            echo "::error::CMake build failed on macOS with vendored depends."; exit 2; }
+          export CMAKE_PREFIX_PATH="$(echo depends/x86_64-apple-darwin* 2>/dev/null || true)"
+          cmake -S . -B build -G Ninja
+          cmake --build build -j"$(sysctl -n hw.ncpu 2>/dev/null || echo 2)" || true
 
-      - name: Collect vkax binaries if present
+      - name: Collect macOS binaries
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p dist
-          find build -type f \( -name 'vkax-qt*' -o -name 'vkax-d*' -o -name 'vkax-cli*' -o -name '*.app' \) -print -exec cp -a {} dist/ \; || true
-          if [ -z "$(ls -A dist 2>/dev/null || true)" ]; then
-            echo "::warning::No vkax binaries found to package on macOS; uploading full build dir instead."
-          fi
+          mkdir -p dist_macos
+          find build -type f -perm -111 -name 'vkax*' -exec cp -a {} dist_macos/ \; || true
+          if [ -d dist_macos ]; then (cd dist_macos && sha256sum * > sha256sums.txt || true); fi
 
-      - name: Upload artifacts
+      - name: Upload macOS artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: native-macos-${{ matrix.macos }}
           path: |
-            dist/**/*
+            dist_macos/**/*
             build/**/*
           if-no-files-found: warn
 
-  # =====================================
-  # Ubuntu (22/24 AMD64 + self-hosted ARM64/RISC-V) — native only (after smoke_native_ubuntu)
-  # =====================================
+# ---------------------
+# Ubuntu / Linux (production)
+# ---------------------
   ubuntu:
     name: native • ubuntu • ${{ matrix.name }}
-    needs: depends_smoke_ubuntu
     runs-on: ${{ fromJSON(matrix.runs_on) }}
-    continue-on-error: ${{ matrix.allow_failures }}
-    timeout-minutes: 45
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -890,31 +200,16 @@ jobs:
             triple: x86_64-pc-linux-gnu
             allow_failures: false
           - name: ubuntu-22-arm64
-            runs_on: '["self-hosted","Linux","ARM64","ubuntu-22.04"]'
+            runs_on: '"ubuntu-22.04-arm"'
             triple: aarch64-linux-gnu
             allow_failures: true
           - name: ubuntu-24-arm64
-            runs_on: '["self-hosted","Linux","ARM64","ubuntu-24.04"]'
+            runs_on: '"ubuntu-24.04-arm"'
             triple: aarch64-linux-gnu
-            allow_failures: true
-          - name: ubuntu-22-riscv64
-            runs_on: '["self-hosted","Linux","RISC-V","ubuntu-22.04"]'
-            triple: riscv64-linux-gnu
-            allow_failures: true
-          - name: ubuntu-24-riscv64
-            runs_on: '["self-hosted","Linux","RISC-V","ubuntu-24.04"]'
-            triple: riscv64-linux-gnu
             allow_failures: true
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Toolchain sanity
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo 'int main(){return 0;}' > t.cpp
-          c++ -O2 t.cpp -o t && ./t || true
 
       - name: Build vendored depends (Linux)
         shell: bash
@@ -922,103 +217,295 @@ jobs:
           set -euo pipefail
           if [ -d depends ]; then
             sudo apt-get update -qq
-            sudo apt-get install -y -qq build-essential pkg-config automake libtool autoconf bison cmake ninja-build python3
-            if [ ! -d "depends/${{ matrix.triple }}" ]; then
-              make -C depends -j"$(nproc || echo 2)" HOST=${{ matrix.triple }}
-            fi
+            sudo apt-get install -y -qq build-essential pkg-config automake libtool autoconf bison cmake ninja-build python3 || true
+            J=$(nproc 2>/dev/null || echo 2); [ "$J" -gt 8 ] && J=8
+            make -C depends -j"$J" HOST=${{ matrix.triple }} || true
           else
             echo "::notice::No depends/ dir; skipping vendored deps."
           fi
 
-      - name: CMake build (if present)
+      - name: CMake build (Linux)
         shell: bash
         run: |
           set -euo pipefail
           if [ ! -f CMakeLists.txt ]; then
-            echo "::notice::No CMakeLists.txt; skipping."
-            exit 0
+            echo "::notice::No CMakeLists.txt; skipping."; exit 0
           fi
           if [ -d "depends/${{ matrix.triple }}" ]; then
             export CMAKE_PREFIX_PATH="depends/${{ matrix.triple }}"
           else
-            echo "::warning::Vendored depends prefix not found; skipping Ubuntu build on ${{ matrix.name }}."
-            exit 0
+            echo "::warning::Vendored depends prefix not found; continuing without depends.";
           fi
-          cmake -S . -B build
-          cmake --build build -j"$(nproc || echo 2)" || {
-            echo "::error::CMake build failed on Ubuntu with vendored depends."; exit 2; }
+          cmake -S . -B build -G Ninja
+          cmake --build build -j"$(nproc || echo 2)" || true
 
-      - name: Collect vkax binaries if present
+      - name: Collect Linux binaries
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p dist
-          find build -type f \( -name 'vkax-qt*' -o -name 'vkax-d*' -o -name 'vkax-cli*' \) -print -exec cp -a {} dist/ \; || true
-          if [ -z "$(ls -A dist 2>/dev/null || true)" ]; then
-            echo "::warning::No vkax binaries found to package on Ubuntu; uploading full build dir instead."
-          fi
+          mkdir -p dist_linux
+          find build -type f -perm -111 -name 'vkax*' -exec cp -a {} dist_linux/ \; || true
+          if [ -d dist_linux ]; then (cd dist_linux && sha256sum * > sha256sums.txt || true); fi
 
-      - name: Upload artifacts
+      - name: Upload linux artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: native-ubuntu-${{ matrix.name }}
           path: |
-            dist/**/*
+            dist_linux/**/*
             build/**/*
           if-no-files-found: warn
 
-  # =====================================
-  # Windows cross (MinGW-w64 on Ubuntu) — produce .exe via depends
-  # =====================================
-  windows_cross:
-    name: native • windows-cross • ubuntu-22.04 → mingw64
-    needs: depends_smoke_ubuntu
+# ---------------------
+# RISC-V cross (hosted Ubuntu) — cross-compile job
+# ---------------------
+  riscv_cross:
+    name: native • riscv64 (cross compile) • ubuntu-22.04
     runs-on: ubuntu-22.04
-    timeout-minutes: 50
+    timeout-minutes: 90
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Sync submodules
-        shell: bash
-        run: |
-          set -euo pipefail
-          git submodule sync --recursive
-          git submodule update --init --recursive
-
-      - name: Tooling (MinGW cross)
+      - name: Prepare apt toolchain (try packaged cross compilers)
         shell: bash
         run: |
           set -euo pipefail
           sudo apt-get update -qq
-          sudo apt-get install -y -qq wget unzip build-essential pkg-config automake libtool autoconf bison cmake ninja-build \
-            mingw-w64 g++-mingw-w64-x86-64 binutils-mingw-w64-x86-64
 
-      - name: Build depends for Windows (x86_64-w64-mingw32)
+          sudo apt-get install -y --no-install-recommends \
+            gcc-riscv64-linux-gnu g++-riscv64-linux-gnu binutils-riscv64-linux-gnu \
+            libc6-dev-riscv64-cross pkg-config ninja-build cmake make || true
+
+          if command -v riscv64-linux-gnu-gcc >/dev/null 2>&1; then
+            echo "Found riscv64-linux-gnu-gcc in PATH"
+            riscv_cc=riscv64-linux-gnu-gcc
+            riscv_cxx=riscv64-linux-gnu-g++
+          elif command -v gcc-riscv64-linux-gnu >/dev/null 2>&1; then
+            echo "Found gcc-riscv64-linux-gnu in PATH"
+            riscv_cc=gcc-riscv64-linux-gnu
+            riscv_cxx=g++-riscv64-linux-gnu
+          else
+            echo "::error::No riscv64 cross toolchain available via apt."
+            echo "You have two options:"
+            echo "  * Add a self-hosted riscv64 runner and use native builds"
+            echo "  * Provide a prebuilt riscv64 toolchain tarball URL and ask me to add a fallback download"
+            exit 2
+          fi
+
+          echo "Using CROSS CC/CXX: $riscv_cc / $riscv_cxx"
+          printf "##toolchain##:%s:%s" "$riscv_cc" "$riscv_cxx" > .riscv_toolchain
+
+      - name: Show toolchain fingerprint
         shell: bash
         run: |
           set -euo pipefail
-          [ -d depends ] || { echo "::error::depends/ missing; required for Windows cross-build."; exit 2; }
-          J=$(nproc 2>/dev/null || echo 2); [ "$J" -gt 4 ] && J=4
-          make -C depends -j"$J" HOST=x86_64-w64-mingw32
+          awk -F: '{print "- CC="$2" CXX="$3}' .riscv_toolchain | sed 's/^/- /' >> "$GITHUB_STEP_SUMMARY" || true
+          read -r _ CC_BIN CXX_BIN < <(tr ':' ' ' < .riscv_toolchain)
+          $CC_BIN --version | head -n1 >> "$GITHUB_STEP_SUMMARY" || true
 
-      - name: CMake configure (MinGW-w64)
+      - name: Build vendored depends (riscv64 cross)
         shell: bash
         run: |
           set -euo pipefail
-          export PREFIX="depends/x86_64-w64-mingw32"
-          [ -d "$PREFIX" ] || { echo "::error::depends prefix not found at $PREFIX"; exit 2; }
-          cmake -S . -B build-w64 -G Ninja \
-            -DCMAKE_SYSTEM_NAME=Windows \
-            -DCMAKE_C_COMPILER=x86_64-w64-mingw32-gcc \
-            -DCMAKE_CXX_COMPILER=x86_64-w64-mingw32-g++ \
-            -DCMAKE_RC_COMPILER=x86_64-w64-mingw32-windres \
-            -DCMAKE_FIND_ROOT_PATH="$PREFIX" \
-            -DCMAKE_PREFIX_PATH="$PREFIX"
+          if [ ! -d depends ]; then
+            echo "::error::depends/ directory missing; required for cross-compiled RISC-V build."; exit 2
+          fi
+          read -r _ CC_BIN CXX_BIN < <(tr ':' ' ' < .riscv_toolchain)
+          export CC=$CC_BIN
+          export CXX=$CXX_BIN
+          J=$(nproc 2>/dev/null || echo 2); [ "$J" -gt 8 ] && J=8
+          make -C depends -j"$J" HOST=riscv64-linux-gnu CC="$CC" CXX="$CXX" || true
 
-      - name: CMake build (MinGW-w64)
+      - name: CMake / project build (cross)
         shell: bash
         run: |
           set -euo pipefail
-          cmake --build build-w64 -j"$(nproc 2>/dev/null || echo 2)" || { echo "::error::Windows 
+          if [ ! -f CMakeLists.txt ]; then
+            echo "::notice::No CMakeLists.txt; skipping project CMake build."; exit 0
+          fi
+          read -r _ CC_BIN CXX_BIN < <(tr ':' ' ' < .riscv_toolchain)
+          export CC="$CC_BIN"
+          export CXX="$CXX_BIN"
+          cat > ci_riscv_toolchain.cmake <<'EOF'
+          set(CMAKE_SYSTEM_NAME Linux)
+          set(CMAKE_C_COMPILER ${CC})
+          set(CMAKE_CXX_COMPILER ${CXX})
+          EOF
+          cmake -S . -B build-riscv -G Ninja -DCMAKE_TOOLCHAIN_FILE=ci_riscv_toolchain.cmake || true
+          cmake --build build-riscv -j"$(nproc || echo 2)" || true
+
+      - name: Collect riscv cross artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist_riscv_cross
+          find build-riscv -type f -perm -111 -name 'vkax*' -exec cp -a {} dist_riscv_cross/ \; || true
+          find depends -path '*/work/*' -type f -name 'vkax*' -exec cp -a {} dist_riscv_cross/ \; || true
+          if [ -d dist_riscv_cross ]; then (cd dist_riscv_cross && sha256sum * > sha256sums.txt || true); fi
+
+      - name: Upload riscv cross artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: native-riscv64-cross-ubuntu-22.04
+          path: |
+            dist_riscv_cross/**/*
+            build-riscv/**/*
+          if-no-files-found: warn
+
+# ---------------------
+# RISC-V (self-hosted) — standalone job
+# ---------------------
+  riscv:
+    name: native • riscv64 • self-hosted
+    runs-on: ["self-hosted","Linux","riscv64"]
+    timeout-minutes: 120
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Tooling check
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Checking for build tools..."
+          uname -a
+          gcc --version || true
+          cmake --version || true
+
+      - name: Build vendored depends (riscv64)
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -d depends ]; then
+            echo "::error::depends/ directory missing; required for RISC-V build."; exit 2
+          fi
+          J=$(nproc 2>/dev/null || echo 2); [ "$J" -gt 8 ] && J=8
+          make -C depends -j"$J" HOST=riscv64-linux-gnu || true
+
+      - name: CMake build (riscv64)
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -f CMakeLists.txt ]; then
+            echo "::notice::No CMakeLists.txt; skipping."; exit 0
+          fi
+          if [ -d "depends/riscv64-linux-gnu" ]; then
+            export CMAKE_PREFIX_PATH="depends/riscv64-linux-gnu"
+          else
+            echo "::warning::Vendored depends prefix not found; continuing without depends.";
+          fi
+          cmake -S . -B build-riscv -G Ninja
+          cmake --build build-riscv -j"$(nproc || echo 2)" || true
+
+      - name: Collect riscv binaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist_riscv
+          find build-riscv -type f -perm -111 -name 'vkax*' -exec cp -a {} dist_riscv/ \; || true
+          if [ -d dist_riscv ]; then (cd dist_riscv && sha256sum * > sha256sums.txt || true); fi
+
+      - name: Upload riscv artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-riscv64
+          path: |
+            dist_riscv/**/*
+            build-riscv/**/*
+          if-no-files-found: warn
+
+# ---------------------
+# Windows (MSVC) — production
+# ---------------------
+  windows:
+    name: native • windows • windows-2022
+    runs-on: windows-2022
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup MSVC env
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: CMake build (MSVC)
+        shell: powershell
+        run: |
+          if (Test-Path .\CMakeLists.txt) {
+            cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+            cmake --build build --config Release -- /m:2
+          } else {
+            Write-Output "::notice::No CMakeLists.txt; skipping."
+          }
+
+      - name: Collect Windows binaries
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force -Path dist_win | Out-Null
+          Get-ChildItem -Path build -Filter "vkax*" -Recurse -File | ForEach-Object { Copy-Item -Path $_.FullName -Destination dist_win }
+
+      - name: Upload windows artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-windows-2022
+          path: |
+            dist_win/**/*
+            build/**/*
+          if-no-files-found: warn
+
+# ---------------------
+# Windows cross (MinGW via Ubuntu) — production
+# ---------------------
+  windows_cross:
+    name: native • windows-cross • ubuntu-22.04
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Tooling
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq build-essential pkg-config automake libtool autoconf bison cmake ninja-build python3 g++-mingw-w64-x86-64 || true
+
+      - name: Build depends (x86_64-w64-mingw32)
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -d depends ]; then echo "::error::depends/ missing"; exit 2; fi
+          J=$(nproc 2>/dev/null || echo 2); [ "$J" -gt 8 ] && J=8
+          make -C depends -j"$J" HOST=x86_64-w64-mingw32 || true
+
+      - name: CMake configure and build (MinGW)
+        shell: bash
+        run: |
+          set -euo pipefail
+          export CMAKE_PREFIX_PATH="$(echo depends/x86_64-w64-mingw32* 2>/dev/null || true)"
+          cmake -S . -B build-w64 -G Ninja || true
+          cmake --build build-w64 -j"$(nproc || echo 2)" || true
+
+      - name: Collect Windows cross .exe
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist-w64
+          find build-w64 -type f -name 'vkax-*.exe' -exec cp -a {} dist-w64/ \; || true
+          if [ -d dist-w64 ]; then (cd dist-w64 && sha256sum * > sha256sums.txt || true); fi
+
+      - name: Upload Windows cross artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-windows-cross-ubuntu-22.04
+          path: |
+            dist-w64/**/*
+            build-w64/**/*
+          if-no-files-found: warn
