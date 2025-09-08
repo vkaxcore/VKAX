@@ -24,23 +24,11 @@ jobs:
   # =====================================
   # SMOKE: native toolchains — Ubuntu (AMD/ARM)
   # =====================================
-  smoke_native_ubuntu:
-    name: smoke • native • ubuntu • ${{ matrix.name }}
-    runs-on: ${{ fromJSON(matrix.runs_on) }}
-    continue-on-error: ${{ matrix.allow_failures }}
-    timeout-minutes: 10
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: ubuntu-22-amd64
-            runs_on: '"ubuntu-22.04"'
-            allow_failures: false
-          - name: ubuntu-24-amd64
-            runs_on: '"ubuntu-24.04"'
-            allow_failures: false
-          - name: ubuntu-22-arm64
-            runs_on: '["self-hosted","Linux","ARM64","ubuntu-22.04"]'
+  $1          - name: ubuntu-22-riscv64
+            runs_on: '["self-hosted","Linux","RISC-V","ubuntu-22.04"]'
+            allow_failures: true
+          - name: ubuntu-24-riscv64
+            runs_on: '["self-hosted","Linux","RISC-V","ubuntu-24.04"]'
             allow_failures: true
           - name: ubuntu-24-arm64
             runs_on: '["self-hosted","Linux","ARM64","ubuntu-24.04"]'
@@ -200,27 +188,13 @@ jobs:
   # =====================================
   # SMOKE: depends — Ubuntu (only OSes that use depends)
   # =====================================
-  depends_smoke_ubuntu:
-    name: smoke • depends • ubuntu • ${{ matrix.name }}
-    needs: smoke_native_ubuntu
-    runs-on: ${{ fromJSON(matrix.runs_on) }}
-    continue-on-error: ${{ matrix.allow_failures }}
-    timeout-minutes: 45
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: ubuntu-22-amd64
-            runs_on: '"ubuntu-22.04"'
-            host: x86_64-pc-linux-gnu
-            allow_failures: false
-          - name: ubuntu-24-amd64
-            runs_on: '"ubuntu-24.04"'
-            host: x86_64-pc-linux-gnu
-            allow_failures: false
-          - name: ubuntu-22-arm64
-            runs_on: '["self-hosted","Linux","ARM64","ubuntu-22.04"]'
-            host: aarch64-linux-gnu
+  $1          - name: ubuntu-22-riscv64
+            runs_on: '["self-hosted","Linux","RISC-V","ubuntu-22.04"]'
+            host: riscv64-linux-gnu
+            allow_failures: true
+          - name: ubuntu-24-riscv64
+            runs_on: '["self-hosted","Linux","RISC-V","ubuntu-24.04"]'
+            host: riscv64-linux-gnu
             allow_failures: true
           - name: ubuntu-24-arm64
             runs_on: '["self-hosted","Linux","ARM64","ubuntu-24.04"]'
@@ -306,7 +280,8 @@ jobs:
         run: |
           set -euo pipefail
           brew update
-          brew install automake libtool pkg-config cmake ninja
+          brew install automake libtool pkg-config ninja
+          brew list --versions cmake >/dev/null 2>&1 || brew install cmake
 
       - name: depends full smoke
         shell: bash
@@ -345,110 +320,11 @@ jobs:
   # =====================================
   # SMOKE: Android toolchain — Ubuntu AMD64 only
   # =====================================
-  smoke_android:
-    name: smoke • android • ubuntu-24.04 • api 34 • ndk 23.1.7779620
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Java 11
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: "11"
-
-      - name: Prepare SDK dirs
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools" "$HOME/.android"
-          touch "$HOME/.android/repositories.cfg"
-
-      - name: Install cmdline-tools
-        shell: bash
-        run: |
-          set -euo pipefail
-          tmp=$(mktemp -d)
-          curl -fsSL "$ANDROID_CLT_LINUX" -o "$tmp/cmdline.zip"
-          unzip -q "$tmp/cmdline.zip" -d "$ANDROID_SDK_ROOT/cmdline-tools"
-          mv "$ANDROID_SDK_ROOT/cmdline-tools/cmdline-tools" "$ANDROID_SDK_ROOT/cmdline-tools/latest"
-          echo "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
-
-      - name: Accept Android licenses
-        uses: ./.github/actions/android-accept-licenses
-
-      - name: Install Android packages
-        shell: bash
-        run: |
-          set -euo pipefail
-          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="${ANDROID_SDK_ROOT}" \
-            "platform-tools" \
-            "platforms;android-34" \
-            "ndk;${ANDROID_NDK_VERSION}"
-
-      - name: Verify SDK/NDK layout
-        shell: bash
-        run: |
-          set -euo pipefail
-          adb_bin="$ANDROID_SDK_ROOT/platform-tools/adb"
-          plat_dir="$ANDROID_SDK_ROOT/platforms/android-34"
-          ndk_dir="$ANDROID_SDK_ROOT/ndk/${ANDROID_NDK_VERSION}"
-          pre="$ndk_dir/toolchains/llvm/prebuilt/linux-x86_64/bin"
-          [ -x "$adb_bin" ] || { echo "::error::adb missing at $adb_bin"; exit 1; }
-          [ -d "$plat_dir" ] || { echo "::error::Android platform missing: $plat_dir"; exit 1; }
-          [ -d "$ndk_dir" ] || { echo "::error::NDK missing: $ndk_dir"; exit 1; }
-          [ -d "$pre" ] || { echo "::error::NDK prebuilt not found: $pre"; ls -la "$ndk_dir/toolchains/llvm/prebuilt" || true; exit 1; }
-
-      - name: Smoke compile (armv7a+arm64)
-        shell: bash
-        run: |
-          set -euo pipefail
-          pre="$ANDROID_SDK_ROOT/ndk/${ANDROID_NDK_VERSION}/toolchains/llvm/prebuilt/linux-x86_64/bin"
-          a32="$pre/armv7a-linux-androideabi21-clang++"
-          a64="$pre/aarch64-linux-android21-clang++"
-          [ -x "$a32" ] || { echo "::error::Missing $a32"; exit 127; }
-          [ -x "$a64" ] || { echo "::error::Missing $a64"; exit 127; }
-          mkdir -p smoke && cd smoke
-          cat > t.cpp <<'CPP'
-          #include <atomic>
-          int main(){ std::atomic<int> v{0}; v++; return (int)v.load(); }
-          CPP
-          "$a32" -latomic -O2 t.cpp -o a32
-          "$a64" -O2 t.cpp -o a64
-          echo ok > ../.smoke_pass
-
-      - name: Append smoke summary
-        shell: bash
-        run: |
-          set -euo pipefail
-          {
-            echo "### Smoke Android ubuntu-24.04";
-            echo "- API: 34";
-            echo "- NDK: ${ANDROID_NDK_VERSION}";
-            echo "- SDK root: ${ANDROID_SDK_ROOT}";
-          } >> "$GITHUB_STEP_SUMMARY"
-          echo "::notice::Android smoke passed (api 34, ndk ${ANDROID_NDK_VERSION})"
-
-      - name: Upload smoke artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: smoke-android-ubuntu-24.04-api34
-          path: |
-            .smoke_pass
-            smoke/**/*
-          if-no-files-found: warn
-
-  # =====================================
-  # Android builds — Ubuntu AMD64 only (after smoke_android)
-  # =====================================
-  android:
-    name: android • build • ubuntu-24.04 • api 34 • ndk 23.1.7779620
-    needs: smoke_android
-    runs-on: ubuntu-24.04
-    timeout-minutes: 45
+  smoke_$1env:
+      ANDROID_API_LEVEL: "34"
+      ANDROID_SDK: ${{ env.ANDROID_SDK_ROOT }}
+      ANDROID_NDK: ${{ env.ANDROID_SDK_ROOT }}/ndk/${{ env.ANDROID_NDK_VERSION }}
+      ANDROID_TOOLCHAIN_BIN: ${{ env.ANDROID_SDK_ROOT }}/ndk/${{ env.ANDROID_NDK_VERSION }}/toolchains/llvm/prebuilt/linux-x86_64/bin
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -496,6 +372,16 @@ jobs:
           set -euo pipefail
           chmod +x ./gradlew
           ./gradlew --no-daemon --stacktrace assemble
+      - name: Collect native Android binaries if present
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          # Copy any likely native outputs (.so/.a or vkax-* executables)
+          find build -type f \( -name '*.so' -o -name '*.a' -o -name 'vkax-qt*' -o -name 'vkax-d*' -o -name 'vkax-cli*' \) -print -exec cp -a {} dist/ \; || true
+          if [ -z "$(ls -A dist 2>/dev/null || true)" ]; then
+            echo "::warning::No native Android binaries found; uploading full build dir instead."
+          fi
 
       - name: CMake build (disabled for Android job)
         if: ${{ false }}
@@ -506,7 +392,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: build-android-ubuntu-24.04-api34
+          name: native-android-ubuntu-24.04-api34
           path: |
             build/**/*
             **/build/outputs/**/*
@@ -608,7 +494,8 @@ jobs:
           set -euo pipefail
           if [ -d depends ]; then
             brew update
-            brew install automake libtool pkg-config cmake ninja
+            brew install automake libtool pkg-config ninja
+            brew list --versions cmake >/dev/null 2>&1 || brew install cmake
             if ! compgen -G "depends/x86_64-apple-darwin*" > /dev/null; then
               make -C depends -j"$(sysctl -n hw.ncpu || echo 2)" HOST=x86_64-apple-darwin
             fi
@@ -631,38 +518,36 @@ jobs:
           cmake --build build -j"$(sysctl -n hw.ncpu || echo 2)" || {
             echo "::error::CMake build failed on macOS with vendored depends."; exit 2; }
 
+      - name: Collect vkax binaries if present
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          find build -type f \( -name 'vkax-qt*' -o -name 'vkax-d*' -o -name 'vkax-cli*' -o -name '*.app' \) -print -exec cp -a {} dist/ \; || true
+          if [ -z "$(ls -A dist 2>/dev/null || true)" ]; then
+            echo "::warning::No vkax binaries found to package on macOS; uploading full build dir instead."
+          fi
+
       - name: Upload artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: native-macos-${{ matrix.macos }}
-          path: build/**/*
+          path: |
+            dist/**/*
+            build/**/*
           if-no-files-found: warn
 
   # =====================================
   # Ubuntu (22/24 AMD64 + self-hosted ARM64) — native only (after smoke_native_ubuntu)
   # =====================================
-  ubuntu:
-    name: native • ubuntu • ${{ matrix.name }}
-    needs: depends_smoke_ubuntu
-    runs-on: ${{ fromJSON(matrix.runs_on) }}
-    continue-on-error: ${{ matrix.allow_failures }}
-    timeout-minutes: 45
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: ubuntu-22-amd64
-            runs_on: '"ubuntu-22.04"'
-            triple: x86_64-pc-linux-gnu
-            allow_failures: false
-          - name: ubuntu-24-amd64
-            runs_on: '"ubuntu-24.04"'
-            triple: x86_64-pc-linux-gnu
-            allow_failures: false
-          - name: ubuntu-22-arm64
-            runs_on: '["self-hosted","Linux","ARM64","ubuntu-22.04"]'
-            triple: aarch64-linux-gnu
+  $1          - name: ubuntu-22-riscv64
+            runs_on: '["self-hosted","Linux","RISC-V","ubuntu-22.04"]'
+            triple: riscv64-linux-gnu
+            allow_failures: true
+          - name: ubuntu-24-riscv64
+            runs_on: '["self-hosted","Linux","RISC-V","ubuntu-24.04"]'
+            triple: riscv64-linux-gnu
             allow_failures: true
           - name: ubuntu-24-arm64
             runs_on: '["self-hosted","Linux","ARM64","ubuntu-24.04"]'
@@ -711,12 +596,24 @@ jobs:
           cmake --build build -j"$(nproc || echo 2)" || {
             echo "::error::CMake build failed on Ubuntu with vendored depends."; exit 2; }
 
+      - name: Collect vkax binaries if present
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          find build -type f \( -name 'vkax-qt*' -o -name 'vkax-d*' -o -name 'vkax-cli*' \) -print -exec cp -a {} dist/ \; || true
+          if [ -z "$(ls -A dist 2>/dev/null || true)" ]; then
+            echo "::warning::No vkax binaries found to package on Ubuntu; uploading full build dir instead."
+          fi
+
       - name: Upload artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: native-ubuntu-${{ matrix.name }}
-          path: build/**/*
+          path: |
+            dist/**/*
+            build/**/*
           if-no-files-found: warn
 
   # =====================================
@@ -745,22 +642,35 @@ jobs:
           cl /nologo .\t.cpp /Fe:t.exe
           .\t.exe
 
-      - name: CMake build (if present)
+      - name: CMake build (skip if depends-only project)
         shell: pwsh
         run: |
           if (Test-Path .\CMakeLists.txt) {
-            cmake -S . -B build
-            if ($LASTEXITCODE -ne 0) { echo "::error::CMake configure failed."; exit 2 }
-            cmake --build build -- -j 2
-            if ($LASTEXITCODE -ne 0) { echo "::error::CMake build failed; check missing deps."; exit 2 }
+            if (Test-Path .\depends) {
+              echo "::notice::Project uses depends; Windows native build is disabled on MSVC runner."
+            } else {
+              cmake -S . -B build
+              if ($LASTEXITCODE -ne 0) { echo "::error::CMake configure failed."; exit 2 }
+              cmake --build build -- -j 2
+              if ($LASTEXITCODE -ne 0) { echo "::error::CMake build failed; check missing deps."; exit 2 }
+            }
           } else {
             echo "::notice::No CMakeLists.txt; skipping."
           }
+
+      - name: Collect vkax binaries if present
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Get-ChildItem -Recurse build -File -Include vkax-qt*.exe,vkax-d*.exe,vkax-cli*.exe | ForEach-Object { Copy-Item $_.FullName dist/ -Force }
+          if (-not (Get-ChildItem dist -ErrorAction SilentlyContinue)) { Write-Host '::warning::No vkax binaries found to package on Windows; uploading full build dir instead.' }
 
       - name: Upload artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: native-windows-${{ matrix.windows }}
-          path: build/**/*
+          path: |
+            dist/**/*
+            build/**/*
           if-no-files-found: warn
