@@ -143,6 +143,9 @@ jobs:
           restore-keys: |
             ccache-${{ runner.os }}-${{ matrix.arch }}-api${{ matrix.api }}-
 
+
+
+
       - name: "[VKAX] Install Android SDK + verify cmdline-tools"
         env:
           ANDROID_SDK_ROOT: ${{ github.workspace }}/android-sdk
@@ -158,7 +161,7 @@ jobs:
           tmpzip="$(mktemp /tmp/clt.XXXXXX.zip)"
           curl -fsSL "$CLT_URL" -o "$tmpzip"
           got_sha="$(sha256sum "$tmpzip" | awk '{print $1}')"
-          exp_list="$(jq -r --arg u "$CLT_URL" '.[ $u ] | if type==\"array\" then map(.sha256)[] else .sha256 // empty end' /tmp/fdroid/checksums.json)"
+          exp_list="$(jq -r --arg u "$CLT_URL" '.[$u] | if type=="array" then map(.sha256)[] else .sha256 // empty end' /tmp/fdroid/checksums.json)"
           [ -n "$exp_list" ] || { echo "::error::F-Droid checksums.json has no entry for $CLT_URL"; exit 1; }
           printf '%s\n' "$exp_list" | grep -Fxq "$got_sha" || { echo "::error::Checksum mismatch for cmdline-tools: got=$got_sha expected_one_of=$(printf '%s' "$exp_list" | tr '\n' ' ')"; exit 1; }
           {
@@ -197,7 +200,6 @@ jobs:
             echo "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin"
             echo "$ANDROID_SDK_ROOT/ndk/${{ matrix.ndk_ver }}/toolchains/llvm/prebuilt/linux-x86_64/bin"
           } >> "$GITHUB_PATH"
-
 
 
 
