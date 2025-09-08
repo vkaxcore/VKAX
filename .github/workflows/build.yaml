@@ -88,6 +88,35 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           echo "::notice::ubuntu smoke passed on ${{ matrix.name }}"
 
+      - name: Inventory toolchain packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "component,version,path,sha256,homepage" > inventory.csv
+          bin="$(command -v c++ || true)"; ver="$(c++ --version | head -1 || true)"; sha="$( [ -n "$bin" ] && sha256sum "$bin" | awk '{print $1}' || echo )"
+          echo "| component | version | path | sha256 | homepage |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|---|---|---|---|---|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| c++ | ${ver:-n/a} | ${bin:-n/a} | ${sha:-} | https://gcc.gnu.org/ |" >> "$GITHUB_STEP_SUMMARY"
+          echo "c++,${ver//,/ },$bin,$sha,https://gcc.gnu.org/" >> inventory.csv
+          for p in cmake ninja-build make pkg-config; do
+            if dpkg-query -W -f='${Version}' "$p" >/dev/null 2>&1; then
+              verp=$(dpkg-query -W -f='${Version}' "$p" 2>/dev/null | head -1)
+              home=$(apt-cache show "$p" 2>/dev/null | awk -F': ' '/^Homepage:/ {print $2; exit}')
+              binp=$(command -v ${p%%-*} || true)
+              shap=$( [ -n "$binp" ] && sha256sum "$binp" | awk '{print $1}' || echo )
+              echo "| $p | ${verp:-} | ${binp:-} | ${shap:-} | ${home:-} |" >> "$GITHUB_STEP_SUMMARY"
+              echo "$p,${verp//,/ },$binp,$shap,${home:-}" >> inventory.csv
+            fi
+          done
+
+      - name: Upload smoke inventory
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-inventory-ubuntu-${{ matrix.name }}
+          path: inventory.csv
+          if-no-files-found: warn
+
       - name: Upload smoke artifacts
         if: always()
         uses: actions/upload-artifact@v4
@@ -146,6 +175,34 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           echo "::notice::macOS smoke passed on ${{ matrix.macos }}"
 
+      - name: Inventory toolchain packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "| component | version | path | sha256 | homepage |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|---|---|---|---|---|" >> "$GITHUB_STEP_SUMMARY"
+          bin="$(command -v clang || true)"; ver="$(clang --version | head -1 || true)"; sha="$( [ -n "$bin" ] && shasum -a 256 "$bin" | awk '{print $1}' || echo )"
+          echo "| clang | ${ver:-n/a} | ${bin:-n/a} | ${sha:-} | https://developer.apple.com/xcode/ |" >> "$GITHUB_STEP_SUMMARY"
+          if command -v brew >/dev/null 2>&1; then
+            for p in cmake ninja pkg-config automake libtool; do
+              if brew list --versions "$p" >/dev/null 2>&1; then
+                verp=$(brew list --versions "$p" | awk '{print $2}')
+                binp=$(command -v "$p" || true)
+                shap=$( [ -n "$binp" ] && shasum -a 256 "$binp" | awk '{print $1}' || echo )
+                home=$(brew info --json=v2 "$p" | python3 -c 'import sys,json;print(json.load(sys.stdin)["formulae"][0].get("homepage",""))' 2>/dev/null || true)
+                echo "| $p | ${verp:-} | ${binp:-} | ${shap:-} | ${home:-} |" >> "$GITHUB_STEP_SUMMARY"
+              fi
+            done
+          fi
+
+      - name: Upload smoke inventory
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-inventory-macos-${{ matrix.macos }}
+          path: /dev/null
+          if-no-files-found: ignore
+
       - name: Upload smoke artifacts
         if: always()
         uses: actions/upload-artifact@v4
@@ -192,6 +249,32 @@ jobs:
           Add-Content $env:GITHUB_STEP_SUMMARY "- CPU cores: $cores"
           Add-Content $env:GITHUB_STEP_SUMMARY "- Kernel: Windows"
           echo "::notice::Windows smoke passed on ${{ matrix.windows }}"
+
+      - name: Inventory toolchain packages
+        shell: pwsh
+        run: |
+          $bin = (Get-Command cl).Source
+          $ver = (cl 2>&1 | Select-String -Pattern 'Version' | Select-Object -First 1).ToString()
+          $sha = (Get-FileHash $bin -Algorithm SHA256).Hash
+          Add-Content $env:GITHUB_STEP_SUMMARY "| component | version | path | sha256 | homepage |"
+          Add-Content $env:GITHUB_STEP_SUMMARY "|---|---|---|---|---|"
+          Add-Content $env:GITHUB_STEP_SUMMARY "| cl | $ver | $bin | $sha | https://learn.microsoft.com/cpp/ |"
+          foreach ($p in 'cmake','ninja','pkg-config') {
+            $b = (Get-Command $p -ErrorAction SilentlyContinue).Source
+            if ($b) {
+              $hv = (& $p --version 2>$null | Select-Object -First 1)
+              $hs = (Get-FileHash $b -Algorithm SHA256).Hash
+              Add-Content $env:GITHUB_STEP_SUMMARY "| $p | $hv | $b | $hs | https://$p.org/ |"
+            }
+          }
+
+      - name: Upload smoke inventory
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-inventory-windows-${{ matrix.windows }}
+          path: /dev/null
+          if-no-files-found: ignore
 
       - name: Upload smoke artifacts
         if: always()
@@ -276,6 +359,42 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           echo ok > .smoke_depends_pass
 
+      - name: Summarize depends sources (URLs + SHA256)
+        shell: bash
+        run: |
+          set -euo pipefail
+          pkgs=$(find depends/work -type f -name .stamp_built 2>/dev/null | sed -E 's#.*/work/([^/]+)/.*#\1#' | sort -u || true)
+          out="depends-metadata-${{ matrix.name }}.csv"
+          echo "package,url,sha256,source_file_sha256" > "$out"
+          for pkg in $pkgs; do
+            mk="depends/packages/${pkg}.mk"
+            url=""; sha=""; fsha=""; srcfile=""
+            if [ -f "$mk" ]; then
+              url=$(awk -F'=' '/_download_(path|url)/{gsub(/[ \t]/, "", $0); print $2; exit}' "$mk" 2>/dev/null || true)
+              sha=$(awk -F'=' '/_sha256/ {gsub(/[ \t]/, "", $0); print $2; exit}' "$mk" 2>/dev/null || true)
+              srcfile=$(awk -F'=' '/_file_name/ {gsub(/[ \t]/, "", $0); print $2; exit}' "$mk" 2>/dev/null || true)
+            fi
+            cand=""
+            if [ -n "$srcfile" ] && [ -f "depends/sources/$srcfile" ]; then cand="depends/sources/$srcfile"; fi
+            if [ -z "$cand" ]; then cand=$(ls depends/sources/${pkg}-* 2>/dev/null | head -1 || true); fi
+            if [ -n "$cand" ] && [ -f "$cand" ]; then fsha=$(sha256sum "$cand" | awk '{print $1}'); fi
+            echo "$pkg,${url:-},${sha:-},${fsha:-}" >> "$out"
+          done
+          {
+            echo "### depends sources on ${{ matrix.name }}";
+            echo "| package | url | sha256 | source_file_sha256 |";
+            echo "|---|---|---|---|";
+            awk -F',' 'NR>1{printf "| %s | %s | %s | %s |\n", $1,$2,$3,$4}' "$out"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload depends metadata
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: depends-metadata-${{ matrix.name }}
+          path: depends-metadata-${{ matrix.name }}.csv
+          if-no-files-found: warn
+
       - name: Upload depends logs on failure
         if: failure()
         uses: actions/upload-artifact@v4
@@ -340,6 +459,42 @@ jobs:
             fi
           } >> "$GITHUB_STEP_SUMMARY"
           echo ok > .smoke_depends_pass
+
+      - name: Summarize depends sources (URLs + SHA256)
+        shell: bash
+        run: |
+          set -euo pipefail
+          pkgs=$(find depends/work -type f -name .stamp_built 2>/dev/null | sed -E 's#.*/work/([^/]+)/.*#\1#' | sort -u || true)
+          out="depends-metadata-${{ matrix.macos }}.csv"
+          echo "package,url,sha256,source_file_sha256" > "$out"
+          for pkg in $pkgs; do
+            mk="depends/packages/${pkg}.mk"
+            url=""; sha=""; fsha=""; srcfile=""
+            if [ -f "$mk" ]; then
+              url=$(awk -F'=' '/_download_(path|url)/{gsub(/[ \t]/, "", $0); print $2; exit}' "$mk" 2>/dev/null || true)
+              sha=$(awk -F'=' '/_sha256/ {gsub(/[ \t]/, "", $0); print $2; exit}' "$mk" 2>/dev/null || true)
+              srcfile=$(awk -F'=' '/_file_name/ {gsub(/[ \t]/, "", $0); print $2; exit}' "$mk" 2>/dev/null || true)
+            fi
+            cand=""
+            if [ -n "$srcfile" ] && [ -f "depends/sources/$srcfile" ]; then cand="depends/sources/$srcfile"; fi
+            if [ -z "$cand" ]; then cand=$(ls depends/sources/${pkg}-* 2>/dev/null | head -1 || true); fi
+            if [ -n "$cand" ] && [ -f "$cand" ]; then fsha=$(shasum -a 256 "$cand" | awk '{print $1}'); fi
+            echo "$pkg,${url:-},${sha:-},${fsha:-}" >> "$out"
+          done
+          {
+            echo "### depends sources on ${{ matrix.macos }}";
+            echo "| package | url | sha256 | source_file_sha256 |";
+            echo "|---|---|---|---|";
+            awk -F',' 'NR>1{printf "| %s | %s | %s | %s |\n", $1,$2,$3,$4}' "$out"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload depends metadata
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: depends-metadata-${{ matrix.macos }}
+          path: depends-metadata-${{ matrix.macos }}.csv
+          if-no-files-found: warn
 
       - name: Upload depends logs on failure
         if: failure()
@@ -434,17 +589,23 @@ jobs:
           "$a64" -O2 t.cpp -o a64
           echo ok > ../.smoke_pass
 
-      - name: Append smoke summary
+      - name: Android toolchain inventory
         shell: bash
         run: |
           set -euo pipefail
+          tmp=$(mktemp)
+          curl -fsSL "$ANDROID_CLT_LINUX" -o "$tmp" || true
+          zsha=$( [ -s "$tmp" ] && sha256sum "$tmp" | awk '{print $1}' || echo )
+          ndk_prop="$ANDROID_SDK_ROOT/ndk/${ANDROID_NDK_VERSION}/source.properties"
+          ndk_sha=$( [ -f "$ndk_prop" ] && sha256sum "$ndk_prop" | awk '{print $1}' || echo )
+          plat_prop="$ANDROID_SDK_ROOT/platforms/android-34/source.properties"
+          plat_sha=$( [ -f "$plat_prop" ] && sha256sum "$plat_prop" | awk '{print $1}' || echo )
           {
-            echo "### Smoke Android ubuntu-24.04";
-            echo "- API: 34";
-            echo "- NDK: ${ANDROID_NDK_VERSION}";
-            echo "- SDK root: ${ANDROID_SDK_ROOT}";
+            echo "### Android toolchain sources";
+            echo "- cmdline-tools zip: [$ANDROID_CLT_LINUX]($ANDROID_CLT_LINUX) — sha256: ${zsha:-n/a}";
+            echo "- NDK ${ANDROID_NDK_VERSION}: fingerprint of source.properties — sha256: ${ndk_sha:-n/a}";
+            echo "- Platform android-34: fingerprint of source.properties — sha256: ${plat_sha:-n/a}";
           } >> "$GITHUB_STEP_SUMMARY"
-          echo "::notice::Android smoke passed (api 34, ndk ${ANDROID_NDK_VERSION})"
 
       - name: Upload smoke artifacts
         if: always()
@@ -860,83 +1021,4 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cmake --build build-w64 -j"$(nproc 2>/dev/null || echo 2)" || { echo "::error::Windows cross build failed."; exit 2; }
-
-      - name: Collect Windows .exe
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p dist-w64
-          find build-w64 -type f -name 'vkax-*.exe' -print -exec cp -a {} dist-w64/ \; || true
-          if [ -z "$(ls -A dist-w64 2>/dev/null || true)" ]; then
-            echo "::warning::No vkax Windows executables found; uploading full build dir instead."
-          fi
-
-      - name: Upload Windows cross artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: native-windows-cross-ubuntu-22.04
-          path: |
-            dist-w64/**/*
-            build-w64/**/*
-          if-no-files-found: warn
-
-  # =====================================
-  # Windows (PowerShell) — native only (after smoke_native_windows)
-  # =====================================
-  windows:
-    name: native • windows • ${{ matrix.windows }}
-    needs: smoke_native_windows
-    runs-on: ${{ matrix.windows }}
-    timeout-minutes: 25
-    strategy:
-      fail-fast: false
-      matrix:
-        windows: [windows-2022]
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup MSVC env
-        uses: ilammy/msvc-dev-cmd@v1
-
-      - name: Toolchain sanity
-        shell: pwsh
-        run: |
-          'int main(){return 0;}' | Set-Content -NoNewline -Path .\t.cpp
-          cl /nologo .\t.cpp /Fe:t.exe
-          .\t.exe
-
-      - name: CMake build (skip if depends-only project)
-        shell: pwsh
-        run: |
-          if (Test-Path .\CMakeLists.txt) {
-            if (Test-Path .\depends) {
-              echo "::notice::Project uses depends; Windows native build is disabled on MSVC runner."
-            } else {
-              cmake -S . -B build
-              if ($LASTEXITCODE -ne 0) { echo "::error::CMake configure failed."; exit 2 }
-              cmake --build build -- -j 2
-              if ($LASTEXITCODE -ne 0) { echo "::error::CMake build failed; check missing deps."; exit 2 }
-            }
-          } else {
-            echo "::notice::No CMakeLists.txt; skipping."
-          }
-
-      - name: Collect vkax binaries if present
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force -Path dist | Out-Null
-          Get-ChildItem -Recurse build -File -Include vkax-qt*.exe,vkax-d*.exe,vkax-cli*.exe | ForEach-Object { Copy-Item $_.FullName dist/ -Force }
-          if (-not (Get-ChildItem dist -ErrorAction SilentlyContinue)) { Write-Host '::warning::No vkax binaries found to package on Windows; uploading full build dir instead.' }
-
-      - name: Upload artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: native-windows-${{ matrix.windows }}
-          path: |
-            dist/**/*
-            build/**/*
-          if-no-files-found: warn
+          cmake --build build-w64 -j"$(nproc 2>/dev/null || echo 2)" || { echo "::error::Windows 
