@@ -58,6 +58,14 @@ jobs:
           umask 022
           umask
 
+      - name: "[VKAX] Init build log"
+        run: |
+          set -Eeuo pipefail
+          LOG="$RUNNER_TEMP/vkax-build.log"
+          : > "$LOG"
+          echo "BUILD_LOG=$LOG" >> "$GITHUB_ENV"
+          
+
       - name: "[VKAX] Guards in workflows"
         run: |
           set -Eeuo pipefail
@@ -325,13 +333,12 @@ jobs:
           set -Eeuo pipefail
           export SOURCE_DATE_EPOCH="$(git log -1 --format=%ct || echo 0)"
           export BUILD_TRIPLET="$(./depends/config.guess)"
-          export LOG="$RUNNER_TEMP/vkax-build.log"
-          echo "## depends build (UTC) $(date -u '+%Y-%m-%d %H:%M:%S UTC')" | tee -a "$LOG"
+          echo "## depends build (UTC) $(date -u '+%Y-%m-%d %H:%M:%S UTC')" | tee -a "$BUILD_LOG"
           make -C depends --output-sync=target -j"$(nproc)" \
             build="$BUILD_TRIPLET" build_os=linux \
             HOST="$HOST" ANDROID_NDK="$ANDROID_NDK_HOME" ANDROID_API="${{ matrix.api }}" \
-            NO_QT=1 V=1 2>&1 | tee -a "$LOG"
-          echo "BUILD_LOG=$LOG" >> "$GITHUB_ENV"
+            NO_QT=1 V=1 2>&1 | tee -a "$BUILD_LOG"
+
 
       - name: "[VKAX] Boost provenance"
         run: |
