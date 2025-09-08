@@ -1,5 +1,5 @@
 # .github/workflows/build.yaml
-name: Android Smoke + Build (multi-OS, hash-seeded licenses)
+name: CI • Android (modern+legacy) + Native (Win/macOS/Ubuntu 22/24, AMD/ARM)
 
 on:
   push:
@@ -13,41 +13,50 @@ permissions:
 env:
   ANDROID_SDK_ROOT: ${{ github.workspace }}/.android-sdk
   ANDROID_HOME: ${{ github.workspace }}/.android-sdk
-  # cmdline-tools r9477386 is widely compatible and stable
   ANDROID_CLT_LINUX: https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip
   ANDROID_CLT_MAC: https://dl.google.com/android/repository/commandlinetools-mac-9477386_latest.zip
   ANDROID_CLT_WIN: https://dl.google.com/android/repository/commandlinetools-win-9477386_latest.zip
 
+# -----------------------------
+# ANDROID (modern APIs)
+# -----------------------------
 jobs:
-  android:
-    name: ${{ matrix.name }} | api ${{ matrix.api }} | ndk ${{ matrix.ndk }}
-    # Use fromJSON so we can pass either a string or an array of labels
+  android_modern:
+    name: android • ${{ matrix.name }} • api ${{ matrix.api }} • ndk ${{ matrix.ndk }}
     runs-on: ${{ fromJSON(matrix.runs_on) }}
-    timeout-minutes: 45
+    continue-on-error: false
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
         api: [24, 28, 34, 35]
         ndk: ["26.3.11579264"]
         include:
-          - name: ubuntu-x64
+          - name: ubuntu-22-amd64
             runs_on: '"ubuntu-22.04"'
             host_os: linux
             host_arch: x86_64
-          - name: ubuntu-arm64
-            # Adjust labels if your self-hosted runner uses a different scheme
-            runs_on: '["self-hosted","Linux","ARM64"]'
+          - name: ubuntu-24-amd64
+            runs_on: '"ubuntu-24.04"'
+            host_os: linux
+            host_arch: x86_64
+          - name: ubuntu-22-arm64
+            runs_on: '["self-hosted","Linux","ARM64","ubuntu-22.04"]'
             host_os: linux
             host_arch: arm64
-          - name: macos-arm64
-            runs_on: '"macos-14"'
-            host_os: darwin
+          - name: ubuntu-24-arm64
+            runs_on: '["self-hosted","Linux","ARM64","ubuntu-24.04"]'
+            host_os: linux
             host_arch: arm64
-          - name: macos-intel
+          - name: macos-13-intel
             runs_on: '"macos-13"'
             host_os: darwin
             host_arch: x86_64
-          - name: windows-x64
+          - name: macos-14-arm64
+            runs_on: '"macos-14"'
+            host_os: darwin
+            host_arch: arm64
+          - name: windows-2022
             runs_on: '"windows-2022"'
             host_os: windows
             host_arch: x86_64
@@ -56,21 +65,28 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Java 17 (AGP-friendly)
+      - name: Setup Java 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
 
       - name: Prepare SDK directories
+        if: runner.os != 'Windows'
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p "$ANDROID_SDK_ROOT" "$ANDROID_SDK_ROOT/cmdline-tools" "$HOME/.android"
-          # Silence sdkmanager repo warning
+          mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools" "$HOME/.android"
           touch "$HOME/.android/repositories.cfg"
 
-      # Download and install commandline-tools (per-OS)
+      - name: Prepare SDK directories (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path "$env:ANDROID_SDK_ROOT\cmdline-tools" | Out-Null
+          New-Item -ItemType Directory -Force -Path "$env:USERPROFILE\.android" | Out-Null
+          New-Item -ItemType File -Force -Path "$env:USERPROFILE\.android\repositories.cfg" | Out-Null
+
       - name: Install Android cmdline-tools (Linux)
         if: runner.os == 'Linux'
         shell: bash
@@ -97,20 +113,21 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $ErrorActionPreference = 'Stop'
-          $tmp = New-Item -ItemType Directory -Force -Path (Join-Path $env:RUNNER_TEMP "clt")
+          $tmp = Join-Path $env:RUNNER_TEMP "clt"
+          New-Item -ItemType Directory -Force -Path $tmp | Out-Null
           Invoke-WebRequest -UseBasicParsing -Uri $env:ANDROID_CLT_WIN -OutFile (Join-Path $tmp "cmdline.zip")
           Expand-Archive -Path (Join-Path $tmp "cmdline.zip") -DestinationPath (Join-Path $env:ANDROID_SDK_ROOT "cmdline-tools") -Force
           Move-Item -Force (Join-Path $env:ANDROID_SDK_ROOT "cmdline-tools\cmdline-tools") (Join-Path $env:ANDROID_SDK_ROOT "cmdline-tools\latest")
-          echo "$env:ANDROID_SDK_ROOT\cmdline-tools\latest\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          "$env:ANDROID_SDK_ROOT\cmdline-tools\latest\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
       - name: Accept Android licenses (hash-seeded)
         uses: ./.github/actions/android-accept-licenses
 
-      - name: Install Android packages
+      - name: Install Android packages (Linux/macOS)
+        if: runner.os != 'Windows'
+        shell: bash
         env:
           PATH: ${{ env.ANDROID_SDK_ROOT }}/cmdline-tools/latest/bin:${{ env.PATH }}
-        shell: bash
         run: |
           set -euo pipefail
           sdkmanager --sdk_root="${ANDROID_SDK_ROOT}" \
@@ -118,7 +135,15 @@ jobs:
             "platforms;android-${{ matrix.api }}" \
             "ndk;${{ matrix.ndk }}"
 
-      - name: Verify SDK/NDK layout
+      - name: Install Android packages (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          & "$env:ANDROID_SDK_ROOT\cmdline-tools\latest\bin\sdkmanager.bat" --sdk_root="$env:ANDROID_SDK_ROOT" `
+            "platform-tools" "platforms;android-${{ matrix.api }}" "ndk;${{ matrix.ndk }}"
+
+      - name: Verify SDK/NDK layout (Linux/macOS)
+        if: runner.os != 'Windows'
         shell: bash
         run: |
           set -euo pipefail
@@ -127,31 +152,24 @@ jobs:
           test -d "$ANDROID_SDK_ROOT/ndk/${{ matrix.ndk }}"
           find "$ANDROID_SDK_ROOT/ndk/${{ matrix.ndk }}/toolchains/llvm/prebuilt" -maxdepth 1 -type d -name "${{ matrix.host_os }}-*" -print
 
-      - name: Smoke compile (NDK armv7a + arm64)
-        id: smoke
+      - name: Verify SDK/NDK layout (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          if (!(Test-Path "$env:ANDROID_SDK_ROOT\platform-tools\adb.exe")) { throw "adb missing" }
+          if (!(Test-Path "$env:ANDROID_SDK_ROOT\platforms\android-${{ matrix.api }}")) { throw "platform missing" }
+          if (!(Test-Path "$env:ANDROID_SDK_ROOT\ndk\${{ matrix.ndk }}")) { throw "ndk missing" }
+          Get-ChildItem "$env:ANDROID_SDK_ROOT\ndk\${{ matrix.ndk }}\toolchains\llvm\prebuilt" | Select-Object FullName
+
+      - name: Smoke compile (Linux/macOS)
+        if: runner.os != 'Windows'
         shell: bash
         run: |
           set -euo pipefail
           OS=${{ matrix.host_os }}; ARCH=${{ matrix.host_arch }}
-          case "$OS" in
-            linux)   HOST_OS="linux" ;;
-            darwin)  HOST_OS="darwin" ;;
-            windows) HOST_OS="windows" ;;
-            *) echo "::error::Unsupported host OS: $OS"; exit 1;;
-          esac
-          case "$ARCH" in
-            x86_64) HOST_ARCH="x86_64" ;;
-            arm64)  HOST_ARCH="arm64" ;;
-            *) echo "::error::Unsupported host arch: $ARCH"; exit 1;;
-          esac
-          PREBUILT="${ANDROID_SDK_ROOT}/ndk/${{ matrix.ndk }}/toolchains/llvm/prebuilt/${HOST_OS}-${HOST_ARCH}/bin"
+          PREBUILT="${ANDROID_SDK_ROOT}/ndk/${{ matrix.ndk }}/toolchains/llvm/prebuilt/${OS}-${ARCH}/bin"
           A32="${PREBUILT}/armv7a-linux-androideabi21-clang++"
           A64="${PREBUILT}/aarch64-linux-android21-clang++"
-          if [ ! -x "$A32" ] || [ ! -x "$A64" ]; then
-            echo "::error::NDK clang not found for ${HOST_OS}-${HOST_ARCH}"
-            ls -la "$PREBUILT" || true
-            exit 1
-          fi
           mkdir -p smoke && cd smoke
           cat > t.cpp <<'CPP'
           #include <atomic>
@@ -159,9 +177,23 @@ jobs:
           CPP
           "$A32" -latomic -O2 t.cpp -o a32
           "$A64" -O2 t.cpp -o a64
-          file ./a32 || true
-          file ./a64 || true
           echo "ok" > ../.smoke_pass
+
+      - name: Smoke compile (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $pre = "$env:ANDROID_SDK_ROOT\ndk\${{ matrix.ndk }}\toolchains\llvm\prebuilt\windows-x86_64\bin"
+          $A32 = Join-Path $pre "armv7a-linux-androideabi21-clang++.exe"
+          $A64 = Join-Path $pre "aarch64-linux-android21-clang++.exe"
+          New-Item -ItemType Directory -Force -Path smoke | Out-Null
+          @"
+          #include <atomic>
+          int main(){ std::atomic<int> v{0}; v++; return (int)v.load(); }
+          "@ | Set-Content -NoNewline -Path .\smoke\t.cpp -Encoding ascii
+          & $A32 -latomic -O2 .\smoke\t.cpp -o .\smoke\a32.exe
+          & $A64 -O2 .\smoke\t.cpp -o .\smoke\a64.exe
+          "ok" | Set-Content -NoNewline -Path .\.smoke_pass
 
       - name: Upload smoke artifacts
         if: always()
@@ -170,54 +202,44 @@ jobs:
           name: smoke-${{ matrix.name }}-api${{ matrix.api }}
           path: |
             .smoke_pass
-            smoke/**
+            smoke/**/*
           if-no-files-found: warn
-
-      # Wire in your actual build below this line. Keep it after smoke.
-      # Linux/macOS example shows CMake; Windows block reserved if needed.
-
-      - name: Configure project (CMake example)
-        if: ${{ runner.os != 'Windows' }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ -f CMakeLists.txt ]; then
-            cmake -S . -B build -G Ninja
-          else
-            echo "No CMakeLists.txt; skipping CMake configure."
-          fi
-
-      - name: Build project (CMake example)
-        if: ${{ runner.os != 'Windows' }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ -d build ]; then
-            cmake --build build -j"$(getconf _NPROCESSORS_ONLN || echo 2)"
-          else
-            echo "No build dir; skipping CMake build."
-          fi
 
       - name: Build with Gradle if present
         shell: bash
+        if: runner.os != 'Windows'
         run: |
           set -euo pipefail
           if [ -f "./gradlew" ]; then
             chmod +x ./gradlew
             ./gradlew --no-daemon assemble
-          else
-            echo "No Gradle wrapper; skipping Gradle build."
           fi
 
-      - name: Windows project build placeholder
+      - name: Build with Gradle if present (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          if (Test-Path -Path ".\CMakeLists.txt") {
+          if (Test-Path .\gradlew.bat) {
+            & .\gradlew.bat --no-daemon assemble
+          }
+
+      - name: CMake configure/build if present (Linux/macOS)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -f CMakeLists.txt ]; then
+            cmake -S . -B build -G Ninja
+            cmake --build build -j"$(getconf _NPROCESSORS_ONLN || echo 2)"
+          fi
+
+      - name: CMake configure/build if present (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          if (Test-Path .\CMakeLists.txt) {
             cmake -S . -B build -G "Ninja"
             cmake --build build -- -j 2
-          } else {
-            echo "No CMakeLists.txt; skipping Windows native build."
           }
 
       - name: Upload build artifacts
@@ -226,6 +248,235 @@ jobs:
         with:
           name: build-${{ matrix.name }}-api${{ matrix.api }}
           path: |
-            build/**
+            build/**/*
+            **/build/outputs/**/*
+          if-no-files-found: warn
+
+  # -----------------------------
+  # ANDROID (legacy, API 15)
+  # -----------------------------
+  android_legacy:
+    name: android-legacy • ubuntu-22-amd64 • api 15 • ndk 26.3
+    runs-on: ubuntu-22.04
+    continue-on-error: false
+    timeout-minutes: 40
+    env:
+      API: "15"
+      NDK_VER: "26.3.11579264"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Prepare SDK directories
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools" "$HOME/.android"
+          touch "$HOME/.android/repositories.cfg"
+
+      - name: Install Android cmdline-tools (Linux)
+        shell: bash
+        run: |
+          set -euo pipefail
+          tmp=$(mktemp -d)
+          curl -fsSL "$ANDROID_CLT_LINUX" -o "$tmp/cmdline.zip"
+          unzip -q "$tmp/cmdline.zip" -d "$ANDROID_SDK_ROOT/cmdline-tools"
+          mv "$ANDROID_SDK_ROOT/cmdline-tools/cmdline-tools" "$ANDROID_SDK_ROOT/cmdline-tools/latest"
+          echo "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+
+      - name: Accept Android licenses (hash-seeded)
+        uses: ./.github/actions/android-accept-licenses
+
+      - name: Install legacy platform + NDK
+        shell: bash
+        env:
+          PATH: ${{ env.ANDROID_SDK_ROOT }}/cmdline-tools/latest/bin:${{ env.PATH }}
+        run: |
+          set -euo pipefail
+          sdkmanager --sdk_root="${ANDROID_SDK_ROOT}" \
+            "platform-tools" \
+            "platforms;android-${API}" \
+            "ndk;${NDK_VER}"
+
+      - name: Smoke compile armv7a @16
+        shell: bash
+        run: |
+          set -euo pipefail
+          PREBUILT="${ANDROID_SDK_ROOT}/ndk/${NDK_VER}/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          A32="${PREBUILT}/armv7a-linux-androideabi16-clang++"
+          mkdir -p smoke && cd smoke
+          cat > t.cpp <<'CPP'
+          #include <atomic>
+          int main(){ std::atomic<int> v{0}; v++; return (int)v.load(); }
+          CPP
+          "$A32" -latomic -O2 t.cpp -o a32
+          echo "ok" > ../.smoke_pass
+
+      - name: Upload legacy smoke artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-legacy-api15
+          path: |
+            .smoke_pass
+            smoke/**/*
+          if-no-files-found: warn
+
+  # -----------------------------
+  # NATIVE BUILDS (GitHub-hosted AMD64)
+  # -----------------------------
+  native_hosted:
+    name: native • ${{ matrix.name }}
+    runs-on: ${{ matrix.runs_on }}
+    continue-on-error: false
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: ubuntu-22-amd64
+            runs_on: ubuntu-22.04
+            shell: bash
+          - name: ubuntu-24-amd64
+            runs_on: ubuntu-24.04
+            shell: bash
+          - name: macos-13-intel
+            runs_on: macos-13
+            shell: bash
+          - name: macos-14-arm64
+            runs_on: macos-14
+            shell: bash
+          - name: windows-2022
+            runs_on: windows-2022
+            shell: pwsh
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Host toolchain smoke (bash)
+        if: matrix.shell == 'bash'
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo 'int main(){return 0;}' > t.cpp
+          c++ -v || true
+          c++ -O2 t.cpp -o t
+          ./t || true
+
+      - name: Host toolchain smoke (pwsh)
+        if: matrix.shell == 'pwsh'
+        shell: pwsh
+        run: |
+          'int main(){return 0;}' | Set-Content -NoNewline -Path .\t.cpp
+          cl /? > $null 2>&1; if ($LASTEXITCODE -ne 0) { g++ --version; g++ .\t.cpp -o .\t.exe } else { cl .\t.cpp /Fe:t.exe }
+          .\t.exe
+
+      - name: Build with Gradle if present (bash)
+        if: matrix.shell == 'bash'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -f "./gradlew" ]; then
+            chmod +x ./gradlew
+            ./gradlew --no-daemon assemble
+          fi
+
+      - name: Build with Gradle if present (pwsh)
+        if: matrix.shell == 'pwsh'
+        shell: pwsh
+        run: |
+          if (Test-Path .\gradlew.bat) { & .\gradlew.bat --no-daemon assemble }
+
+      - name: CMake configure/build if present (bash)
+        if: matrix.shell == 'bash'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -f CMakeLists.txt ]; then
+            cmake -S . -B build -G Ninja
+            cmake --build build -j"$(getconf _NPROCESSORS_ONLN || echo 2)"
+          fi
+
+      - name: CMake configure/build if present (pwsh)
+        if: matrix.shell == 'pwsh'
+        shell: pwsh
+        run: |
+          if (Test-Path .\CMakeLists.txt) {
+            cmake -S . -B build -G "Ninja"
+            cmake --build build -- -j 2
+          }
+
+      - name: Upload native artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-${{ matrix.name }}
+          path: |
+            build/**/*
+            **/build/outputs/**/*
+          if-no-files-found: warn
+
+  # -----------------------------
+  # NATIVE BUILDS (self-hosted ARM64 Ubuntu 22/24)
+  # -----------------------------
+  native_linux_arm64_selfhosted:
+    name: native • selfhosted • ${{ matrix.name }}
+    runs-on: ${{ fromJSON(matrix.runs_on) }}
+    continue-on-error: false
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: ubuntu-22-arm64
+            runs_on: '["self-hosted","Linux","ARM64","ubuntu-22.04"]'
+          - name: ubuntu-24-arm64
+            runs_on: '["self-hosted","Linux","ARM64","ubuntu-24.04"]'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Host toolchain smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo 'int main(){return 0;}' > t.cpp
+          c++ -v || true
+          c++ -O2 t.cpp -o t
+          ./t || true
+
+      - name: Build with Gradle if present
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -f "./gradlew" ]; then
+            chmod +x ./gradlew
+            ./gradlew --no-daemon assemble
+          fi
+
+      - name: CMake configure/build if present
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -f CMakeLists.txt ]; then
+            cmake -S . -B build -G Ninja
+            cmake --build build -j"$(nproc || echo 2)"
+          fi
+
+      - name: Upload native artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-selfhosted-${{ matrix.name }}
+          path: |
+            build/**/*
             **/build/outputs/**/*
           if-no-files-found: warn
