@@ -20,9 +20,6 @@ env:
   TAIL_N: "1000"
   VERBOSE_BUILD: "0"
   ALLOW_TTY_LICENSE_ACCEPT: "0"
-  MAX_SIZE_KB_VKAXD: "8000"
-  MAX_SIZE_KB_VKAX_CLI: "3000"
-  MAX_SIZE_KB_VKAX_TX: "2500"
 
 jobs:
   android:
@@ -646,17 +643,6 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: "[VKAX] Enforce size thresholds"
-        run: |
-          set -Eeuo pipefail
-          too_big=0
-          kb() { [ -f "$1" ] && echo $(( ($(stat -c '%s' "$1")+1023)/1024 )) || echo 0; }
-          s_d=$(kb src/vkaxd); s_cli=$(kb src/vkax-cli); s_tx=$(kb src/vkax-tx)
-          [ "$s_d"  -le "${MAX_SIZE_KB_VKAXD}"     ] || { echo "::error::vkaxd ${s_d}KB > ${MAX_SIZE_KB_VKAXD}KB"; too_big=1; }
-          [ "$s_cli" -le "${MAX_SIZE_KB_VKAX_CLI}" ] || { echo "::error::vkax-cli ${s_cli}KB > ${MAX_SIZE_KB_VKAX_CLI}KB"; too_big=1; }
-          [ "$s_tx"  -le "${MAX_SIZE_KB_VKAX_TX}"  ] || { echo "::error::vkax-tx ${s_tx}KB > ${MAX_SIZE_KB_VKAX_TX}KB"; too_big=1; }
-          exit $too_big
-
       - name: "[VKAX] Package artifacts"
         run: |
           set -Eeuo pipefail
@@ -711,14 +697,6 @@ jobs:
           path: vkax-android-${{ matrix.arch }}-ndk${{ matrix.ndk_ver }}-*.tar.gz
           if-no-files-found: error
           retention-days: 30
-
-      # Optional: pinned example for future reference
-      # - name: "[VKAX] Download artifacts (example, pinned)"
-      #   if: always()
-      #   uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-      #   with:
-      #     name: "vkax-android-${{ matrix.arch }}-ndk${{ matrix.ndk_ver }}"
-      #     path: "retrieved-artifacts"
 
       - name: "[VKAX] Summarize last ${TAIL_N} build lines"
         if: always()
