@@ -1,9 +1,9 @@
 # .github/workflows/build.yaml
-name: CI • Android (modern+legacy) + Native (macOS-13/Ubuntu/Windows)
+name: CI • Smoke-first + OS builds (Android on Ubuntu AMD64)
 
 on:
   push:
-    branches: ["**"]
+    branches: ["v100.11.5-android"]
   pull_request:
   workflow_dispatch:
 
@@ -14,32 +14,135 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
-# Android tools URLs used by Ubuntu-only Android jobs
+# Global Android vars (used only by Android jobs)
 env:
   ANDROID_SDK_ROOT: ${{ github.workspace }}/.android-sdk
   ANDROID_HOME: ${{ github.workspace }}/.android-sdk
   ANDROID_CLT_LINUX: https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip
 
 # ============================
-# ANDROID (modern APIs, Ubuntu AMD64 only)
+# SMOKE: native toolchains (Ubuntu AMD/ARM, macOS-13 Intel, Windows)
 # ============================
 jobs:
-  android_modern:
-    name: android • ${{ matrix.os_name }} • api ${{ matrix.api }} • ndk ${{ matrix.ndk }}
-    runs-on: ${{ matrix.runs_on }}
-    timeout-minutes: 60
+  smoke_native_ubuntu:
+    name: smoke • native • ubuntu • ${{ matrix.name }}
+    runs-on: ${{ fromJSON(matrix.runs_on) }}
+    timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
-        api: [24, 28, 34, 35]
-        ndk: ["23.1.7779620"]
+        # Add/remove Ubuntu variants here.
         include:
-          - os_name: ubuntu-22-amd64
-            runs_on: ubuntu-22.04
-          - os_name: ubuntu-24-amd64
-            runs_on: ubuntu-24.04
+          - name: ubuntu-22-amd64
+            runs_on: '"ubuntu-22.04"'
+          - name: ubuntu-24-amd64
+            runs_on: '"ubuntu-24.04"'
+          - name: ubuntu-22-arm64
+            runs_on: '["self-hosted","Linux","ARM64","ubuntu-22.04"]'
+          - name: ubuntu-24-arm64
+            runs_on: '["self-hosted","Linux","ARM64","ubuntu-24.04"]'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Toolchain smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo 'int main(){return 0;}' > t.cpp
+          c++ -O2 t.cpp -o t
+          ./t || true
+          echo ok > .smoke_pass
+
+      - name: Upload smoke artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-native-${{ matrix.name }}
+          path: |
+            .smoke_pass
+            t
+          if-no-files-found: warn
+
+  smoke_native_macos:
+    name: smoke • native • macos • ${{ matrix.macos }}
+    runs-on: ${{ matrix.macos }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        # Add/remove macOS versions here.
+        macos: [macos-13]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Toolchain smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo 'int main(){return 0;}' > t.cpp
+          c++ -O2 t.cpp -o t
+          ./t || true
+          echo ok > .smoke_pass
+      - name: Upload smoke artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-native-${{ matrix.macos }}
+          path: |
+            .smoke_pass
+            t
+          if-no-files-found: warn
+
+  smoke_native_windows:
+    name: smoke • native • windows • ${{ matrix.windows }}
+    runs-on: ${{ matrix.windows }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        # Add/remove Windows versions here.
+        windows: [windows-2022]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup MSVC env
+        uses: ilammy/msvc-dev-cmd@v1
+      - name: Toolchain smoke
+        shell: pwsh
+        run: |
+          'int main(){return 0;}' | Set-Content -NoNewline -Path .\t.cpp
+          cl /nologo .\t.cpp /Fe:t.exe
+          .\t.exe
+          'ok' | Set-Content -NoNewline -Path .smoke_pass
+      - name: Upload smoke artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-native-${{ matrix.windows }}
+          path: |
+            .smoke_pass
+            t.exe
+          if-no-files-found: warn
+
+  # ============================
+  # SMOKE: Android toolchain (Ubuntu AMD64 only)
+  # ============================
+  smoke_android:
+    name: smoke • android • ${{ matrix.os }} • api ${{ matrix.api }} • ndk ${{ matrix.ndk }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        # Add/remove APIs here.
+        api: [24, 28, 34, 35]
+        # Single NDK version used everywhere.
+        ndk: ["23.1.7779620"]
+        # Add/remove Ubuntu AMD64 here.
+        os: [ubuntu-22.04, ubuntu-24.04]
     env:
-      ANDROID_NDK_VERSION: ${{ matrix.ndk }}  # expose to steps
+      ANDROID_NDK_VERSION: ${{ matrix.ndk }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -95,7 +198,6 @@ jobs:
           [ -d "$pre" ] || { echo "::error::NDK prebuilt not found: $pre"; ls -la "$ndk_dir/toolchains/llvm/prebuilt" || true; exit 1; }
 
       - name: Smoke compile (armv7a+arm64)
-        id: smoke
         shell: bash
         run: |
           set -euo pipefail
@@ -117,11 +219,49 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: smoke-android-${{ matrix.os_name }}-api${{ matrix.api }}
+          name: smoke-android-${{ matrix.os }}-api${{ matrix.api }}
           path: |
             .smoke_pass
             smoke/**/*
           if-no-files-found: warn
+
+  # ============================
+  # ANDROID BUILDS (Ubuntu AMD64) — runs after smoke_android
+  # ============================
+  android:
+    name: android • build • ${{ matrix.os }} • api ${{ matrix.api }} • ndk ${{ matrix.ndk }}
+    needs: smoke_android
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        api: [24, 28, 34, 35]
+        ndk: ["23.1.7779620"]
+        os: [ubuntu-22.04, ubuntu-24.04]
+    env:
+      ANDROID_NDK_VERSION: ${{ matrix.ndk }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Ensure Android SDK (quick install)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools" "$HOME/.android"
+          touch "$HOME/.android/repositories.cfg"
+          if [ ! -d "$ANDROID_SDK_ROOT/cmdline-tools/latest" ]; then
+            tmp=$(mktemp -d)
+            curl -fsSL "$ANDROID_CLT_LINUX" -o "$tmp/cmdline.zip"
+            unzip -q "$tmp/cmdline.zip" -d "$ANDROID_SDK_ROOT/cmdline-tools"
+            mv "$ANDROID_SDK_ROOT/cmdline-tools/cmdline-tools" "$ANDROID_SDK_ROOT/cmdline-tools/latest"
+            echo "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+          fi
+          sdkmanager --sdk_root="${ANDROID_SDK_ROOT}" \
+            "platform-tools" \
+            "platforms;android-${{ matrix.api }}" \
+            "ndk;${ANDROID_NDK_VERSION}"
 
       - name: Gradle build (if present)
         shell: bash
@@ -149,19 +289,20 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: build-android-${{ matrix.os_name }}-api${{ matrix.api }}
+          name: build-android-${{ matrix.os }}-api${{ matrix.api }}
           path: |
             build/**/*
             **/build/outputs/**/*
           if-no-files-found: warn
 
   # ============================
-  # ANDROID (legacy API 15, Ubuntu 22 AMD64)
+  # ANDROID LEGACY (API 15) — Ubuntu 22 AMD64 only
   # ============================
   android_legacy:
-    name: android-legacy • ubuntu-22-amd64 • api 15 • ndk ${{ matrix.ndk }}
+    name: android • legacy • ubuntu-22.04 • api 15 • ndk ${{ matrix.ndk }}
+    needs: smoke_android
     runs-on: ubuntu-22.04
-    timeout-minutes: 40
+    timeout-minutes: 30
     strategy:
       matrix:
         ndk: ["23.1.7779620"]
@@ -177,17 +318,12 @@ jobs:
           distribution: temurin
           java-version: "11"
 
-      - name: Prepare SDK dirs
+      - name: Prepare SDK + cmdline-tools
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools" "$HOME/.android"
           touch "$HOME/.android/repositories.cfg"
-
-      - name: Install cmdline-tools
-        shell: bash
-        run: |
-          set -euo pipefail
           tmp=$(mktemp -d)
           curl -fsSL "$ANDROID_CLT_LINUX" -o "$tmp/cmdline.zip"
           unzip -q "$tmp/cmdline.zip" -d "$ANDROID_SDK_ROOT/cmdline-tools"
@@ -230,105 +366,135 @@ jobs:
             smoke/**/*
           if-no-files-found: warn
 
-# ============================
-# macOS (Intel) — native only, no Android deps
-# ============================
+  # ============================
+  # macOS (Intel) — native only, no Android
+  # ============================
   macos:
-    name: native • macos-13-intel
-    runs-on: macos-13
-    timeout-minutes: 25
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Toolchain smoke
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo 'int main(){return 0;}' > t.cpp
-          c++ -v || true
-          c++ -O2 t.cpp -o t
-          ./t || true
-
-      - name: CMake build (if present)
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ -f CMakeLists.txt ]; then
-            cmake -S . -B build
-            cmake --build build -j"$(sysctl -n hw.ncpu || echo 2)"
-          else
-            echo "::notice::No CMakeLists.txt; skipping."
-          fi
-
-      - name: Upload native artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: native-macos-13
-          path: |
-            build/**/*
-          if-no-files-found: warn
-
-# ============================
-# Ubuntu (22/24 AMD64 + self-hosted ARM64) — native only
-# ============================
-  ubuntu:
-    name: native • ${{ matrix.name }}
-    runs-on: ${{ fromJSON(matrix.runs_on) }}
+    name: native • macOS • ${{ matrix.macos }}
+    needs: smoke_native_macos
+    runs-on: ${{ matrix.macos }}
     timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - name: ubuntu-22-amd64
-            runs_on: '"ubuntu-22.04"'
-          - name: ubuntu-24-amd64
-            runs_on: '"ubuntu-24.04"'
-          - name: ubuntu-22-arm64
-            runs_on: '["self-hosted","Linux","ARM64","ubuntu-22.04"]'
-          - name: ubuntu-24-arm64
-            runs_on: '["self-hosted","Linux","ARM64","ubuntu-24.04"]'
+        # Add/remove macOS versions here.
+        macos: [macos-13]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Toolchain smoke
+      - name: Toolchain sanity
         shell: bash
         run: |
           set -euo pipefail
           echo 'int main(){return 0;}' > t.cpp
-          c++ -v || true
-          c++ -O2 t.cpp -o t
-          ./t || true
+          c++ -O2 t.cpp -o t && ./t || true
+      - name: CMake build (if present)
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -f CMakeLists.txt ]; then
+            if compgen -G "depends/x86_64-apple-darwin*" > /dev/null; then
+              export CMAKE_PREFIX_PATH="$(echo depends/x86_64-apple-darwin*)"
+            fi
+            cmake -S . -B build
+            cmake --build build -j"$(sysctl -n hw.ncpu || echo 2)" || {
+              echo "::error::CMake build failed; ensure vendored deps or headers are present."; exit 2; }
+          else
+            echo "::notice::No CMakeLists.txt; skipping."
+          fi
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-macos-${{ matrix.macos }}
+          path: build/**/*
+          if-no-files-found: warn
+
+  # ============================
+  # Ubuntu (22/24 AMD64 + self-hosted ARM64) — native only
+  # ============================
+  ubuntu:
+    name: native • ubuntu • ${{ matrix.name }}
+    needs: smoke_native_ubuntu
+    runs-on: ${{ fromJSON(matrix.runs_on) }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        # Add/remove Ubuntu variants here.
+        include:
+          - name: ubuntu-22-amd64
+            runs_on: '"ubuntu-22.04"'
+            triple: x86_64-pc-linux-gnu
+          - name: ubuntu-24-amd64
+            runs_on: '"ubuntu-24.04"'
+            triple: x86_64-pc-linux-gnu
+          - name: ubuntu-22-arm64
+            runs_on: '["self-hosted","Linux","ARM64","ubuntu-22.04"]'
+            triple: aarch64-linux-gnu
+          - name: ubuntu-24-arm64
+            runs_on: '["self-hosted","Linux","ARM64","ubuntu-24.04"]'
+            triple: aarch64-linux-gnu
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Toolchain sanity
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo 'int main(){return 0;}' > t.cpp
+          c++ -O2 t.cpp -o t && ./t || true
+
+      - name: Optional depends build (if present)
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -d depends ]; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq build-essential pkg-config automake libtool autoconf bison cmake ninja-build python3
+            make -C depends -j"$(nproc || echo 2)" HOST=${{ matrix.triple }} || {
+              echo "::error::depends build failed; missing tool or dependency."; exit 2; }
+          else
+            echo "::notice::No depends/ dir; skipping vendored deps."
+          fi
 
       - name: CMake build (if present)
         shell: bash
         run: |
           set -euo pipefail
           if [ -f CMakeLists.txt ]; then
+            if [ -d "depends/${{ matrix.triple }}" ]; then
+              export CMAKE_PREFIX_PATH="depends/${{ matrix.triple }}"
+            fi
             cmake -S . -B build
-            cmake --build build -j"$(nproc || echo 2)"
+            cmake --build build -j"$(nproc || echo 2)" || {
+              echo "::error::CMake build failed; check missing headers like boost or config headers."; exit 2; }
           else
             echo "::notice::No CMakeLists.txt; skipping."
           fi
 
-      - name: Upload native artifacts
+      - name: Upload artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: native-${{ matrix.name }}
-          path: |
-            build/**/*
+          name: native-ubuntu-${{ matrix.name }}
+          path: build/**/*
           if-no-files-found: warn
 
-# ============================
-# Windows (PowerShell) — native only, no Android deps
-# ============================
+  # ============================
+  # Windows (PowerShell) — native only
+  # ============================
   windows:
-    name: native • windows-2022
-    runs-on: windows-2022
+    name: native • windows • ${{ matrix.windows }}
+    needs: smoke_native_windows
+    runs-on: ${{ matrix.windows }}
     timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        # Add/remove Windows versions here.
+        windows: [windows-2022]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -336,7 +502,7 @@ jobs:
       - name: Setup MSVC env
         uses: ilammy/msvc-dev-cmd@v1
 
-      - name: Toolchain smoke
+      - name: Toolchain sanity
         shell: pwsh
         run: |
           'int main(){return 0;}' | Set-Content -NoNewline -Path .\t.cpp
@@ -347,17 +513,18 @@ jobs:
         shell: pwsh
         run: |
           if (Test-Path .\CMakeLists.txt) {
-            cmake -S . -B build -G "Ninja"
+            cmake -S . -B build
+            if ($LASTEXITCODE -ne 0) { echo "::error::CMake configure failed."; exit 2 }
             cmake --build build -- -j 2
+            if ($LASTEXITCODE -ne 0) { echo "::error::CMake build failed; check missing deps."; exit 2 }
           } else {
             echo "::notice::No CMakeLists.txt; skipping."
           }
 
-      - name: Upload native artifacts
+      - name: Upload artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: native-windows-2022
-          path: |
-            build/**/*
+          name: native-windows-${{ matrix.windows }}
+          path: build/**/*
           if-no-files-found: warn
