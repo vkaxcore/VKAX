@@ -1,12 +1,16 @@
-# depends/packages/ndk.mk
-# No-op shim: CI provides ANDROID_NDK_HOME; validate and define targets once.
+# File: depends/packages/ndk.mk
+# Purpose: NDK validator shim for depends. Single ndk_install validates toolchain path. No downloads.
+# Key targets:
+#   ndk_install: ensures $ANDROID_NDK_HOME/toolchains/llvm/prebuilt/<host>/bin exists
+# Notes:
+#   - ASCII-only, readable. Avoid duplicate rules and misleading "version" labels.
 
 ifndef VKAX_NDK_MK_INCLUDED
 VKAX_NDK_MK_INCLUDED := 1
 
 package := ndk
 
-.PHONY: $(package)_install ndk_install ndk_add_to_path ndk_create_wrapper
+.PHONY: $(package)_install ndk_install
 
 $(package)_install:
 	@echo "[ndk.mk] ANDROID_NDK_HOME=$${ANDROID_NDK_HOME:-<unset>}"
@@ -14,8 +18,13 @@ $(package)_install:
 		echo "[ndk.mk] ERROR: ANDROID_NDK_HOME is not set (CI must export it)"; \
 		exit 1; \
 	fi
-	@if [ ! -d "$${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin" ]; then \
-		echo "[ndk.mk] ERROR: toolchain bin not found under $$ANDROID_NDK_HOME"; \
+	@host_tag=$$(uname -s | awk '{print tolower($$0)}'); \
+	case "$$host_tag" in linux*) os=linux;; darwin*) os=darwin;; *) os=windows;; esac; \
+	arch=$$(uname -m); \
+	if echo "$$arch" | grep -qiE 'aarch64|arm64'; then host="$$os-arm64"; else host="$$os-x86_64"; fi; \
+	tool="$$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/$$host/bin"; \
+	if [ ! -d "$$tool" ]; then \
+		echo "[ndk.mk] ERROR: toolchain bin not found under $$tool"; \
 		exit 1; \
 	fi
 	@true
@@ -23,10 +32,6 @@ $(package)_install:
 ndk_install: $(package)_install
 	@true
 
-ndk_add_to_path:
-	@true
-
-ndk_create_wrapper:
-	@true
-
 endif
+
+# Path: depends/packages/ndk.mk | 2025-09-07 UTC
