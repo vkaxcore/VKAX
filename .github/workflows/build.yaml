@@ -193,19 +193,31 @@ jobs:
 
 
 
-
       - name: "[VKAX] Licenses status"
+        id: license_status
         run: |
           set -Eeuo pipefail
           out="$(mktemp)"
           sdkmanager --sdk_root="${ANDROID_SDK_ROOT}" --licenses <<< $'n\n' >"$out" 2>&1 || true
+          if grep -q 'All SDK package licenses accepted' "$out"; then
+            echo ok=true >> "$GITHUB_OUTPUT"
+            echo "::notice::Licenses OK. Safe to continue."
+            status="OK"
+          else
+            echo ok=false >> "$GITHUB_OUTPUT"
+            echo "::warning::Licenses NOT accepted. Install may fail unless ALLOW_TTY_LICENSE_ACCEPT=1."
+            status="NOT_OK"
+          fi
           {
             echo "## sdkmanager --licenses status"
+            echo
+            echo "- status: ${status}"
             echo
             echo '```'
             sed -n '1,200p' "$out"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+
 
 
       - name: "[VKAX] Install Android SDK components"
