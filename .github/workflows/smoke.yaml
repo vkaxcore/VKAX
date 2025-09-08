@@ -21,48 +21,17 @@ env:
   ANDROID_NDK_VERSION: "23.1.7779620"
 
 jobs:
-  smoke:
-    name: smoke • ${{ matrix.role }} • ${{ matrix.name }}
-    runs-on: ${{ fromJSON(matrix.runs_on) }}
-    timeout-minutes: 45
+  # =============================
+  # Native toolchains (fast smoke)
+  # =============================
+  smoke_native:
+    name: smoke • native • ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
-        include:
-          # native toolchains
-          - role: native
-            name: ubuntu-22-amd64
-            runs_on: '"ubuntu-22.04"'
-          - role: native
-            name: ubuntu-24-amd64
-            runs_on: '"ubuntu-24.04"'
-          - role: native
-            name: macos-13
-            runs_on: '"macos-13"'
-          - role: native
-            name: windows-2022
-            runs_on: '"windows-2022"'
-
-          # depends (only OSes that actually use depends in builds)
-          - role: depends
-            name: ubuntu-22-amd64
-            runs_on: '"ubuntu-22.04"'
-            host: x86_64-pc-linux-gnu
-          - role: depends
-            name: ubuntu-24-amd64
-            runs_on: '"ubuntu-24.04"'
-            host: x86_64-pc-linux-gnu
-          - role: depends
-            name: macos-13
-            runs_on: '"macos-13"'
-            host: x86_64-apple-darwin
-
-          # android toolchain (single safest combo)
-          - role: android
-            name: ubuntu-24.04-api34
-            runs_on: '"ubuntu-24.04"'
-            android_api: "34"
-
+        os: [ubuntu-22.04, ubuntu-24.04, macos-13, windows-2022]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -80,11 +49,8 @@ jobs:
             fi
           done < <(git ls-files -z)
 
-      # ----------------------
-      # Native toolchain smoke
-      # ----------------------
-      - name: Native toolchain smoke (POSIX)
-        if: ${{ matrix.role == 'native' && runner.os != 'Windows' }}
+      - name: Toolchain smoke (POSIX)
+        if: ${{ runner.os != 'Windows' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -93,69 +59,142 @@ jobs:
           ./t || true
           echo ok > .smoke_pass
 
-      - name: Native toolchain smoke (Windows)
-        if: ${{ matrix.role == 'native' && runner.os == 'Windows' }}
+      - name: Toolchain smoke (Windows)
+        if: ${{ runner.os == 'Windows' }}
         shell: pwsh
         run: |
-          'int main(){return 0;}' | Set-Content -NoNewline -Path .\t.cpp
-          cl /nologo .\t.cpp /Fe:t.exe
-          .\t.exe
+          'int main(){return 0;}' | Set-Content -NoNewline -Path .	.cpp
+          cl /nologo .	.cpp /Fe:t.exe
+          .	.exe
           'ok' | Set-Content -NoNewline -Path .smoke_pass
 
-      # --------------
-      # depends smoke
-      # --------------
-      - name: depends smoke (Ubuntu)
-        if: ${{ matrix.role == 'depends' && startsWith(matrix.name, 'ubuntu-') }}
+      - name: Inventory
+        shell: bash
+        if: ${{ runner.os != 'Windows' }}
+        run: |
+          set -euo pipefail
+          echo "### Smoke native ${{ matrix.os }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "| component | version | path | sha256 | homepage |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|---|---|---|---|---|" >> "$GITHUB_STEP_SUMMARY"
+          bin="$(command -v c++ || true)"; ver="$(c++ --version | head -1 || true)"; sha="$( [ -n "$bin" ] && sha256sum "$bin" | awk '{print $1}' || echo )"
+          echo "| c++ | ${ver:-n/a} | ${bin:-n/a} | ${sha:-} | https://gcc.gnu.org/ |" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Inventory (Windows)
+        shell: pwsh
+        if: ${{ runner.os == 'Windows' }}
+        run: |
+          $bin = (Get-Command cl).Source
+          $ver = (cl 2>&1 | Select-String -Pattern 'Version' | Select-Object -First 1).ToString()
+          $sha = (Get-FileHash $bin -Algorithm SHA256).Hash
+          Add-Content $env:GITHUB_STEP_SUMMARY "### Smoke native ${{ matrix.os }}"
+          Add-Content $env:GITHUB_STEP_SUMMARY "| component | version | path | sha256 | homepage |"
+          Add-Content $env:GITHUB_STEP_SUMMARY "|---|---|---|---|---|"
+          Add-Content $env:GITHUB_STEP_SUMMARY "| cl | $ver | $bin | $sha | https://learn.microsoft.com/cpp/ |"
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-native-${{ matrix.os }}
+          path: |
+            .smoke_pass
+            t
+            t.exe
+          if-no-files-found: warn
+
+  # =============================
+  # depends (only OSes that use it)
+  # =============================
+  smoke_depends:
+    name: smoke • depends • ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: ubuntu-22-amd64
+            os: ubuntu-22.04
+            host: x86_64-pc-linux-gnu
+          - name: ubuntu-24-amd64
+            os: ubuntu-24.04
+            host: x86_64-pc-linux-gnu
+          - name: macos-13
+            os: macos-13
+            host: x86_64-apple-darwin
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Sync submodules
         shell: bash
         run: |
           set -euo pipefail
           git submodule sync --recursive
           git submodule update --init --recursive
+
+      - name: Tooling (Ubuntu)
+        if: ${{ startsWith(matrix.os, 'ubuntu-') }}
+        shell: bash
+        run: |
+          set -euo pipefail
           sudo apt-get update -qq
           sudo apt-get install -y -qq build-essential pkg-config automake libtool autoconf bison cmake ninja-build python3
-          [ -d depends ] || { echo "::error::depends/ directory missing; required for Ubuntu builds."; exit 2; }
-          J=$(nproc 2>/dev/null || echo 2); [ "$J" -gt 4 ] && J=4
-          make -C depends -j"$J" HOST='${{ matrix.host }}'
-          echo ok > .smoke_depends_pass
-          {
-            echo "### depends packages built on ${{ matrix.name }}";
-            pkgs=$(find depends/work -type f -name .stamp_built 2>/dev/null | while read -r f; do d=$(dirname "$f"); bn=$(basename "$d"); echo "$bn"; done | sed -E 's/-[0-9].*$//' | sort -u || true);
-            if [ -z "$pkgs" ]; then echo "_no .stamp_built files found_"; else printf '%s\n' "$pkgs" | sed 's/^/- /'; fi
-          } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: depends smoke (macOS)
-        if: ${{ matrix.role == 'depends' && startsWith(matrix.name, 'macos-') }}
+      - name: Tooling (macOS)
+        if: ${{ startsWith(matrix.os, 'macos-') }}
         shell: bash
         run: |
           set -euo pipefail
-          git submodule sync --recursive
-          git submodule update --init --recursive
           brew update
           brew install automake libtool pkg-config ninja
           brew list --versions cmake >/dev/null 2>&1 || brew install cmake
-          [ -d depends ] || { echo "::error::depends/ directory missing; required for macOS builds."; exit 2; }
-          J=$(sysctl -n hw.ncpu 2>/dev/null || echo 2); [ "$J" -gt 4 ] && J=4
+
+      - name: depends full smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          [ -d depends ] || { echo "::error::depends/ directory missing; required for ${{ matrix.name }}."; exit 2; }
+          J=$( (command -v nproc >/dev/null && nproc) || (sysctl -n hw.ncpu) || echo 2 ); [ "$J" -gt 4 ] && J=4
           make -C depends -j"$J" HOST='${{ matrix.host }}'
           echo ok > .smoke_depends_pass
           {
             echo "### depends packages built on ${{ matrix.name }}";
             pkgs=$(find depends/work -type f -name .stamp_built 2>/dev/null | while read -r f; do d=$(dirname "$f"); bn=$(basename "$d"); echo "$bn"; done | sed -E 's/-[0-9].*$//' | sort -u || true);
-            if [ -z "$pkgs" ]; then echo "_no .stamp_built files found_"; else printf '%s\n' "$pkgs" | sed 's/^/- /'; fi
+            if [ -z "$pkgs" ]; then echo "_no .stamp_built files found_"; else printf '%s
+' "$pkgs" | sed 's/^/- /'; fi
           } >> "$GITHUB_STEP_SUMMARY"
 
-      # ----------------
-      # Android smoke
-      # ----------------
-      - name: Setup Java 11 (Android only)
-        if: ${{ matrix.role == 'android' }}
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-depends-${{ matrix.name }}
+          path: .smoke_depends_pass
+          if-no-files-found: warn
+
+  # =============================
+  # Android toolchain (Ubuntu 24)
+  # =============================
+  smoke_android:
+    name: smoke • android • ubuntu-24.04 • api ${{ matrix.api }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        api: ["34"]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java 11
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "11"
 
       - name: Prepare Android SDK
-        if: ${{ matrix.role == 'android' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -168,21 +207,18 @@ jobs:
           echo "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
 
       - name: Accept Android licenses
-        if: ${{ matrix.role == 'android' }}
         uses: ./.github/actions/android-accept-licenses
 
       - name: Install Android packages
-        if: ${{ matrix.role == 'android' }}
         shell: bash
         run: |
           set -euo pipefail
           "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="${ANDROID_SDK_ROOT}" \
             "platform-tools" \
-            "platforms;android-${{ matrix.android_api }}" \
+            "platforms;android-${{ matrix.api }}" \
             "ndk;${ANDROID_NDK_VERSION}"
 
       - name: Android NDK smoke compile
-        if: ${{ matrix.role == 'android' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -205,49 +241,19 @@ jobs:
             zsha=$( [ -s "$tmp" ] && sha256sum "$tmp" | awk '{print $1}' || echo )
             ndk_prop="$ANDROID_SDK_ROOT/ndk/${ANDROID_NDK_VERSION}/source.properties"
             ndk_sha=$( [ -f "$ndk_prop" ] && sha256sum "$ndk_prop" | awk '{print $1}' || echo )
-            plat_prop="$ANDROID_SDK_ROOT/platforms/android-${{ matrix.android_api }}/source.properties"
+            plat_prop="$ANDROID_SDK_ROOT/platforms/android-${{ matrix.api }}/source.properties"
             plat_sha=$( [ -f "$plat_prop" ] && sha256sum "$plat_prop" | awk '{print $1}' || echo )
             echo "- cmdline-tools zip: [$ANDROID_CLT_LINUX]($ANDROID_CLT_LINUX) — sha256: ${zsha:-n/a}";
             echo "- NDK ${ANDROID_NDK_VERSION}: fingerprint of source.properties — sha256: ${ndk_sha:-n/a}";
-            echo "- Platform android-${{ matrix.android_api }}: fingerprint of source.properties — sha256: ${plat_sha:-n/a}";
+            echo "- Platform android-${{ matrix.api }}: fingerprint of source.properties — sha256: ${plat_sha:-n/a}";
           } >> "$GITHUB_STEP_SUMMARY"
 
-      # -------------
-      # Inventory
-      # -------------
-      - name: Inventory core tools
-        if: ${{ matrix.role == 'native' && runner.os != 'Windows' }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo "| component | version | path | sha256 | homepage |" >> "$GITHUB_STEP_SUMMARY"
-          echo "|---|---|---|---|---|" >> "$GITHUB_STEP_SUMMARY"
-          bin="$(command -v c++ || true)"; ver="$(c++ --version | head -1 || true)"; sha="$( [ -n "$bin" ] && sha256sum "$bin" | awk '{print $1}' || echo )"
-          echo "| c++ | ${ver:-n/a} | ${bin:-n/a} | ${sha:-} | https://gcc.gnu.org/ |" >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Inventory core tools (Windows)
-        if: ${{ matrix.role == 'native' && runner.os == 'Windows' }}
-        shell: pwsh
-        run: |
-          $bin = (Get-Command cl).Source
-          $ver = (cl 2>&1 | Select-String -Pattern 'Version' | Select-Object -First 1).ToString()
-          $sha = (Get-FileHash $bin -Algorithm SHA256).Hash
-          Add-Content $env:GITHUB_STEP_SUMMARY "| component | version | path | sha256 | homepage |"
-          Add-Content $env:GITHUB_STEP_SUMMARY "|---|---|---|---|---|"
-          Add-Content $env:GITHUB_STEP_SUMMARY "| cl | $ver | $bin | $sha | https://learn.microsoft.com/cpp/ |"
-
-      # -------------
-      # Upload
-      # -------------
-      - name: Upload smoke artifacts
+      - name: Upload artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: smoke-${{ matrix.role }}-${{ matrix.name }}
+          name: smoke-android-ubuntu-24.04-api${{ matrix.api }}
           path: |
             .smoke_pass
-            .smoke_depends_pass
-            t
-            t.exe
             smoke/**/*
           if-no-files-found: warn
