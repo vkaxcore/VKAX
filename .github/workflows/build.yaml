@@ -29,7 +29,7 @@ env:
   ANDROID_SDK_ROOT: ${{ github.workspace }}/.sdk
   ANDROID_HOME: ${{ github.workspace }}/.sdk
   JAVA_DIST: temurin
-  JAVA_VERSION: "17"
+  JAVA_VERSION: "11"
   CCACHE_DIR: ${{ github.workspace }}/.ccache
   CCACHE_MAXSIZE: 2G
   NO_QT: "1"
@@ -66,6 +66,32 @@ jobs:
             echo "::error::Workflows must not reference user-config.jam"
             exit 1
           fi
+      - name: Require pinned actions by commit SHA
+        run: |
+          set -euo pipefail
+          files=$(git ls-files ".github/workflows/*.yml" ".github/workflows/*.yaml" || true)
+          [ -n "$files" ] || exit 0
+          bad=0
+          while IFS= read -r line; do
+            uses=$(echo "$line" | sed -n 's/^[[:space:]]*uses:[[:space:]]*\(.*\)$/\1/p')
+            [ -z "$uses" ] && continue
+            case "$uses" in
+              ./*) continue;;
+              docker://*) continue;;
+              *@*)
+                sha="${uses##*@}"
+                if ! printf '%s' "$sha" | grep -Eq '^[0-9a-f]{40}$'; then
+                  echo "::error::Unpinned action: $uses"
+                  bad=1
+                fi
+                ;;
+              *)
+                echo "::error::Unpinned action: $uses"
+                bad=1
+                ;;
+            esac
+          done < <(grep -nE '^[[:space:]]*uses:' $files)
+          exit $bad
 
   ubuntu:
     name: Ubuntu (qt=${{ matrix.qt }})
@@ -94,7 +120,7 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update -qq
-          sudo apt-get install -y -qq build-essential ninja-build cmake pkg-config ccache jq dos2unix
+          sudo apt-get install -y -qq build-essential ninja-build cmake pkg-config ccache jq dos2unix binutils
 
       - name: Install Qt deps (only if qt=1)
         if: ${{ matrix.qt }}
@@ -178,6 +204,22 @@ jobs:
           find "$BUILD_DIR" -maxdepth 4 -type f -perm -u+x \( -name 'vkax-*' -o -name 'vkax' \) -print -exec cp -f '{}' out/linux/ \; || true
           find out/linux -type f -exec strip --strip-unneeded {} \; || true
           printf "%s\n" "version=$(git describe --tags --always --dirty=+)" > out/linux/VERSION.txt
+          if compgen -G "out/linux/*" > /dev/null; then
+            fail=0
+            for f in out/linux/*; do
+              if command -v readelf >/dev/null 2>&1; then
+                if readelf -d "$f" 2>/dev/null | grep -E 'RPATH|RUNPATH' -q; then
+                  echo "::error::RPATH/RUNPATH found in $f"
+                  fail=1
+                fi
+              fi
+              if strings "$f" | grep -F "$GITHUB_WORKSPACE" -q; then
+                echo "::error::Workspace path leak in $f"
+                fail=1
+              fi
+            done
+            [ $fail -eq 0 ] || exit 1
+          fi
 
       - name: Upload Linux artifacts
         if: always()
@@ -185,6 +227,17 @@ jobs:
         with:
           name: linux-qt${{ matrix.qt }}
           path: out/linux
+          if-no-files-found: warn
+
+      - name: Upload debug on failure
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: linux-debug-qt${{ matrix.qt }}
+          path: |
+            ${{ env.BUILD_DIR }}/CMakeCache.txt
+            ${{ env.BUILD_DIR }}/compile_commands.json
+            ${{ env.BUILD_DIR }}/CMakeFiles/**/*.log
           if-no-files-found: warn
 
       - name: ccache stats
@@ -285,6 +338,7 @@ jobs:
           mkdir -p "$ANDROID_SDK_ROOT/licenses"
           printf '%s\n' "24333f8a63b6825ea9c5514f83c2829b004d1fee" > "$ANDROID_SDK_ROOT/licenses/android-sdk-license"
           printf '%s\n' "d56f5187479451eabf01fb78af6dfcb131a6481e" >> "$ANDROID_SDK_ROOT/licenses/android-sdk-license"
+          printf '%s\n' "8933bad161af4178eabf01fb78af6dfcb131a6481e" >> "$ANDROID_SDK_ROOT/licenses/android-sdk-license" || true
           printf '%s\n' "8933bad161af4178b1185d1a37fbf41ea5269c55" >> "$ANDROID_SDK_ROOT/licenses/android-sdk-license"
           printf '%s\n' "84831b9409646a918e30573bab4c9c91346d8abd" > "$ANDROID_SDK_ROOT/licenses/android-sdk-preview-license"
           printf '%s\n' "d975f751698a77b662f1254ddbeed3901e976f5a" > "$ANDROID_SDK_ROOT/licenses/android-sdk-module-license"
@@ -341,4 +395,16 @@ jobs:
         with:
           name: android-${{ matrix.flavor }}-api${{ matrix.api }}-ndk${{ matrix.ndk_ver }}
           path: artifacts
+          if-no-files-found: warn
+
+      - name: Upload debug on failure
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: android-debug-${{ matrix.flavor }}
+          path: |
+            smoke/a32
+            smoke/a64
+            **/build/*.log
+            **/build/**/outputs/**/*.log
           if-no-files-found: warn
