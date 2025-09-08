@@ -155,6 +155,95 @@ jobs:
             .smoke_pass
             t.exe
           if-no-files-found: warn
+  # =====================================
+  # SMOKE: depends — Ubuntu (only OSes that use depends)
+  # =====================================
+  depends_smoke_ubuntu:
+    name: smoke • depends • ubuntu • ${{ matrix.name }}
+    needs: smoke_native_ubuntu
+    runs-on: ${{ fromJSON(matrix.runs_on) }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: ubuntu-22-amd64
+            runs_on: '"ubuntu-22.04"'
+            host: x86_64-pc-linux-gnu
+          - name: ubuntu-24-amd64
+            runs_on: '"ubuntu-24.04"'
+            host: x86_64-pc-linux-gnu
+          - name: ubuntu-22-arm64
+            runs_on: '["self-hosted","Linux","ARM64","ubuntu-22.04"]'
+            host: aarch64-linux-gnu
+          - name: ubuntu-24-arm64
+            runs_on: '["self-hosted","Linux","ARM64","ubuntu-24.04"]'
+            host: aarch64-linux-gnu
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Tooling
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq build-essential pkg-config automake libtool autoconf bison cmake ninja-build python3
+
+      - name: depends full smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          [ -d depends ] || { echo "::error::depends/ directory missing; required for Ubuntu builds."; exit 2; }
+          make -C depends -j"$(nproc || echo 2)" HOST='${{ matrix.host }}'
+          echo ok > .smoke_depends_pass
+
+      - name: Upload depends smoke artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-depends-ubuntu-${{ matrix.name }}
+          path: .smoke_depends_pass
+          if-no-files-found: warn
+
+  # =====================================
+  # SMOKE: depends — macOS (only OSes that use depends)
+  # =====================================
+  depends_smoke_macos:
+    name: smoke • depends • macos • ${{ matrix.macos }}
+    needs: smoke_native_macos
+    runs-on: ${{ matrix.macos }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        macos: [macos-13]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Tooling
+        shell: bash
+        run: |
+          set -euo pipefail
+          brew update
+          brew install automake libtool pkg-config cmake ninja
+
+      - name: depends full smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          [ -d depends ] || { echo "::error::depends/ directory missing; required for macOS builds."; exit 2; }
+          make -C depends -j"$(sysctl -n hw.ncpu || echo 2)" HOST=x86_64-apple-darwin
+          echo ok > .smoke_depends_pass
+
+      - name: Upload depends smoke artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-depends-macos-${{ matrix.macos }}
+          path: .smoke_depends_pass
+          if-no-files-found: warn
 
   # =====================================
   # SMOKE: Android toolchain — Ubuntu AMD64 only
@@ -407,7 +496,7 @@ jobs:
   # =====================================
   macos:
     name: native • macOS • ${{ matrix.macos }}
-    needs: smoke_native_macos
+    needs: depends_smoke_macos
     runs-on: ${{ matrix.macos }}
     timeout-minutes: 45
     strategy:
@@ -467,7 +556,7 @@ jobs:
   # =====================================
   ubuntu:
     name: native • ubuntu • ${{ matrix.name }}
-    needs: smoke_native_ubuntu
+    needs: depends_smoke_ubuntu
     runs-on: ${{ fromJSON(matrix.runs_on) }}
     timeout-minutes: 45
     strategy:
