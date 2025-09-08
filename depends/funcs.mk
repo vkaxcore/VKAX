@@ -1,17 +1,10 @@
-# Director: Setvin
-# Intent: Core dependency build orchestration for VKAX "depends" with legacy layout preserved.
-# Key: Android prefix guard + proper native build_prefix, quoted PKG_CONFIG_* and PATH, Qt filtered on Android, verbose toolchain echoes.
-
 AT ?= @
 
 # ------------------------------------------------------------------------------
 # Android prefix safety and sane defaults
 # ------------------------------------------------------------------------------
 ifeq ($(host_os),android)
-    # Ensure that host_prefix is always relative.
     host_prefix ?= $(strip $(notdir $(host)))
-
-    # Ensure host_prefix is relative (no absolute paths)
     ifneq (,$(filter /%,$(host_prefix)))
       $(error host_prefix must be relative for Android, got "$(host_prefix)")
     endif
@@ -24,29 +17,45 @@ ifeq ($(host_os),android)
 ANDROID_API_LEVEL ?= $(ANDROID_API)
 HOST ?= $(host)
 
-# Set Android toolchain binary path based on environment or detect host_tag
+# Determine NDK toolchain bin
 ifneq ($(ANDROID_TOOLCHAIN_BIN),)
   android_toolchain_bin := $(ANDROID_TOOLCHAIN_BIN)
 else ifneq ($(ANDROID_NDK),)
-  ndk_host_tag := $(shell uname -s | tr '[:upper:]' '[:lower:]')-$(shell uname -m)
+  uname_s := $(shell uname -s)
+  uname_m := $(shell uname -m)
+  ifneq (,$(findstring Linux,$(uname_s)))
+    ifneq (,$(findstring aarch64,$(uname_m)))
+      ndk_host_tag := linux-arm64
+    else
+      ndk_host_tag := linux-x86_64
+    endif
+  else ifneq (,$(findstring Darwin,$(uname_s)))
+    ifneq (,$(findstring arm64,$(uname_m)))
+      ndk_host_tag := darwin-arm64
+    else
+      ndk_host_tag := darwin-x86_64
+    endif
+  else ifneq (,$(filter MSYS_NT-% CYGWIN_NT-% MINGW%,$(uname_s)))
+    ndk_host_tag := windows-x86_64
+  else
+    ndk_host_tag := linux-x86_64
+  endif
   android_toolchain_bin := $(ANDROID_NDK)/toolchains/llvm/prebuilt/$(ndk_host_tag)/bin
 else
   android_toolchain_bin :=
 endif
 
-
-# Resolve the sysroot path for Android
+# Resolve absolute sysroot path
 android_SYSROOT := $(if $(android_toolchain_bin),$(abspath $(android_toolchain_bin)/../sysroot),)
-android_SYSROOT := $(notdir $(android_SYSROOT))  # Ensure SYSROOT is relative
 
-# Android toolchain paths
+# Android toolchain paths (absolute when possible)
 android_CC     := $(if $(android_toolchain_bin),$(android_toolchain_bin)/$(HOST)$(ANDROID_API_LEVEL)-clang,$(HOST)$(ANDROID_API_LEVEL)-clang)
 android_CXX    := $(if $(android_toolchain_bin),$(android_toolchain_bin)/$(HOST)$(ANDROID_API_LEVEL)-clang++,$(HOST)$(ANDROID_API_LEVEL)-clang++)
 android_AR     := $(if $(android_toolchain_bin),$(android_toolchain_bin)/llvm-ar,llvm-ar)
 android_RANLIB := $(if $(android_toolchain_bin),$(android_toolchain_bin)/llvm-ranlib,llvm-ranlib)
 android_STRIP  := $(if $(android_toolchain_bin),$(android_toolchain_bin)/llvm-strip,llvm-strip)
 
-# Update Android-specific flags
+# Android flags
 ifneq ($(android_SYSROOT),)
   android_CPPFLAGS += --sysroot=$(android_SYSROOT) -D__ANDROID_API__=$(ANDROID_API_LEVEL)
   android_CFLAGS   += --sysroot=$(android_SYSROOT) -D__ANDROID_API__=$(ANDROID_API_LEVEL)
@@ -64,14 +73,13 @@ export ANDROID_SYSROOT:=$(android_SYSROOT)
 export ANDROID_CPPFLAGS:=$(android_CPPFLAGS)
 export ANDROID_CFLAGS:=$(android_CFLAGS)
 export ANDROID_CXXFLAGS:=$(android_CXXFLAGS)
-export ANDROID_LDFLAGS:=$(ANDROID_LDFLAGS)
+export ANDROID_LDFLAGS:=$(android_LDFLAGS)
 
-# Ensure API Level is exported
 ifneq ($(ANDROID_API_LEVEL),)
   export ANDROID_API:=$(ANDROID_API_LEVEL)
 endif
 
-# Disable Qt for Android builds if NO_QT is set
+# Disable Qt for Android builds unless explicitly enabled
 NO_QT ?= 1
 endif
 
@@ -104,7 +112,7 @@ $(1)_ldflags=$$($$($(1)_type)_LDFLAGS) \
              -L$$($($(1)_type)_prefix)/lib
 $(1)_cppflags=$$($$($(1)_type)_CPPFLAGS) \
               $$($$($(1)_type)_$$(release_type)_CPPFLAGS) \
-              -I$$($$($(1)_type)_prefix)/include
+              -I$$($$(($1)_type)_prefix)/include
 $(1)_recipe_hash:=
 endef
 
