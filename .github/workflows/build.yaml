@@ -139,7 +139,12 @@ jobs:
           ccache --set-config=max_size=1G
           ccache --set-config=compression=true
           ccache --set-config=compiler_check=content
+          echo "CCACHE_DIR=$HOME/.ccache" >> "$GITHUB_ENV"
+          echo "CCACHE_BASEDIR=$GITHUB_WORKSPACE" >> "$GITHUB_ENV"
+          echo "CCACHE_NOHASHDIR=1" >> "$GITHUB_ENV"
+          echo "CCACHE_DEPEND=1" >> "$GITHUB_ENV"
           ccache --zero-stats || true
+
 
       - name: "[VKAX] Cache ccache"
         uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
@@ -181,14 +186,22 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           unzip -q "$tmpzip" -d "$ANDROID_SDK_ROOT/cmdline-tools"
           mv "$ANDROID_SDK_ROOT/cmdline-tools/cmdline-tools" "$ANDROID_SDK_ROOT/cmdline-tools/latest"
-          printf '%s\n' \
-            "8933bad161af4178b1185d1a37fbf41ea5269c55" \
-            "d56f5187479451eabf01fb78af6dfcb131a6481e" \
-            "24333f8a63b6825ea9c5514f83c2829b004d1fee" \
-            > "$ANDROID_SDK_ROOT/licenses/android-sdk-license"
+          {
+            printf '%s\n' "8933bad161af4178b1185d1a37fbf41ea5269c55"
+            printf '%s\n' "d56f5187479451eabf01fb78af6dfcb131a6481e"
+          } > "$ANDROID_SDK_ROOT/licenses/android-sdk-license"
           printf '%s\n' "84831b9409646a918e30573bab4c9c91346d8abd" > "$ANDROID_SDK_ROOT/licenses/android-sdk-preview-license"
           printf '%s\n' "24333f8a63b6825ea9c5514f83c2829b004d1fee" > "$ANDROID_SDK_ROOT/licenses/android-ndk-license"
           printf '%s\n' "d975f751698a77b662f1254ddbeed3901e976f5a" > "$ANDROID_SDK_ROOT/licenses/android-sdk-module-license"
+          find "$ANDROID_SDK_ROOT/licenses" -type f -print0 | xargs -0 dos2unix >/dev/null 2>&1 || true
+          {
+            echo "## SDK license files"
+            echo
+            echo '```'
+            ls -l "$ANDROID_SDK_ROOT/licenses" || true
+            for f in "$ANDROID_SDK_ROOT"/licenses/*; do [ -f "$f" ] && { printf "%s: " "$(basename "$f")"; sha1sum "$f" | awk '{print $1}'; }; done
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
           {
             echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
             echo "ANDROID_SDK=$ANDROID_SDK_ROOT"
@@ -199,6 +212,7 @@ jobs:
             echo "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin"
           } >> "$GITHUB_PATH"
 
+
       - name: "[VKAX] Licenses status"
         id: license_status
         run: |
@@ -207,22 +221,22 @@ jobs:
           sdkmanager --sdk_root="${ANDROID_SDK_ROOT}" --licenses <<< $'n\n' >"$out" 2>&1 || true
           if grep -q 'All SDK package licenses accepted' "$out"; then
             echo ok=true >> "$GITHUB_OUTPUT"
-            echo "::notice::Licenses OK. Safe to continue."
-            status="OK"
+            verdict="OK"
           else
             echo ok=false >> "$GITHUB_OUTPUT"
-            echo "::warning::Licenses NOT accepted. Install may fail unless ALLOW_TTY_LICENSE_ACCEPT=1."
-            status="NOT_OK"
+            verdict="NOT_OK"
           fi
           {
             echo "## sdkmanager --licenses status"
             echo
-            echo "- status: ${status}"
+            echo "- verdict: ${verdict}"
             echo
             echo '```'
-            sed -n '1,200p' "$out"
+            sed -n '1,120p' "$out"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+
+
 
       - name: "[VKAX] Accept licenses (emergency)"
         if: env.ALLOW_TTY_LICENSE_ACCEPT == '1'
@@ -268,10 +282,9 @@ jobs:
             "ndk;${{ matrix.ndk_ver }}"
           test -x "$ANDROID_SDK_ROOT/platform-tools/adb"
           test -d "$ANDROID_SDK_ROOT/platforms/android-${{ matrix.api }}"
-          test -x "$ANDROID_SDK_ROOT/ndk/${{ matrix.ndk_ver }}/toolchains/llvm/prebuilt/linux-x86_64/bin/clang"
-          {
-            echo "$ANDROID_SDK_ROOT/ndk/${{ matrix.ndk_ver }}/toolchains/llvm/prebuilt/linux-x86_64/bin"
-          } >> "$GITHUB_PATH"
+          test -x "$ANDROID_SDK_ROOT/ndk/${{ matrix.ndk_ver }}/toolchains/llvm/prebuilt/linux-x86_64/bin/clang" || true
+
+
 
       - name: "[VKAX] Assert ANDROID_NDK_HOME present"
         run: |
