@@ -1,0 +1,52 @@
+# .github/actions/android-accept-licenses/action.yml
+name: Android Accept Licenses (hash-seeded)
+description: Seeds Android SDK/NDK license files using known hashes to avoid interactive acceptance.
+author: VKAX
+branding:
+  icon: check-circle
+  color: blue
+
+runs:
+  using: composite
+  steps:
+    - name: Seed licenses (Linux/macOS)
+      if: runner.os == 'Linux' || runner.os == 'macOS'
+      shell: bash
+      run: |
+        set -euo pipefail
+        : "${ANDROID_SDK_ROOT:?ANDROID_SDK_ROOT must be set}"
+        mkdir -p "$ANDROID_SDK_ROOT/licenses"
+        # android-sdk-license (common)
+        printf '%s\n' \
+          "24333f8a63b6825ea9c5514f83c2829b004d1fee" \
+          "d56f5187479451eabf01fb78af6dfcb131a6481e" \
+          "8933bad161af4178b1185d1a37fbf41ea5269c55" \
+          > "$ANDROID_SDK_ROOT/licenses/android-sdk-license"
+        # preview and module licenses
+        printf '%s\n' "84831b9409646a918e30573bab4c9c91346d8abd" > "$ANDROID_SDK_ROOT/licenses/android-sdk-preview-license"
+        printf '%s\n' "d975f751698a77b662f1254ddbeed3901e90676f5a" > "$ANDROID_SDK_ROOT/licenses/android-sdk-module-license"
+        # NDK license
+        printf '%s\n' "601085b94cd77f0b54ff86406957099ebe79c4d6" > "$ANDROID_SDK_ROOT/licenses/android-ndk-license"
+
+    - name: Seed licenses (Windows)
+      if: runner.os == 'Windows'
+      shell: pwsh
+      run: |
+        if (-not $env:ANDROID_SDK_ROOT) { throw "ANDROID_SDK_ROOT must be set" }
+        $lic = Join-Path $env:ANDROID_SDK_ROOT "licenses"
+        New-Item -ItemType Directory -Force -Path $lic | Out-Null
+
+        # android-sdk-license (common)
+        $sdk = @(
+          '24333f8a63b6825ea9c5514f83c2829b004d1fee',
+          'd56f5187479451eabf01fb78af6dfcb131a6481e',
+          '8933bad161af4178b1185d1a37fbf41ea5269c55'
+        ) -join "`n"
+        Set-Content -NoNewLine -Path (Join-Path $lic "android-sdk-license") -Value ($sdk + "`n")
+
+        # preview and module licenses
+        Set-Content -NoNewLine -Path (Join-Path $lic "android-sdk-preview-license") -Value "84831b9409646a918e30573bab4c9c91346d8abd`n"
+        Set-Content -NoNewLine -Path (Join-Path $lic "android-sdk-module-license") -Value "d975f751698a77b662f1254ddbeed3901e90676f5a`n"
+
+        # NDK license
+        Set-Content -NoNewLine -Path (Join-Path $lic "android-ndk-license") -Value "601085b94cd77f0b54ff86406957099ebe79c4d6`n"
