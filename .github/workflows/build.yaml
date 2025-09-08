@@ -1,5 +1,6 @@
 # File: .github/workflows/build.yaml
-# Purpose: Android aarch64(API 25) + armv7(API 21) builds with verbose logs, safe license accept, progress probes, and caching.
+# Purpose: Android aarch64(API 25) + armv7(API 21) with verbose logs, safe license accept,
+#          depends caching, OOM-friendly parallelism, and a 60s progress probe during long builds.
 
 name: VKAX Android Builds
 
@@ -16,7 +17,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  ANDROID_NDK_VER: "25.2.9519653"
+  ANDROID_NDK_VER: "25.2.9519653"   # r25c; if segfault persists, try r23b (23.2.8568313)
   VERBOSE_BUILD: "1"
   MAKEFLAGS: "--output-sync=target"
 
@@ -39,7 +40,6 @@ jobs:
             host: arm-linux-androideabi
             clang_target: armv7a-linux-androideabi
             addr_model: 32
-
     defaults:
       run:
         shell: bash
@@ -48,16 +48,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0   # reproducible builds / debugging
+          fetch-depth: 0
           lfs: true
-      # Toolchain info early for postmortem sanity
-      - name: Runner info
-        run: |
-          set -Eeuo pipefail
-          [ "${VERBOSE_BUILD}" = "1" ] && set -x
-          uname -a || true
-          gcc --version || true
-          clang --version || true
 
       - name: Java 11
         uses: actions/setup-java@v4
@@ -73,7 +65,7 @@ jobs:
           sudo apt-get install -y \
             build-essential automake autoconf libtool pkg-config \
             python3 unzip wget curl cmake ninja-build dos2unix \
-            xz-utils file ccache
+            xz-utils file ccache time
 
       - name: Cache ccache
         uses: actions/cache@v4
@@ -99,6 +91,7 @@ jobs:
         run: |
           set -Eeuo pipefail
           [ "${VERBOSE_BUILD}" = "1" ] && set -x
+
           if [ ! -d "$ANDROID_SDK_ROOT/cmdline-tools/latest" ]; then
             mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools"
             wget -q https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip -O /tmp/clt.zip
@@ -107,11 +100,11 @@ jobs:
           fi
           export PATH="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH"
 
-          # Safe license accept (no pipe, no SIGPIPE)
+          # Safe license accept (no SIGPIPE with pipefail)
           sdkmanager --update >/dev/null 2>&1 || true
           sdkmanager --licenses >/dev/null 2>&1 <<< $'y\ny\ny\ny\ny\ny\ny\n'
 
-          # Install requested platform + NDK
+          # Install platform + NDK for this arch's API
           sdkmanager --install \
             "platform-tools" \
             "platforms;android-${{ matrix.api }}" \
@@ -178,14 +171,22 @@ jobs:
           [ -x depends/config.guess ] || { cp -f /usr/share/misc/config.guess depends/config.guess && chmod +x depends/config.guess; }
           [ -x depends/config.sub ]   || { cp -f /usr/share/misc/config.sub   depends/config.sub   && chmod +x depends/config.sub; }
 
-      - name: Build depends (NO_QT) with progress probe
+      - name: Build depends (NO_QT) with probe and segv tracing
         env:
           HOST: ${{ matrix.host }}
         run: |
           set -Eeuo pipefail
           [ "${VERBOSE_BUILD}" = "1" ] && set -x
-          BUILD_TRIPLET="$(./depends/config.guess)"
 
+          BUILD_TRIPLET="$(./depends/config.guess)"
+          echo "Triplet: $BUILD_TRIPLET  Host: $HOST  API: ${{ matrix.api }}"
+
+          echo "Memory before build:"
+          free -h || true
+          ulimit -a || true
+          ulimit -c unlimited || true
+
+          # Progress probe every 60s to show what file is hottest under depends/work
           progress_probe() {
             while sleep 60; do
               echo ":: notice $(date -u +%Y-%m-%dT%H:%M:%SZ) :: depends/work hottest files:"
@@ -196,11 +197,19 @@ jobs:
           progress_probe & PROBE_PID=$!
           trap 'kill "$PROBE_PID" 2>/dev/null || true' EXIT
 
-          export MAKEFLAGS="${MAKEFLAGS} -j$(nproc)"
-          make -C depends V=1 \
+          # Keep depends parallelism modest to avoid OOM → segfault (139)
+          export MAKEFLAGS="--output-sync=target -j2"
+
+          # catchsegv + time give a stack-ish trace and resource stats if a tool crashes
+          if command -v catchsegv >/dev/null 2>&1; then WRAP="catchsegv"; else WRAP=""; fi
+          $WRAP /usr/bin/time -v \
+          make -C depends \
             build="$BUILD_TRIPLET" build_os=linux \
             HOST="$HOST" ANDROID_NDK="$ANDROID_NDK_HOME" ANDROID_API="${{ matrix.api }}" \
-            NO_QT=1
+            NO_QT=1 V=1
+
+          echo "Memory after build:"
+          free -h || true
 
       - name: Configure project
         env:
@@ -226,6 +235,7 @@ jobs:
         run: |
           set -Eeuo pipefail
           [ "${VERBOSE_BUILD}" = "1" ] && set -x
+
           progress_probe() {
             while sleep 60; do
               echo ":: notice $(date -u +%Y-%m-%dT%H:%M:%SZ) :: depends/work hottest files:"
@@ -236,7 +246,7 @@ jobs:
           progress_probe & PROBE_PID=$!
           trap 'kill "$PROBE_PID" 2>/dev/null || true' EXIT
 
-          export MAKEFLAGS="${MAKEFLAGS} -j$(nproc)"
+          export MAKEFLAGS="--output-sync=target -j$(nproc)"
           make V=1
 
       - name: Package artifacts
