@@ -24,14 +24,16 @@ ifeq ($(host_os),android)
 ANDROID_API_LEVEL ?= $(ANDROID_API)
 HOST ?= $(host)
 
-# Set Android toolchain binary path based on environment
+# Set Android toolchain binary path based on environment or detect host_tag
 ifneq ($(ANDROID_TOOLCHAIN_BIN),)
   android_toolchain_bin := $(ANDROID_TOOLCHAIN_BIN)
 else ifneq ($(ANDROID_NDK),)
-  android_toolchain_bin := $(ANDROID_NDK)/toolchains/llvm/prebuilt/linux-x86_64/bin
+  ndk_host_tag := $(shell uname -s | tr '[:upper:]' '[:lower:]')-$(shell uname -m)
+  android_toolchain_bin := $(ANDROID_NDK)/toolchains/llvm/prebuilt/$(ndk_host_tag)/bin
 else
   android_toolchain_bin :=
 endif
+
 
 # Resolve the sysroot path for Android
 android_SYSROOT := $(if $(android_toolchain_bin),$(abspath $(android_toolchain_bin)/../sysroot),)
