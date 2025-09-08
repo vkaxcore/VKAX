@@ -5,7 +5,7 @@ name: VKAX Android Builds
 on:
   workflow_dispatch:
   push:
-    branches: [ main, v100.11.5-androidx, dev ]
+    branches: [ main, v100.11.5-android, dev ]
 
 permissions:
   contents: read
@@ -401,16 +401,57 @@ jobs:
           set -Eeuo pipefail
           mkdir -p artifacts
           shopt -s nullglob
+
+          # expected outputs
           files=(src/vkaxd src/vkax-cli src/vkax-tx)
           have_any=false; for f in "${files[@]}"; do [ -f "$f" ] && have_any=true; done
           if ! $have_any; then
-            echo "::error::Expected binaries not found; listing src/"; ls -l src/ || true; exit 1
+            echo "::error::Expected binaries not found; listing src/"
+            ls -l src/ || true
+            exit 1
           fi
+
+          # strip (prefer llvm-strip; fallback to GNU strip --strip-debug)
           if command -v llvm-strip >/dev/null 2>&1; then
             llvm-strip -s "${files[@]}" || true
+          elif command -v strip >/dev/null 2>&1; then
+            strip --strip-debug "${files[@]}" || echo "::warning::strip failed; continuing with unstripped binaries"
           fi
+
+          # VERSION.txt for provenance inside the tarball
+          tpfx="${{ matrix.clang_triple }}${{ matrix.api }}"
+          {
+            echo "project=VKAX"
+            echo "sha=${GITHUB_SHA}"
+            echo "arch=${{ matrix.arch }}"
+            echo "tuple=${tpfx}"
+            echo "ndk=${{ matrix.ndk_ver }}"
+            echo "sdk_api=${{ matrix.api }}"
+            echo "build_time_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          } > artifacts/VERSION.txt
+
+          # assemble tarball
           cp -v "${files[@]}" artifacts/
           tar -C artifacts -czf "vkax-android-${{ matrix.arch }}-ndk${{ matrix.ndk_ver }}-${GITHUB_SHA::7}.tar.gz" .
+
+
+      - name: "[VKAX] Artifact ABI summary"
+        run: |
+          set -Eeuo pipefail
+          {
+            echo "## Artifact ABI summary"
+            echo
+            echo '```'
+            for f in artifacts/vkaxd artifacts/vkax-cli artifacts/vkax-tx; do
+              if [ -f "$f" ]; then
+                printf "%s: %s\n" "$(basename "$f")" "$(file -b "$f")"
+              else
+                printf "%s: %s\n" "$(basename "$f")" "MISSING"
+              fi
+            done
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
 
       # upload artifacts (pinned)
       - name: "[VKAX] Upload artifacts"
