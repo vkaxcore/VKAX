@@ -1,34 +1,16 @@
 # File: depends/hosts/android.mk
-# Purpose: Android toolchain config for depends (daemon/cli/tx). API default 21 + NDK r23b.
-# Key vars/switches:
-#   ANDROID_NDK_HOME / ANDROID_NDK: points to NDK root (required)
-#   ANDROID_API or ANDROID_API_LEVEL: default 21
-#   HOST: aarch64-linux-android | arm-linux-androideabi | armv7a-linux-android
-#   LEGACY_AARCH64 (0|1): if 1 and HOST=aarch64-linux-android, bumps API to LEGACY_AARCH64_API when not set upstream
-#   LEGACY_AARCH64_API: default 25 (only used when LEGACY_AARCH64=1 and API not set)
-# Exports:
-#   ANDROID_TOOLCHAIN_BIN, ANDROID_SYSROOT, NO_QT=1, android_* flags, host_{AR,RANLIB,STRIP}
-# Behavior:
-#   - Correct tuple compilers: aarch64-linux-android21-*, armv7a-linux-android21-*
-#   - Adds -latomic only for 32-bit arm at API-21
-#   - V=1 prints tracing
-#   - Tuple compilers: aarch64-linux-android21-*, armv7a-linux-androideabi21-*
-#   - Exports sysroot and -D__ANDROID_API__=21 to C/C++
-#   - Adds -latomic only for 32-bit arm at API-21
-#   - Optional LEGACY_AARCH64 toggle to bump API if explicitly enabled
 
-# Input vars
+# Inputs from environment (CI sets these)
 HOST                ?= $(host)
-ANDROID_NDK         ?= $(ANDROID_NDK_HOME)
+ANDROID_NDK         ?= $(if $(ANDROID_NDK_HOME),$(ANDROID_NDK_HOME),$(ANDROID_NDK))
 ANDROID_API_LEVEL   ?= $(if $(ANDROID_API),$(ANDROID_API),21)
 LEGACY_AARCH64      ?= 0
 LEGACY_AARCH64_API  ?= 25
 
-# Basic platform detection for host tag
+# Detect host tag for NDK prebuilt
 UNAME_S := $(shell uname -s)
 UNAME_M := $(shell uname -m)
 
-# Host tag for NDK prebuilt
 ifeq ($(findstring Linux,$(UNAME_S)),Linux)
   ifeq ($(findstring aarch64,$(UNAME_M)),aarch64)
     NDK_HOST_TAG := linux-arm64
@@ -41,64 +23,74 @@ else ifeq ($(findstring Darwin,$(UNAME_S)),Darwin)
   else
     NDK_HOST_TAG := darwin-x86_64
   endif
+else ifneq (,$(filter MSYS_NT-% CYGWIN_NT-% MINGW%,$(UNAME_S)))
+  ifeq ($(findstring 64,$(UNAME_M)),)
+    NDK_HOST_TAG := windows-x86_64
+  else
+    NDK_HOST_TAG := windows-x86_64
+  endif
 else
   NDK_HOST_TAG := linux-x86_64
 endif
 
-# Validate NDK root early
+# Validate NDK
 ifeq ($(strip $(ANDROID_NDK)),)
-  $(error ANDROID_NDK is not set. Export ANDROID_NDK_HOME or ANDROID_NDK to the NDK root)
+  $(error ANDROID_NDK/ANDROID_NDK_HOME is not set)
 endif
 
-ANDROID_TOOLCHAIN_BIN := $(ANDROID_NDK)/toolchains/llvm/prebuilt/$(NDK_HOST_TAG)/bin
-ANDROID_SYSROOT       := $(ANDROID_NDK)/toolchains/llvm/prebuilt/$(NDK_HOST_TAG)/sysroot
+NDK_ROOT      := $(ANDROID_NDK)
+NDK_BIN       := $(NDK_ROOT)/toolchains/llvm/prebuilt/$(NDK_HOST_TAG)/bin
+NDK_SYSROOT   := $(NDK_ROOT)/toolchains/llvm/prebuilt/$(NDK_HOST_TAG)/sysroot
 
-ifeq ($(wildcard $(ANDROID_TOOLCHAIN_BIN)),)
-  $(error NDK toolchain bin not found: $(ANDROID_TOOLCHAIN_BIN))
+ifeq ($(wildcard $(NDK_BIN)),)
+  $(error NDK toolchain bin not found: $(NDK_BIN))
+endif
+ifeq ($(wildcard $(NDK_SYSROOT)),)
+  $(error NDK sysroot not found: $(NDK_SYSROOT))
 endif
 
-# API bump for legacy aarch64 lane if not provided by caller
+# Canonicalize HOST into NDK clang triple and address model
+# Accepts: aarch64-linux-android, arm-linux-androideabi, armv7a-linux-android
 ifneq (,$(filter aarch64-linux-android,$(HOST)))
-  ifeq ($(LEGACY_AARCH64),1)
-    ifeq ($(origin ANDROID_API_LEVEL), undefined)
-      ANDROID_API_LEVEL := $(LEGACY_AARCH64_API)
-    endif
-  endif
-endif
-
-# Canonicalize HOST variants
-ifneq (,$(filter arm-linux-androideabi,$(HOST)))
+  ANDROID_CLANG_TRIPLE := aarch64-linux-android
+  ANDROID_ADDR_MODEL   := 64
+else ifneq (,$(filter arm-linux-androideabi,$(HOST)))
   ANDROID_CLANG_TRIPLE := armv7a-linux-androideabi
   ANDROID_ADDR_MODEL   := 32
 else ifneq (,$(filter armv7a-linux-android,$(HOST)))
   ANDROID_CLANG_TRIPLE := armv7a-linux-androideabi
   ANDROID_ADDR_MODEL   := 32
-else ifneq (,$(filter aarch64-linux-android,$(HOST)))
-  ANDROID_CLANG_TRIPLE := aarch64-linux-android
-  ANDROID_ADDR_MODEL   := 64
 else
-  $(error Unsupported HOST "$(HOST)". Expected aarch64-linux-android or arm-linux-androideabi)
+  $(error Unsupported HOST "$(HOST)"; expected aarch64-linux-android or arm-linux-androideabi)
+endif
+
+# Optional legacy bump for aarch64 when explicitly enabled and API not provided by caller
+ifneq (,$(filter aarch64-linux-android,$(HOST)))
+  ifeq ($(LEGACY_AARCH64),1)
+    ifeq ($(origin ANDROID_API), undefined)
+      ANDROID_API_LEVEL := $(LEGACY_AARCH64_API)
+    endif
+  endif
 endif
 
 # Tools
-android_CC    := $(ANDROID_TOOLCHAIN_BIN)/$(ANDROID_CLANG_TRIPLE)$(ANDROID_API_LEVEL)-clang
-android_CXX   := $(ANDROID_TOOLCHAIN_BIN)/$(ANDROID_CLANG_TRIPLE)$(ANDROID_API_LEVEL)-clang++
-host_AR       := $(ANDROID_TOOLCHAIN_BIN)/llvm-ar
-host_RANLIB   := $(ANDROID_TOOLCHAIN_BIN)/llvm-ranlib
-host_STRIP    := $(ANDROID_TOOLCHAIN_BIN)/llvm-strip
+android_CC   := $(NDK_BIN)/$(ANDROID_CLANG_TRIPLE)$(ANDROID_API_LEVEL)-clang
+android_CXX  := $(NDK_BIN)/$(ANDROID_CLANG_TRIPLE)$(ANDROID_API_LEVEL)-clang++
+host_AR      := $(NDK_BIN)/llvm-ar
+host_RANLIB  := $(NDK_BIN)/llvm-ranlib
+host_STRIP   := $(NDK_BIN)/llvm-strip
 
-# Flags
-android_CPPFLAGS := --sysroot=$(ANDROID_SYSROOT) -D__ANDROID_API__=$(ANDROID_API_LEVEL)
+# Flags (why: ensure correct headers/libs for target API; 32-bit arm needs libatomic at API-21)
+android_CPPFLAGS := --sysroot=$(NDK_SYSROOT) -D__ANDROID_API__=$(ANDROID_API_LEVEL)
 android_CFLAGS   := $(android_CPPFLAGS) -fPIC
 android_CXXFLAGS := $(android_CPPFLAGS) -fPIC
-android_LDFLAGS  := --sysroot=$(ANDROID_SYSROOT)
+android_LDFLAGS  := --sysroot=$(NDK_SYSROOT)
 
-# armv7 needs libatomic on API-21
-ifneq (,$(filter arm-linux-androideabi armv7a-linux-android,$(HOST)))
+ifneq (,$(filter 32,$(ANDROID_ADDR_MODEL)))
   android_LDFLAGS += -latomic
 endif
 
-# Map to generic host_* variables consumed by packages
+# Export to depends packages (why: standard variable names consumed by recipes)
 host_CC       ?= $(android_CC)
 host_CXX      ?= $(android_CXX)
 host_CPPFLAGS ?= $(android_CPPFLAGS)
@@ -106,19 +98,17 @@ host_CFLAGS   ?= $(android_CFLAGS)
 host_CXXFLAGS ?= $(android_CXXFLAGS) -static-libstdc++
 host_LDFLAGS  ?= $(android_LDFLAGS)
 
-# Exports helpful to packages
-export ANDROID_NDK ANDROID_SYSROOT ANDROID_TOOLCHAIN_BIN
-export ANDROID_API_LEVEL ANDROID_CLANG_TRIPLE ANDROID_ADDR_MODEL
+export ANDROID_NDK ANDROID_API_LEVEL ANDROID_CLANG_TRIPLE ANDROID_ADDR_MODEL
+export NDK_ROOT NDK_BIN NDK_SYSROOT
+export host_AR host_RANLIB host_STRIP
 
-# Tracing when V=1
+# Trace when verbose
 ifeq ($(V),1)
-  $(info [depends/android] HOST=$(HOST))
-  $(info [depends/android] ANDROID_API_LEVEL=$(ANDROID_API_LEVEL))
-  $(info [depends/android] TOOLCHAIN=$(ANDROID_TOOLCHAIN_BIN))
-  $(info [depends/android] CC=$(android_CC))
-  $(info [depends/android] CXX=$(android_CXX))
-  $(info [depends/android] SYSROOT=$(ANDROID_SYSROOT))
-  $(info [depends/android] LDFLAGS=$(android_LDFLAGS))
+  $(info [android.mk] HOST=$(HOST))
+  $(info [android.mk] ANDROID_API_LEVEL=$(ANDROID_API_LEVEL))
+  $(info [android.mk] CLANG_TRIPLE=$(ANDROID_CLANG_TRIPLE))
+  $(info [android.mk] NDK_BIN=$(NDK_BIN))
+  $(info [android.mk] CC=$(android_CC))
+  $(info [android.mk] CXX=$(android_CXX))
+  $(info [android.mk] LDFLAGS=$(android_LDFLAGS))
 endif
-
-# Path: depends/hosts/android.mk | 2025-09-08 UTC
