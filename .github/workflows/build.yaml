@@ -20,14 +20,24 @@ env:
   ANDROID_CLT_LINUX: https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip
   ANDROID_NDK_VERSION: "23.1.7779620"
 
-# ---------------------
-# Android (production)
-# ---------------------
+################################################################################
+# Android (cross compile) - its own matrix
+# - Add rows to matrix.include to test more API/OS combos later.
+################################################################################
 jobs:
   android:
-    name: android • build • ubuntu-24.04 • api 34 • ndk ${ANDROID_NDK_VERSION}
-    runs-on: ubuntu-24.04
+    name: android • build • ${{ matrix.id }}
+    runs-on: ${{ matrix.runs_on }}
     timeout-minutes: 90
+    strategy:
+      matrix:
+        include:
+          # safe single canonical Android build target (change later if needed)
+          - id: ubuntu-24-api34
+            runs_on: ubuntu-24.04
+            api: "34"
+            ndk: "${{ env.ANDROID_NDK_VERSION }}"
+            abi: "arm64-v8a"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -55,39 +65,38 @@ jobs:
       - name: Accept Android licenses
         uses: ./.github/actions/android-accept-licenses
 
-      - name: Install Android packages
+      - name: Install Android SDK / NDK / Platform
         shell: bash
         run: |
           set -euo pipefail
-          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="${ANDROID_SDK_ROOT}" \
-            "platform-tools" \
-            "platforms;android-34" \
-            "ndk;${ANDROID_NDK_VERSION}"
+          sdk="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          "$sdk" --sdk_root="${ANDROID_SDK_ROOT}" "platform-tools" "platforms;android-${{ matrix.api }}" "ndk;${{ matrix.ndk }}"
 
-      - name: Build vendored depends (Android aarch64)
+      - name: Build vendored depends (Android)
         shell: bash
         run: |
           set -euo pipefail
           if [ ! -d depends ]; then
-            echo "::error::depends/ directory missing; required for Android native build."; exit 2
+            echo "::error::depends/ directory missing; required for Android native build."
+            exit 2
           fi
           J=$(nproc 2>/dev/null || echo 2); [ "$J" -gt 8 ] && J=8
-          make -C depends -j"$J" HOST=aarch64-linux-android ANDROID_API_LEVEL=34 \
-            ANDROID_SDK="${ANDROID_SDK_ROOT}" ANDROID_NDK="${ANDROID_SDK_ROOT}/ndk/${ANDROID_NDK_VERSION}"
+          make -C depends -j"$J" HOST=aarch64-linux-android ANDROID_API_LEVEL=${{ matrix.api }} \
+            ANDROID_SDK="${ANDROID_SDK_ROOT}" ANDROID_NDK="${ANDROID_SDK_ROOT}/ndk/${{ matrix.ndk }}"
 
-      - name: Build native Android targets (vkax-d, vkax-cli)
+      - name: Build native Android targets (daemon + cli)
         shell: bash
-        env:
-          ANDROID_API_LEVEL: '34'
-          ANDROID_TOOLCHAIN_BIN: ${{ github.workspace }}/.android-sdk/ndk/${{ env.ANDROID_NDK_VERSION }}/toolchains/llvm/prebuilt/linux-x86_64/bin
         run: |
           set -euo pipefail
           J=$(nproc 2>/dev/null || echo 2); [ "$J" -gt 8 ] && J=8
-          ANDROID_SDK="${ANDROID_SDK_ROOT}" ANDROID_NDK="${ANDROID_SDK_ROOT}/ndk/${ANDROID_NDK_VERSION}" \
-            make -C . -j"$J" V=1 HOST=aarch64-linux-android ANDROID_API_LEVEL=${ANDROID_API_LEVEL} \
+          export ANDROID_SDK="${ANDROID_SDK_ROOT}"
+          export ANDROID_NDK="${ANDROID_SDK_ROOT}/ndk/${{ matrix.ndk }}"
+          export ANDROID_API_LEVEL=${{ matrix.api }}
+          export ANDROID_TOOLCHAIN_BIN="${ANDROID_NDK}/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          make -C . -j"$J" V=1 HOST=aarch64-linux-android ANDROID_API_LEVEL=${ANDROID_API_LEVEL} \
             ANDROID_TOOLCHAIN_BIN=${ANDROID_TOOLCHAIN_BIN} vkax-d vkax-cli || true
 
-      - name: Package Qt Android (attempt)
+      - name: Attempt Qt packaging (if available in depends)
         shell: bash
         run: |
           set -euo pipefail
@@ -95,17 +104,16 @@ jobs:
           QMAKE=$(find depends -type f -name 'qmake' -o -name 'qmake-qt5' 2>/dev/null | head -n1 || true)
           ANDROIDDEPLOYQT=$(find depends -type f -name 'androiddeployqt' 2>/dev/null | head -n1 || true)
           if [ -n "$QMAKE" ] && [ -n "$ANDROIDDEPLOYQT" ] && [ -f src/qt/vkax-qt.pro ]; then
-            echo "Using qmake + androiddeployqt from depends"
             mkdir -p build-qt-android && cd build-qt-android
-            "$QMAKE" ../src/qt/vkax-qt.pro ANDROID_ABIS=arm64-v8a ANDROID_PLATFORM=android-34 || true
-            make -j"$(nproc 2>/dev/null || echo 2)" || true
+            "$QMAKE" ../src/qt/vkax-qt.pro ANDROID_ABIS=${{ matrix.abi }} ANDROID_PLATFORM=android-${{ matrix.api }} || true
+            make -j"$(nproc || echo 2)" || true
             JSON=$(find . -name android_deployment_settings.json -print -quit || true)
             if [ -n "$JSON" ]; then
-              "$ANDROIDDEPLOYQT" --input "$JSON" --output ./android_deploy --android-platform android-34 --gradle --release || true
+              "$ANDROIDDEPLOYQT" --input "$JSON" --output ./android_deploy --android-platform android-${{ matrix.api }} --gradle --release || true
               find ./android_deploy -type f -name '*.apk' -exec cp -a {} ../dist_apk/ \; || true
             fi
           else
-            echo "androiddeployqt/qmake not available; skipping deterministic Qt packaging"
+            echo "::notice::androiddeployqt/qmake not available; skipping deterministic Qt packaging."
           fi
 
       - name: Collect Android artifacts
@@ -113,42 +121,39 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist_android
-          # collect APKs and native outputs
           cp -a dist_apk/* dist_android/ 2>/dev/null || true
           find build -type f -name 'vkax-*' -exec cp -a {} dist_android/ \; || true
           if [ -d dist_android ]; then (cd dist_android && sha256sum * > sha256sums.txt || true); fi
 
       - name: Upload Android artifacts
-        if: always()
         uses: actions/upload-artifact@v4
+        if: always()
         with:
-          name: android-ubuntu-24.04
+          name: android-${{ matrix.id }}
           path: |
             dist_android/**/*
             build/**/*
           if-no-files-found: warn
 
-# ---------------------
-# macOS (production)
-# ---------------------
+################################################################################
+# macOS native (own matrix)
+################################################################################
   macos:
     name: native • macOS • ${{ matrix.macos }}
     runs-on: ${{ matrix.macos }}
     timeout-minutes: 60
     strategy:
       matrix:
-        macos: [macos-13]
+        macos: [macos-13]  # macOS-13 (Intel) as requested
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Build vendored depends (macOS Intel)
+      - name: Build vendored depends (macOS)
         shell: bash
         run: |
           set -euo pipefail
-          if [ ! -d depends ]; then
-            echo "::error::depends/ directory missing; required for macOS build."; exit 2
-          fi
+          if [ ! -d depends ]; then echo "::error::depends/ directory missing; required for macOS build."; exit 2; fi
           brew update
           brew install automake libtool pkg-config cmake ninja || true
           J=$(sysctl -n hw.ncpu 2>/dev/null || echo 2); [ "$J" -gt 8 ] && J=8
@@ -171,8 +176,8 @@ jobs:
           if [ -d dist_macos ]; then (cd dist_macos && sha256sum * > sha256sums.txt || true); fi
 
       - name: Upload macOS artifacts
-        if: always()
         uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: native-macos-${{ matrix.macos }}
           path: |
@@ -180,31 +185,32 @@ jobs:
             build/**/*
           if-no-files-found: warn
 
-# ---------------------
-# Ubuntu / Linux (production)
-# ---------------------
+################################################################################
+# Ubuntu / Linux matrix (amd64 + arm hosted labels)
+# - Add rows to matrix.include for new Ubuntu versions / labels.
+################################################################################
   ubuntu:
     name: native • ubuntu • ${{ matrix.name }}
-    runs-on: ${{ fromJSON(matrix.runs_on) }}
+    runs-on: ${{ matrix.runs_on }}
     timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
         include:
           - name: ubuntu-22-amd64
-            runs_on: '"ubuntu-22.04"'
+            runs_on: ubuntu-22.04
             triple: x86_64-pc-linux-gnu
             allow_failures: false
           - name: ubuntu-24-amd64
-            runs_on: '"ubuntu-24.04"'
+            runs_on: ubuntu-24.04
             triple: x86_64-pc-linux-gnu
             allow_failures: false
           - name: ubuntu-22-arm64
-            runs_on: '"ubuntu-22.04-arm"'
+            runs_on: ubuntu-22.04-arm
             triple: aarch64-linux-gnu
             allow_failures: true
           - name: ubuntu-24-arm64
-            runs_on: '"ubuntu-24.04-arm"'
+            runs_on: ubuntu-24.04-arm
             triple: aarch64-linux-gnu
             allow_failures: true
     steps:
@@ -248,8 +254,8 @@ jobs:
           if [ -d dist_linux ]; then (cd dist_linux && sha256sum * > sha256sums.txt || true); fi
 
       - name: Upload linux artifacts
-        if: always()
         uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: native-ubuntu-${{ matrix.name }}
           path: |
@@ -257,174 +263,16 @@ jobs:
             build/**/*
           if-no-files-found: warn
 
-# ---------------------
-# RISC-V cross (hosted Ubuntu) — cross-compile job
-# ---------------------
-  riscv_cross:
-    name: native • riscv64 (cross compile) • ubuntu-22.04
-    runs-on: ubuntu-22.04
-    timeout-minutes: 90
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Prepare apt toolchain (try packaged cross compilers)
-        shell: bash
-        run: |
-          set -euo pipefail
-          sudo apt-get update -qq
-
-          sudo apt-get install -y --no-install-recommends \
-            gcc-riscv64-linux-gnu g++-riscv64-linux-gnu binutils-riscv64-linux-gnu \
-            libc6-dev-riscv64-cross pkg-config ninja-build cmake make || true
-
-          if command -v riscv64-linux-gnu-gcc >/dev/null 2>&1; then
-            echo "Found riscv64-linux-gnu-gcc in PATH"
-            riscv_cc=riscv64-linux-gnu-gcc
-            riscv_cxx=riscv64-linux-gnu-g++
-          elif command -v gcc-riscv64-linux-gnu >/dev/null 2>&1; then
-            echo "Found gcc-riscv64-linux-gnu in PATH"
-            riscv_cc=gcc-riscv64-linux-gnu
-            riscv_cxx=g++-riscv64-linux-gnu
-          else
-            echo "::error::No riscv64 cross toolchain available via apt."
-            echo "You have two options:"
-            echo "  * Add a self-hosted riscv64 runner and use native builds"
-            echo "  * Provide a prebuilt riscv64 toolchain tarball URL and ask me to add a fallback download"
-            exit 2
-          fi
-
-          echo "Using CROSS CC/CXX: $riscv_cc / $riscv_cxx"
-          printf "##toolchain##:%s:%s" "$riscv_cc" "$riscv_cxx" > .riscv_toolchain
-
-      - name: Show toolchain fingerprint
-        shell: bash
-        run: |
-          set -euo pipefail
-          awk -F: '{print "- CC="$2" CXX="$3}' .riscv_toolchain | sed 's/^/- /' >> "$GITHUB_STEP_SUMMARY" || true
-          read -r _ CC_BIN CXX_BIN < <(tr ':' ' ' < .riscv_toolchain)
-          $CC_BIN --version | head -n1 >> "$GITHUB_STEP_SUMMARY" || true
-
-      - name: Build vendored depends (riscv64 cross)
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ ! -d depends ]; then
-            echo "::error::depends/ directory missing; required for cross-compiled RISC-V build."; exit 2
-          fi
-          read -r _ CC_BIN CXX_BIN < <(tr ':' ' ' < .riscv_toolchain)
-          export CC=$CC_BIN
-          export CXX=$CXX_BIN
-          J=$(nproc 2>/dev/null || echo 2); [ "$J" -gt 8 ] && J=8
-          make -C depends -j"$J" HOST=riscv64-linux-gnu CC="$CC" CXX="$CXX" || true
-
-      - name: CMake / project build (cross)
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ ! -f CMakeLists.txt ]; then
-            echo "::notice::No CMakeLists.txt; skipping project CMake build."; exit 0
-          fi
-          read -r _ CC_BIN CXX_BIN < <(tr ':' ' ' < .riscv_toolchain)
-          export CC="$CC_BIN"
-          export CXX="$CXX_BIN"
-          cat > ci_riscv_toolchain.cmake <<'EOF'
-          set(CMAKE_SYSTEM_NAME Linux)
-          set(CMAKE_C_COMPILER ${CC})
-          set(CMAKE_CXX_COMPILER ${CXX})
-          EOF
-          cmake -S . -B build-riscv -G Ninja -DCMAKE_TOOLCHAIN_FILE=ci_riscv_toolchain.cmake || true
-          cmake --build build-riscv -j"$(nproc || echo 2)" || true
-
-      - name: Collect riscv cross artifacts
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p dist_riscv_cross
-          find build-riscv -type f -perm -111 -name 'vkax*' -exec cp -a {} dist_riscv_cross/ \; || true
-          find depends -path '*/work/*' -type f -name 'vkax*' -exec cp -a {} dist_riscv_cross/ \; || true
-          if [ -d dist_riscv_cross ]; then (cd dist_riscv_cross && sha256sum * > sha256sums.txt || true); fi
-
-      - name: Upload riscv cross artifacts
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: native-riscv64-cross-ubuntu-22.04
-          path: |
-            dist_riscv_cross/**/*
-            build-riscv/**/*
-          if-no-files-found: warn
-
-# ---------------------
-# RISC-V (self-hosted) — standalone job
-# ---------------------
-  riscv:
-    name: native • riscv64 • self-hosted
-    runs-on: ["self-hosted","Linux","riscv64"]
-    timeout-minutes: 120
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Tooling check
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo "Checking for build tools..."
-          uname -a
-          gcc --version || true
-          cmake --version || true
-
-      - name: Build vendored depends (riscv64)
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ ! -d depends ]; then
-            echo "::error::depends/ directory missing; required for RISC-V build."; exit 2
-          fi
-          J=$(nproc 2>/dev/null || echo 2); [ "$J" -gt 8 ] && J=8
-          make -C depends -j"$J" HOST=riscv64-linux-gnu || true
-
-      - name: CMake build (riscv64)
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ ! -f CMakeLists.txt ]; then
-            echo "::notice::No CMakeLists.txt; skipping."; exit 0
-          fi
-          if [ -d "depends/riscv64-linux-gnu" ]; then
-            export CMAKE_PREFIX_PATH="depends/riscv64-linux-gnu"
-          else
-            echo "::warning::Vendored depends prefix not found; continuing without depends.";
-          fi
-          cmake -S . -B build-riscv -G Ninja
-          cmake --build build-riscv -j"$(nproc || echo 2)" || true
-
-      - name: Collect riscv binaries
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p dist_riscv
-          find build-riscv -type f -perm -111 -name 'vkax*' -exec cp -a {} dist_riscv/ \; || true
-          if [ -d dist_riscv ]; then (cd dist_riscv && sha256sum * > sha256sums.txt || true); fi
-
-      - name: Upload riscv artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: native-riscv64
-          path: |
-            dist_riscv/**/*
-            build-riscv/**/*
-          if-no-files-found: warn
-
-# ---------------------
-# Windows (MSVC) — production
-# ---------------------
+################################################################################
+# Windows native (MSVC) — single matrix
+################################################################################
   windows:
-    name: native • windows • windows-2022
-    runs-on: windows-2022
+    name: native • windows • ${{ matrix.windows }}
+    runs-on: ${{ matrix.windows }}
     timeout-minutes: 45
+    strategy:
+      matrix:
+        windows: [windows-2022]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -449,18 +297,18 @@ jobs:
           Get-ChildItem -Path build -Filter "vkax*" -Recurse -File | ForEach-Object { Copy-Item -Path $_.FullName -Destination dist_win }
 
       - name: Upload windows artifacts
-        if: always()
         uses: actions/upload-artifact@v4
+        if: always()
         with:
-          name: native-windows-2022
+          name: native-windows-${{ matrix.windows }}
           path: |
             dist_win/**/*
             build/**/*
           if-no-files-found: warn
 
-# ---------------------
-# Windows cross (MinGW via Ubuntu) — production
-# ---------------------
+################################################################################
+# Windows cross (MinGW on Ubuntu) — separate job
+################################################################################
   windows_cross:
     name: native • windows-cross • ubuntu-22.04
     runs-on: ubuntu-22.04
@@ -501,8 +349,8 @@ jobs:
           if [ -d dist-w64 ]; then (cd dist-w64 && sha256sum * > sha256sums.txt || true); fi
 
       - name: Upload Windows cross artifacts
-        if: always()
         uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: native-windows-cross-ubuntu-22.04
           path: |
