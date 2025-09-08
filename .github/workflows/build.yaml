@@ -22,16 +22,34 @@ env:
 
 jobs:
   # =====================================
-  # SMOKE: native toolchains — Ubuntu (AMD/ARM)
+  # SMOKE: native toolchains — Ubuntu (AMD/ARM/RISC-V)
   # =====================================
-  $1          - name: ubuntu-22-riscv64
+  smoke_native_ubuntu:
+    name: smoke • native • ubuntu • ${{ matrix.name }}
+    runs-on: ${{ fromJSON(matrix.runs_on) }}
+    continue-on-error: ${{ matrix.allow_failures }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: ubuntu-22-amd64
+            runs_on: '"ubuntu-22.04"'
+            allow_failures: false
+          - name: ubuntu-24-amd64
+            runs_on: '"ubuntu-24.04"'
+            allow_failures: false
+          - name: ubuntu-22-arm64
+            runs_on: '["self-hosted","Linux","ARM64","ubuntu-22.04"]'
+            allow_failures: true
+          - name: ubuntu-24-arm64
+            runs_on: '["self-hosted","Linux","ARM64","ubuntu-24.04"]'
+            allow_failures: true
+          - name: ubuntu-22-riscv64
             runs_on: '["self-hosted","Linux","RISC-V","ubuntu-22.04"]'
             allow_failures: true
           - name: ubuntu-24-riscv64
             runs_on: '["self-hosted","Linux","RISC-V","ubuntu-24.04"]'
-            allow_failures: true
-          - name: ubuntu-24-arm64
-            runs_on: '["self-hosted","Linux","ARM64","ubuntu-24.04"]'
             allow_failures: true
     steps:
       - name: Checkout
@@ -188,17 +206,39 @@ jobs:
   # =====================================
   # SMOKE: depends — Ubuntu (only OSes that use depends)
   # =====================================
-  $1          - name: ubuntu-22-riscv64
+  depends_smoke_ubuntu:
+    name: smoke • depends • ubuntu • ${{ matrix.name }}
+    needs: smoke_native_ubuntu
+    runs-on: ${{ fromJSON(matrix.runs_on) }}
+    continue-on-error: ${{ matrix.allow_failures }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: ubuntu-22-amd64
+            runs_on: '"ubuntu-22.04"'
+            host: x86_64-pc-linux-gnu
+            allow_failures: false
+          - name: ubuntu-24-amd64
+            runs_on: '"ubuntu-24.04"'
+            host: x86_64-pc-linux-gnu
+            allow_failures: false
+          - name: ubuntu-22-arm64
+            runs_on: '["self-hosted","Linux","ARM64","ubuntu-22.04"]'
+            host: aarch64-linux-gnu
+            allow_failures: true
+          - name: ubuntu-24-arm64
+            runs_on: '["self-hosted","Linux","ARM64","ubuntu-24.04"]'
+            host: aarch64-linux-gnu
+            allow_failures: true
+          - name: ubuntu-22-riscv64
             runs_on: '["self-hosted","Linux","RISC-V","ubuntu-22.04"]'
             host: riscv64-linux-gnu
             allow_failures: true
           - name: ubuntu-24-riscv64
             runs_on: '["self-hosted","Linux","RISC-V","ubuntu-24.04"]'
             host: riscv64-linux-gnu
-            allow_failures: true
-          - name: ubuntu-24-arm64
-            runs_on: '["self-hosted","Linux","ARM64","ubuntu-24.04"]'
-            host: aarch64-linux-gnu
             allow_failures: true
     steps:
       - name: Checkout
@@ -320,7 +360,111 @@ jobs:
   # =====================================
   # SMOKE: Android toolchain — Ubuntu AMD64 only
   # =====================================
-  smoke_$1env:
+  smoke_android:
+    name: smoke • android • ubuntu-24.04 • api 34 • ndk 23.1.7779620
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java 11
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "11"
+
+      - name: Prepare SDK dirs
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools" "$HOME/.android"
+          touch "$HOME/.android/repositories.cfg"
+
+      - name: Install cmdline-tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          tmp=$(mktemp -d)
+          curl -fsSL "$ANDROID_CLT_LINUX" -o "$tmp/cmdline.zip"
+          unzip -q "$tmp/cmdline.zip" -d "$ANDROID_SDK_ROOT/cmdline-tools"
+          mv "$ANDROID_SDK_ROOT/cmdline-tools/cmdline-tools" "$ANDROID_SDK_ROOT/cmdline-tools/latest"
+          echo "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+
+      - name: Accept Android licenses
+        uses: ./.github/actions/android-accept-licenses
+
+      - name: Install Android packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="${ANDROID_SDK_ROOT}" \
+            "platform-tools" \
+            "platforms;android-34" \
+            "ndk;${ANDROID_NDK_VERSION}"
+
+      - name: Verify SDK/NDK layout
+        shell: bash
+        run: |
+          set -euo pipefail
+          adb_bin="$ANDROID_SDK_ROOT/platform-tools/adb"
+          plat_dir="$ANDROID_SDK_ROOT/platforms/android-34"
+          ndk_dir="$ANDROID_SDK_ROOT/ndk/${ANDROID_NDK_VERSION}"
+          pre="$ndk_dir/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          [ -x "$adb_bin" ] || { echo "::error::adb missing at $adb_bin"; exit 1; }
+          [ -d "$plat_dir" ] || { echo "::error::Android platform missing: $plat_dir"; exit 1; }
+          [ -d "$ndk_dir" ] || { echo "::error::NDK missing: $ndk_dir"; exit 1; }
+          [ -d "$pre" ] || { echo "::error::NDK prebuilt not found: $pre"; ls -la "$ndk_dir/toolchains/llvm/prebuilt" || true; exit 1; }
+
+      - name: Smoke compile (armv7a+arm64)
+        shell: bash
+        run: |
+          set -euo pipefail
+          pre="$ANDROID_SDK_ROOT/ndk/${ANDROID_NDK_VERSION}/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          a32="$pre/armv7a-linux-androideabi21-clang++"
+          a64="$pre/aarch64-linux-android21-clang++"
+          [ -x "$a32" ] || { echo "::error::Missing $a32"; exit 127; }
+          [ -x "$a64" ] || { echo "::error::Missing $a64"; exit 127; }
+          mkdir -p smoke && cd smoke
+          cat > t.cpp <<'CPP'
+          #include <atomic>
+          int main(){ std::atomic<int> v{0}; v++; return (int)v.load(); }
+          CPP
+          "$a32" -latomic -O2 t.cpp -o a32
+          "$a64" -O2 t.cpp -o a64
+          echo ok > ../.smoke_pass
+
+      - name: Append smoke summary
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo "### Smoke Android ubuntu-24.04";
+            echo "- API: 34";
+            echo "- NDK: ${ANDROID_NDK_VERSION}";
+            echo "- SDK root: ${ANDROID_SDK_ROOT}";
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::notice::Android smoke passed (api 34, ndk ${ANDROID_NDK_VERSION})"
+
+      - name: Upload smoke artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-android-ubuntu-24.04-api34
+          path: |
+            .smoke_pass
+            smoke/**/*
+          if-no-files-found: warn
+
+  # =====================================
+  # Android builds — Ubuntu AMD64 only (after smoke_android)
+  # =====================================
+  android:
+    name: android • build • ubuntu-24.04 • api 34 • ndk 23.1.7779620
+    needs: smoke_android
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
       ANDROID_API_LEVEL: "34"
       ANDROID_SDK: ${{ env.ANDROID_SDK_ROOT }}
       ANDROID_NDK: ${{ env.ANDROID_SDK_ROOT }}/ndk/${{ env.ANDROID_NDK_VERSION }}
@@ -361,6 +505,22 @@ jobs:
             "platforms;android-34" \
             "ndk;${ANDROID_NDK_VERSION}"
 
+      - name: Build depends for native Android (optional)
+        shell: bash
+        run: |
+          set -euo pipefail
+          : "${ANDROID_API_LEVEL:=34}"
+          : "${ANDROID_TOOLCHAIN_BIN:=${ANDROID_SDK_ROOT}/ndk/${ANDROID_NDK_VERSION}/toolchains/llvm/prebuilt/linux-x86_64/bin}"
+          if [ -d depends ]; then
+            J=$(nproc 2>/dev/null || echo 2); [ "$J" -gt 4 ] && J=4
+            echo "::notice::Building depends for HOST=aarch64-linux-android (API ${ANDROID_API_LEVEL})."
+            make -C depends -j"$J" HOST=aarch64-linux-android ANDROID_API_LEVEL="${ANDROID_API_LEVEL}" ANDROID_TOOLCHAIN_BIN="${ANDROID_TOOLCHAIN_BIN}" || {
+              echo "::warning::Android depends build failed or unsupported; continuing without.";
+            }
+          else
+            echo "::notice::No depends/ dir; skipping Android depends build."
+          fi
+
       - name: Setup Gradle cache
         if: ${{ hashFiles('**/gradlew') != '' }}
         uses: gradle/actions/setup-gradle@v3
@@ -372,21 +532,16 @@ jobs:
           set -euo pipefail
           chmod +x ./gradlew
           ./gradlew --no-daemon --stacktrace assemble
+
       - name: Collect native Android binaries if present
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p dist
-          # Copy any likely native outputs (.so/.a or vkax-* executables)
           find build -type f \( -name '*.so' -o -name '*.a' -o -name 'vkax-qt*' -o -name 'vkax-d*' -o -name 'vkax-cli*' \) -print -exec cp -a {} dist/ \; || true
           if [ -z "$(ls -A dist 2>/dev/null || true)" ]; then
             echo "::warning::No native Android binaries found; uploading full build dir instead."
           fi
-
-      - name: CMake build (disabled for Android job)
-        if: ${{ false }}
-        shell: bash
-        run: echo "::notice::Android job skips root native CMake build."
 
       - name: Upload build artifacts
         if: always()
@@ -394,8 +549,8 @@ jobs:
         with:
           name: native-android-ubuntu-24.04-api34
           path: |
+            dist/**/*
             build/**/*
-            **/build/outputs/**/*
           if-no-files-found: warn
 
   # =====================================
@@ -539,19 +694,41 @@ jobs:
           if-no-files-found: warn
 
   # =====================================
-  # Ubuntu (22/24 AMD64 + self-hosted ARM64) — native only (after smoke_native_ubuntu)
+  # Ubuntu (22/24 AMD64 + self-hosted ARM64/RISC-V) — native only (after smoke_native_ubuntu)
   # =====================================
-  $1          - name: ubuntu-22-riscv64
+  ubuntu:
+    name: native • ubuntu • ${{ matrix.name }}
+    needs: depends_smoke_ubuntu
+    runs-on: ${{ fromJSON(matrix.runs_on) }}
+    continue-on-error: ${{ matrix.allow_failures }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: ubuntu-22-amd64
+            runs_on: '"ubuntu-22.04"'
+            triple: x86_64-pc-linux-gnu
+            allow_failures: false
+          - name: ubuntu-24-amd64
+            runs_on: '"ubuntu-24.04"'
+            triple: x86_64-pc-linux-gnu
+            allow_failures: false
+          - name: ubuntu-22-arm64
+            runs_on: '["self-hosted","Linux","ARM64","ubuntu-22.04"]'
+            triple: aarch64-linux-gnu
+            allow_failures: true
+          - name: ubuntu-24-arm64
+            runs_on: '["self-hosted","Linux","ARM64","ubuntu-24.04"]'
+            triple: aarch64-linux-gnu
+            allow_failures: true
+          - name: ubuntu-22-riscv64
             runs_on: '["self-hosted","Linux","RISC-V","ubuntu-22.04"]'
             triple: riscv64-linux-gnu
             allow_failures: true
           - name: ubuntu-24-riscv64
             runs_on: '["self-hosted","Linux","RISC-V","ubuntu-24.04"]'
             triple: riscv64-linux-gnu
-            allow_failures: true
-          - name: ubuntu-24-arm64
-            runs_on: '["self-hosted","Linux","ARM64","ubuntu-24.04"]'
-            triple: aarch64-linux-gnu
             allow_failures: true
     steps:
       - name: Checkout
