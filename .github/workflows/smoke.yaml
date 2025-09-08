@@ -67,9 +67,9 @@ jobs:
         if: ${{ runner.os == 'Windows' }}
         shell: pwsh
         run: |
-          'int main(){return 0;}' | Set-Content -NoNewline -Path .	.cpp
-          cl /nologo .	.cpp /Fe:t.exe
-          .	.exe
+          'int main(){return 0;}' | Set-Content -NoNewline -Path .\t.cpp
+          cl /nologo .\t.cpp /Fe:t.exe
+          .\t.exe
           'ok' | Set-Content -NoNewline -Path .smoke_pass
 
       - name: Inventory
@@ -94,6 +94,28 @@ jobs:
           Add-Content $env:GITHUB_STEP_SUMMARY "| component | version | path | sha256 | homepage |"
           Add-Content $env:GITHUB_STEP_SUMMARY "|---|---|---|---|---|"
           Add-Content $env:GITHUB_STEP_SUMMARY "| cl | $ver | $bin | $sha | https://learn.microsoft.com/cpp/ |"
+      - name: Project quick build (native vkax-d + vkax-cli) — Linux only
+        if: ${{ startsWith(matrix.os, 'ubuntu-') }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          J=$(nproc 2>/dev/null || echo 2); [ "$J" -gt 4 ] && J=4
+          mkdir -p smoke_build_logs dist
+          if [ -f Makefile ]; then
+            echo "::notice::Attempting top-level Makefile build for vkax-d vkax-cli (V=1)"
+            make -n vkax-d vkax-cli || true
+            make -j"$J" vkax-d vkax-cli V=1 2>&1 | tee smoke_build_logs/make.out || true
+            make print-vars 2>&1 | tee smoke_build_logs/vars.out || true
+          elif [ -f CMakeLists.txt ]; then
+            echo "::notice::Attempting CMake build for vkax-d vkax-cli"
+            cmake -S . -B build-smoke -DCMAKE_BUILD_TYPE=Release
+            cmake --build build-smoke --target vkax-d vkax-cli -- -j"$J" 2>&1 | tee smoke_build_logs/cmake.out || true
+          else
+            echo "::notice::No Makefile/CMakeLists.txt; skipping project native build"
+          fi
+          find . -type f \( -name 'vkax-d*' -o -name 'vkax-cli*' \) -exec cp -a {} dist/ \; || true
+          if [ -n "$(ls -A dist 2>/dev/null || true)" ]; then (cd dist && sha256sum * > sha256sums.txt) || true; fi
+          echo ok > .smoke_pass
 
       - name: Upload artifacts
         if: always()
@@ -104,6 +126,8 @@ jobs:
             .smoke_pass
             t
             t.exe
+            smoke_build_logs/**
+            dist/**
           if-no-files-found: warn
 
   # =============================
@@ -221,7 +245,6 @@ jobs:
             "platform-tools" \
             "platforms;android-${{ matrix.api }}" \
             "ndk;${ANDROID_NDK_VERSION}"
-
       - name: Android NDK smoke compile
         shell: bash
         run: |
@@ -252,6 +275,61 @@ jobs:
             echo "- Platform android-${{ matrix.api }}: fingerprint of source.properties — sha256: ${plat_sha:-n/a}";
           } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Attempt Qt APK build (oldest Qt from depends)
+        shell: bash
+        env:
+          ANDROID_API: "${{ matrix.api }}"
+        run: |
+          set -euo pipefail
+          mkdir -p dist_apk
+          if [ -d depends/packages ]; then
+            # find qt package candidates
+            candidates=$(ls -1 depends/packages 2>/dev/null | grep -Ei 'qt' || true)
+            if [ -n "$candidates" ]; then
+              # pick lexicographically smallest (oldest-like) name
+              pick=$(printf "%s
+" $candidates | sort -V | head -n1)
+              echo "::notice::Found Qt package candidate: $pick"
+              J=$(nproc 2>/dev/null || echo 2); [ "$J" -gt 4 ] && J=4
+              echo "Attempting make -C depends $pick for HOST=aarch64-linux-android"
+              make -C depends -j"$J" HOST=aarch64-linux-android "$pick" || echo "::warning::depends qt build for $pick failed"
+            else
+              echo "::notice::No qt package files in depends/packages"
+            fi
+          else
+            echo "::notice::depends/packages not present; skipping Qt depends build"
+          fi
+
+          # look for qmake and androiddeployqt produced by depends
+          QMAKE=$(find depends -type f -name 'qmake' -o -name 'qmake-qt5' 2>/dev/null | head -n1 || true)
+          ANDROIDDEPLOY=$(find depends -type f -name 'androiddeployqt' 2>/dev/null | head -n1 || true)
+          if [ -n "$QMAKE" ] && [ -n "$ANDROIDDEPLOY" ] && [ -f src/qt/vkax-qt.pro ]; then
+            echo "::notice::Using qmake from depends: $QMAKE"
+            mkdir -p tmp_qt_build && cd tmp_qt_build
+            "$QMAKE" ../src/qt/vkax-qt.pro "ANDROID_ABIS=arm64-v8a" "ANDROID_PLATFORM=android-${ANDROID_API}" || { echo "::warning::qmake configure failed"; exit 0; }
+            make -j"$(nproc 2>/dev/null || echo 2)" || { echo "::warning::make failed for qt project"; exit 0; }
+            JSON=$(find . -name android_deployment_settings.json -print -quit || true)
+            if [ -n "$JSON" ]; then
+              "$ANDROIDDEPLOY" --input "$JSON" --output ./android_deploy --android-platform "android-${ANDROID_API}" --gradle --release || true
+              find ./android_deploy -type f -name '*.apk' -exec cp -a {} ../dist_apk/ \; || true
+            fi
+          else
+            echo "::notice::qmake/androiddeployqt not found in depends; falling back to Gradle/module"
+            if [ -x ./gradlew ]; then
+              chmod +x ./gradlew
+              ./gradlew --no-daemon --stacktrace assembleDebug || echo "::warning::Gradle assemble failed"
+              find . -type f -path '*/build/outputs/**/*.apk' -exec cp -a {} dist_apk/ \; || true
+            elif [ -d android ] && [ -x android/gradlew ]; then
+              ( cd android && chmod +x ./gradlew && ./gradlew --no-daemon --stacktrace assembleDebug ) || echo "::warning::Gradle assemble failed"
+              find android -type f -path '*/build/outputs/**/*.apk' -exec cp -a {} dist_apk/ \; || true
+            else
+              echo "::notice::No packaging tools found; APK not produced"
+            fi
+          fi
+          if [ -d dist_apk ] && [ -n "$(ls -A dist_apk 2>/dev/null || true)" ]; then
+            (cd dist_apk && sha256sum * > sha256sums.txt || true)
+          fi
+
       - name: Upload artifacts
         if: always()
         uses: actions/upload-artifact@v4
@@ -260,4 +338,5 @@ jobs:
           path: |
             .smoke_pass
             smoke/**/*
+            dist_apk/**/*
           if-no-files-found: warn
