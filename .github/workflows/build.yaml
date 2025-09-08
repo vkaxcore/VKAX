@@ -3,7 +3,7 @@ name: CI • Smoke-first + OS builds (Android on Ubuntu AMD64)
 
 on:
   push:
-    branches: ["**"]
+    branches: ["v100.11.5-android"]
   pull_request:
   workflow_dispatch:
 
