@@ -1,99 +1,87 @@
+# depends/funcs.mk
+
 AT ?= @
 
-# ------------------------------------------------------------------------------
-# Android prefix safety and sane defaults
-# ------------------------------------------------------------------------------
+# Android prefix safety
 ifeq ($(host_os),android)
-    host_prefix ?= $(strip $(notdir $(host)))
-    ifneq (,$(filter /%,$(host_prefix)))
-      $(error host_prefix must be relative for Android, got "$(host_prefix)")
-    endif
+  host_prefix ?= $(strip $(notdir $(host)))
+  ifneq (,$(filter /%,$(host_prefix)))
+    $(error host_prefix must be relative for Android, got "$(host_prefix)")
+  endif
 endif
 
-# ------------------------------------------------------------------------------
-# Android NDK glue (wrapper exports if env-only)
-# ------------------------------------------------------------------------------
+# Android NDK glue
 ifeq ($(host_os),android)
-ANDROID_API_LEVEL ?= $(ANDROID_API)
-HOST ?= $(host)
+  ANDROID_API_LEVEL ?= $(ANDROID_API)
+  HOST ?= $(host)
 
-# Determine NDK toolchain bin
-ifneq ($(ANDROID_TOOLCHAIN_BIN),)
-  android_toolchain_bin := $(ANDROID_TOOLCHAIN_BIN)
-else ifneq ($(ANDROID_NDK),)
-  uname_s := $(shell uname -s)
-  uname_m := $(shell uname -m)
-  ifneq (,$(findstring Linux,$(uname_s)))
-    ifneq (,$(findstring aarch64,$(uname_m)))
-      ndk_host_tag := linux-arm64
+  ifneq ($(ANDROID_TOOLCHAIN_BIN),)
+    android_toolchain_bin := $(ANDROID_TOOLCHAIN_BIN)
+  else ifneq ($(ANDROID_NDK),)
+    uname_s := $(shell uname -s)
+    uname_m := $(shell uname -m)
+    ifneq (,$(findstring Linux,$(uname_s)))
+      ifneq (,$(findstring aarch64,$(uname_m)))
+        ndk_host_tag := linux-arm64
+      else
+        ndk_host_tag := linux-x86_64
+      endif
+    else ifneq (,$(findstring Darwin,$(uname_s)))
+      ifneq (,$(findstring arm64,$(uname_m)))
+        ndk_host_tag := darwin-arm64
+      else
+        ndk_host_tag := darwin-x86_64
+      endif
+    else ifneq (,$(filter MSYS_NT-% CYGWIN_NT-% MINGW%,$(uname_s)))
+      ndk_host_tag := windows-x86_64
     else
       ndk_host_tag := linux-x86_64
     endif
-  else ifneq (,$(findstring Darwin,$(uname_s)))
-    ifneq (,$(findstring arm64,$(uname_m)))
-      ndk_host_tag := darwin-arm64
-    else
-      ndk_host_tag := darwin-x86_64
-    endif
-  else ifneq (,$(filter MSYS_NT-% CYGWIN_NT-% MINGW%,$(uname_s)))
-    ndk_host_tag := windows-x86_64
+    android_toolchain_bin := $(ANDROID_NDK)/toolchains/llvm/prebuilt/$(ndk_host_tag)/bin
   else
-    ndk_host_tag := linux-x86_64
+    android_toolchain_bin :=
   endif
-  android_toolchain_bin := $(ANDROID_NDK)/toolchains/llvm/prebuilt/$(ndk_host_tag)/bin
-else
-  android_toolchain_bin :=
+
+  android_SYSROOT := $(if $(android_toolchain_bin),$(abspath $(android_toolchain_bin)/../sysroot),)
+
+  android_CC     := $(if $(android_toolchain_bin),$(android_toolchain_bin)/$(HOST)$(ANDROID_API_LEVEL)-clang,$(HOST)$(ANDROID_API_LEVEL)-clang)
+  android_CXX    := $(if $(android_toolchain_bin),$(android_toolchain_bin)/$(HOST)$(ANDROID_API_LEVEL)-clang++,$(HOST)$(ANDROID_API_LEVEL)-clang++)
+  android_AR     := $(if $(android_toolchain_bin),$(android_toolchain_bin)/llvm-ar,llvm-ar)
+  android_RANLIB := $(if $(android_toolchain_bin),$(android_toolchain_bin)/llvm-ranlib,llvm-ranlib)
+  android_STRIP  := $(if $(android_toolchain_bin),$(android_toolchain_bin)/llvm-strip,llvm-strip)
+
+  ifneq ($(android_SYSROOT),)
+    android_CPPFLAGS += --sysroot=$(android_SYSROOT) -D__ANDROID_API__=$(ANDROID_API_LEVEL)
+    android_CFLAGS   += --sysroot=$(android_SYSROOT) -D__ANDROID_API__=$(ANDROID_API_LEVEL)
+    android_CXXFLAGS += --sysroot=$(android_SYSROOT) -D__ANDROID_API__=$(ANDROID_API_LEVEL)
+    android_LDFLAGS  += --sysroot=$(android_SYSROOT)
+  endif
+
+  export ANDROID_CC:=$(android_CC)
+  export ANDROID_CXX:=$(android_CXX)
+  export ANDROID_AR:=$(android_AR)
+  export ANDROID_RANLIB:=$(android_RANLIB)
+  export ANDROID_STRIP:=$(android_STRIP)
+  export ANDROID_SYSROOT:=$(android_SYSROOT)
+  export ANDROID_CPPFLAGS:=$(android_CPPFLAGS)
+  export ANDROID_CFLAGS:=$(android_CFLAGS)
+  export ANDROID_CXXFLAGS:=$(android_CXXFLAGS)
+  export ANDROID_LDFLAGS:=$(android_LDFLAGS)
+
+  ifneq ($(ANDROID_API_LEVEL),)
+    export ANDROID_API:=$(ANDROID_API_LEVEL)
+  endif
+
+  NO_QT ?= 1
 endif
 
-# Resolve absolute sysroot path
-android_SYSROOT := $(if $(android_toolchain_bin),$(abspath $(android_toolchain_bin)/../sysroot),)
-
-# Android toolchain paths (absolute when possible)
-android_CC     := $(if $(android_toolchain_bin),$(android_toolchain_bin)/$(HOST)$(ANDROID_API_LEVEL)-clang,$(HOST)$(ANDROID_API_LEVEL)-clang)
-android_CXX    := $(if $(android_toolchain_bin),$(android_toolchain_bin)/$(HOST)$(ANDROID_API_LEVEL)-clang++,$(HOST)$(ANDROID_API_LEVEL)-clang++)
-android_AR     := $(if $(android_toolchain_bin),$(android_toolchain_bin)/llvm-ar,llvm-ar)
-android_RANLIB := $(if $(android_toolchain_bin),$(android_toolchain_bin)/llvm-ranlib,llvm-ranlib)
-android_STRIP  := $(if $(android_toolchain_bin),$(android_toolchain_bin)/llvm-strip,llvm-strip)
-
-# Android flags
-ifneq ($(android_SYSROOT),)
-  android_CPPFLAGS += --sysroot=$(android_SYSROOT) -D__ANDROID_API__=$(ANDROID_API_LEVEL)
-  android_CFLAGS   += --sysroot=$(android_SYSROOT) -D__ANDROID_API__=$(ANDROID_API_LEVEL)
-  android_CXXFLAGS += --sysroot=$(android_SYSROOT) -D__ANDROID_API__=$(ANDROID_API_LEVEL)
-  android_LDFLAGS  += --sysroot=$(android_SYSROOT)
-endif
-
-# Export Android variables for build
-export ANDROID_CC:=$(android_CC)
-export ANDROID_CXX:=$(android_CXX)
-export ANDROID_AR:=$(android_AR)
-export ANDROID_RANLIB:=$(android_RANLIB)
-export ANDROID_STRIP:=$(android_STRIP)
-export ANDROID_SYSROOT:=$(android_SYSROOT)
-export ANDROID_CPPFLAGS:=$(android_CPPFLAGS)
-export ANDROID_CFLAGS:=$(android_CFLAGS)
-export ANDROID_CXXFLAGS:=$(android_CXXFLAGS)
-export ANDROID_LDFLAGS:=$(android_LDFLAGS)
-
-ifneq ($(ANDROID_API_LEVEL),)
-  export ANDROID_API:=$(ANDROID_API_LEVEL)
-endif
-
-# Disable Qt for Android builds unless explicitly enabled
-NO_QT ?= 1
-endif
-
-# ------------------------------------------------------------------------------
-# Filter out Qt when disabled (Android export NO_QT=1 or manual)
-# ------------------------------------------------------------------------------
+# Filter out Qt when disabled
 ifeq ($(NO_QT),1)
-packages        := $(filter-out qt% Qt%,$(packages))
-native_packages := $(filter-out native_qt%,$(native_packages))
+  packages        := $(filter-out qt% Qt%,$(packages))
+  native_packages := $(filter-out native_qt%,$(native_packages))
 endif
 
-# ------------------------------------------------------------------------------
-# Package defaults template (deferred evaluation, legacy-compatible)
-# ------------------------------------------------------------------------------
+# Package defaults template (deferred evaluation)
 define int_vars
 $(1)_cc=$$($$($(1)_type)_CC)
 $(1)_cxx=$$($$($(1)_type)_CXX)
@@ -112,13 +100,11 @@ $(1)_ldflags=$$($$($(1)_type)_LDFLAGS) \
              -L$$($($(1)_type)_prefix)/lib
 $(1)_cppflags=$$($$($(1)_type)_CPPFLAGS) \
               $$($$($(1)_type)_$$(release_type)_CPPFLAGS) \
-              -I$$($$(($1)_type)_prefix)/include
+              -I$$($($(1)_type)_prefix)/include
 $(1)_recipe_hash:=
 endef
 
-# ------------------------------------------------------------------------------
 # Utilities
-# ------------------------------------------------------------------------------
 define int_get_all_dependencies
 $(sort $(foreach dep,$(2),$(2) $(call int_get_all_dependencies,$(1),$($(dep)_dependencies))))
 endef
