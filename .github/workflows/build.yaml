@@ -19,6 +19,8 @@ env:
   LANG: C.UTF-8
   TAIL_N: "1000"
   VERBOSE_BUILD: "0"
+  # Set to "1" temporarily if sdkmanager refuses licenses in your runner
+  ALLOW_TTY_LICENSE_ACCEPT: "0"
 
 jobs:
   android:
@@ -64,14 +66,12 @@ jobs:
           LOG="$RUNNER_TEMP/vkax-build.log"
           : > "$LOG"
           echo "BUILD_LOG=$LOG" >> "$GITHUB_ENV"
-          
 
       - name: "[VKAX] Guards in workflows"
         run: |
           set -Eeuo pipefail
           files="$(git ls-files '.github/workflows/*.yml' '.github/workflows/*.yaml' | grep -v -F '.github/workflows/build.yaml' || true)"
           [ -z "$files" ] && exit 0
-
           matches="$(grep -nH -E '^[[:space:]]*yes[[:space:]]*\|[[:space:]]*sdkmanager[[:space:]]*--licenses([[:space:]]|$)' $files || true)"
           if [ -n "$matches" ]; then
             echo "## Forbidden pattern found" >> "$GITHUB_STEP_SUMMARY"
@@ -79,7 +79,6 @@ jobs:
             echo "::error::Forbidden pattern 'yes | sdkmanager --licenses' in workflows"
             exit 1
           fi
-
           matches="$(grep -nH -e 'user-config\.jam' $files || true)"
           if [ -n "$matches" ]; then
             echo "## Illegal user-config.jam references" >> "$GITHUB_STEP_SUMMARY"
@@ -87,8 +86,6 @@ jobs:
             echo "::error::Workflows must not reference user-config.jam (owned by depends/packages/boost.mk)"
             exit 1
           fi
-
-
 
       - name: "[VKAX] Workflow hygiene"
         run: |
@@ -135,16 +132,28 @@ jobs:
             python3 python3-venv unzip wget curl cmake ninja-build dos2unix \
             xz-utils file ccache git jq gpg binutils
 
+      - name: "[VKAX] Configure ccache"
+        run: |
+          set -Eeuo pipefail
+          mkdir -p "$HOME/.ccache"
+          ccache --set-config=cache_dir="$HOME/.ccache"
+          ccache --set-config=max_size=1G
+          ccache --set-config=compression=true
+          ccache --set-config=compiler_check=content
+          ccache --zero-stats || true
+
       - name: "[VKAX] Cache ccache"
         uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
         with:
           path: ~/.ccache
-          key: ccache-${{ runner.os }}-${{ matrix.arch }}-api${{ matrix.api }}-${{ hashFiles('**/configure.ac', '**/Makefile.am', 'depends/**', 'src/**') }}
+          key: >
+            ccache-${{ runner.os }}-${{ matrix.arch }}-api${{ matrix.api }}-ndk${{ matrix.ndk_ver }}-
+            ${{ hashFiles('**/configure.ac', '**/Makefile.am', 'depends/**', 'src/**', '.github/workflows/build.yaml') }}
           restore-keys: |
+            ccache-${{ runner.os }}-${{ matrix.arch }}-api${{ matrix.api }}-ndk${{ matrix.ndk_ver }}-
             ccache-${{ runner.os }}-${{ matrix.arch }}-api${{ matrix.api }}-
-
-
-
+            ccache-${{ runner.os }}-${{ matrix.arch }}-
+            ccache-${{ runner.os }}-
 
       - name: "[VKAX] Verify cmdline-tools and seed licenses"
         env:
@@ -191,8 +200,6 @@ jobs:
             echo "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin"
           } >> "$GITHUB_PATH"
 
-
-
       - name: "[VKAX] Licenses status"
         id: license_status
         run: |
@@ -218,9 +225,42 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: "[VKAX] Accept licenses (emergency)"
+        if: env.ALLOW_TTY_LICENSE_ACCEPT == '1'
+        run: |
+          set -Eeuo pipefail
+          feed="$(printf 'y\n%.0s' $(seq 1 80))"
+          sdkmanager --sdk_root="${ANDROID_SDK_ROOT}" --licenses <<< "$feed" || true
+          sdkmanager --sdk_root="${ANDROID_SDK_ROOT}" --update || true
 
+      - name: "[VKAX] Licenses status (post-accept)"
+        if: env.ALLOW_TTY_LICENSE_ACCEPT == '1'
+        id: license_status_post
+        run: |
+          set -Eeuo pipefail
+          out="$(mktemp)"
+          sdkmanager --sdk_root="${ANDROID_SDK_ROOT}" --licenses <<< $'n\n' >"$out" 2>&1 || true
+          if grep -q 'All SDK package licenses accepted' "$out"; then
+            echo ok=true >> "$GITHUB_OUTPUT"
+            echo "::notice::Licenses OK after emergency accept."
+            status="OK"
+          else
+            echo ok=false >> "$GITHUB_OUTPUT"
+            echo "::warning::Licenses still NOT accepted; install may fail."
+            status="NOT_OK"
+          fi
+          {
+            echo "## sdkmanager --licenses status (post-accept)"
+            echo
+            echo "- status: ${status}"
+            echo
+            echo '```'
+            sed -n '1,200p' "$out"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: "[VKAX] Install Android SDK components"
+        if: steps.license_status.outputs.ok == 'true' || steps.license_status_post.outputs.ok == 'true' || env.ALLOW_TTY_LICENSE_ACCEPT == '1'
         run: |
           set -Eeuo pipefail
           sdkmanager --sdk_root="${ANDROID_SDK_ROOT}" --install \
@@ -234,15 +274,13 @@ jobs:
             echo "$ANDROID_SDK_ROOT/ndk/${{ matrix.ndk_ver }}/toolchains/llvm/prebuilt/linux-x86_64/bin"
           } >> "$GITHUB_PATH"
 
-
-
-
       - name: "[VKAX] ndk_install sanity"
         env:
           HOST: ${{ matrix.host }}
         run: |
           set -Eeuo pipefail
-          make -C depends ndk_install V=1
+          ls -l depends/packages/ndk.mk
+          timeout 20s make -C depends -f packages/ndk.mk ndk_install V=1
           os="$(uname -s | tr '[:upper:]' '[:lower:]')"
           case "$os" in linux*) os=linux;; darwin*) os=darwin;; msys*|cygwin*|mingw*) os=windows;; *) os=linux;; esac
           arch="$(uname -m)"
@@ -256,8 +294,28 @@ jobs:
             echo "- toolchain_bin: \`$toolchain_bin\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: "[VKAX] Assert NDK toolchain path"
+        run: |
+          set -Eeuo pipefail
+          os="$(uname -s | tr '[:upper:]' '[:lower:]')"
+          case "$os" in linux*) os=linux;; darwin*) os=darwin;; msys*|cygwin*|mingw*) os=windows;; *) os=linux;; esac
+          arch="$(uname -m)"
+          case "$arch" in aarch64|arm64) arch=arm64;; x86_64|amd64) arch=x86_64;; *) arch=x86_64;; esac
+          host_tag="${os}-${arch}"
+          test -x "${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/${host_tag}/bin/clang"
 
-
+      - name: "[VKAX] Dump depends vars"
+        env:
+          HOST: ${{ matrix.host }}
+        run: |
+          set -Eeuo pipefail
+          {
+            echo "## Depends vars"
+            echo
+            echo '```'
+            make -C depends print-TARGET_HOST print-ANDROID_CLANG_TRIPLE print-ANDROID_API_LEVEL print-host_CC print-host_CXX print-host_LDFLAGS V=1
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: "[VKAX] SDK package assertions"
         run: |
@@ -328,10 +386,14 @@ jobs:
             echo "command -v llvm-ranlib: $(command -v llvm-ranlib || echo MISSING)"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+          echo "CCACHE_DIR=$HOME/.ccache" >> "$GITHUB_ENV"
+          echo "CCACHE_BASEDIR=$GITHUB_WORKSPACE" >> "$GITHUB_ENV"
           echo "CC=ccache $want_cc" >> "$GITHUB_ENV"
           echo "CXX=ccache $want_cxx" >> "$GITHUB_ENV"
           echo "AR=$(command -v llvm-ar)" >> "$GITHUB_ENV"
           echo "RANLIB=$(command -v llvm-ranlib)" >> "$GITHUB_ENV"
+          echo "CFLAGS=${CFLAGS:+$CFLAGS }-fdebug-prefix-map=$GITHUB_WORKSPACE=/src" >> "$GITHUB_ENV"
+          echo "CXXFLAGS=${CXXFLAGS:+$CXXFLAGS }-fdebug-prefix-map=$GITHUB_WORKSPACE=/src" >> "$GITHUB_ENV"
           echo "MAKEFLAGS=--output-sync=target -j$(( $(nproc)>8 ? 8 : $(nproc) ))" >> "$GITHUB_ENV"
 
       - name: "[VKAX] Lint Android makefiles"
@@ -364,6 +426,20 @@ jobs:
           [ -x depends/config.guess ] || { cp -f /usr/share/misc/config.guess depends/config.guess; }
           [ -x depends/config.sub ]   || { cp -f /usr/share/misc/config.sub   depends/config.sub; }
 
+      - name: "[VKAX] Cache depends outputs"
+        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        with:
+          path: |
+            depends/${{ matrix.host }}
+            depends/built
+          key: >
+            depends-${{ runner.os }}-${{ matrix.host }}-api${{ matrix.api }}-ndk${{ matrix.ndk_ver }}-
+            ${{ hashFiles('depends/**') }}
+          restore-keys: |
+            depends-${{ runner.os }}-${{ matrix.host }}-api${{ matrix.api }}-ndk${{ matrix.ndk_ver }}-
+            depends-${{ runner.os }}-${{ matrix.host }}-api${{ matrix.api }}-
+            depends-${{ runner.os }}-${{ matrix.host }}-
+
       - name: "[VKAX] Start liveness probe"
         run: |
           set -Eeuo pipefail
@@ -388,7 +464,6 @@ jobs:
             build="$BUILD_TRIPLET" build_os=linux \
             HOST="$HOST" ANDROID_NDK="$ANDROID_NDK_HOME" ANDROID_API="${{ matrix.api }}" \
             NO_QT=1 V=1 2>&1 | tee -a "$BUILD_LOG"
-
 
       - name: "[VKAX] Boost provenance"
         run: |
@@ -421,20 +496,27 @@ jobs:
           export PKG_CONFIG_PATH="$PWD/depends/${HOST}/lib/pkgconfig"
           export CPPFLAGS="-I$PWD/depends/${HOST}/include"
           export LDFLAGS="-L$PWD/depends/${HOST}/lib"
+          export CFLAGS="${CFLAGS:+$CFLAGS }-fPIC"
+          export CXXFLAGS="${CXXFLAGS:+$CXXFLAGS }-O2 -fPIC"
           [ -x ./autogen.sh ] && ./autogen.sh || true
           ./configure \
             --host="$HOST" --build="$(./depends/config.guess)" \
             --prefix="$PWD/depends/${HOST}" \
             --with-incompatible-bdb \
             --without-gui --disable-bench --disable-tests \
-            CC="${CC}" CXX="${CXX}" AR="${AR}" RANLIB="${RANLIB}" \
-            CXXFLAGS="-O2 -fPIC"
+            CC="${CC}" CXX="${CXX}" AR="${AR}" RANLIB="${RANLIB}"
 
       - name: "[VKAX] Build"
         run: |
           set -Eeuo pipefail
           export SOURCE_DATE_EPOCH="$(git log -1 --format=%ct || echo 0)"
           make --output-sync=target -j"$(nproc)" 2>&1 | tee -a "$BUILD_LOG"
+
+      - name: "[VKAX] ccache stats"
+        if: always()
+        run: |
+          set -Eeuo pipefail
+          ccache --show-stats || true
 
       - name: "[VKAX] Package artifacts"
         run: |
