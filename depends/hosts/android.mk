@@ -24,11 +24,7 @@ else ifeq ($(findstring Darwin,$(UNAME_S)),Darwin)
     NDK_HOST_TAG := darwin-x86_64
   endif
 else ifneq (,$(filter MSYS_NT-% CYGWIN_NT-% MINGW%,$(UNAME_S)))
-  ifeq ($(findstring 64,$(UNAME_M)),)
-    NDK_HOST_TAG := windows-x86_64
-  else
-    NDK_HOST_TAG := windows-x86_64
-  endif
+  NDK_HOST_TAG := windows-x86_64
 else
   NDK_HOST_TAG := linux-x86_64
 endif
