@@ -250,6 +250,18 @@ jobs:
           "$tpfx-clang" hello.c -o hello-android
           file hello-android | tee -a "$GITHUB_STEP_SUMMARY"
 
+      - name: "[VKAX] C++ smoke test (-Werror)"
+        run: |
+          set -Eeuo pipefail
+          api="${{ matrix.api }}"
+          tpfx="${{ matrix.clang_triple }}${api}"
+          cat > hello.cpp <<'CXX'
+          #include <iostream>
+          int main(){ std::cout << "ok\n"; return 0; }
+          CXX
+          "$tpfx-clang++" -std=c++17 -Werror -static-libstdc++ hello.cpp -o hello-android-cxx
+          file hello-android-cxx | tee -a "$GITHUB_STEP_SUMMARY"
+          
       # summarize tool paths; set env for configure/make
       - name: "[VKAX] Toolchain summary + env"
         run: |
