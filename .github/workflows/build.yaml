@@ -13,71 +13,65 @@
 # External expectations:
 #   boost.mk emits user-config.jam (workflow never writes it)
 #   depends uses NO_QT=1 (daemon/cli/tx only)
-
+# =============================
+# File: .github/workflows/build.yaml
+# =============================
 name: VKAX Android Builds
 
 on:
   workflow_dispatch:
   push:
-    branches: [ main, v100.11.5-android, dev ]
+    branches: [ main, v100.11.5-androidx, dev ]
 
 permissions:
   contents: read
 
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
-  VERBOSE_BUILD: "1"
-  MAKEFLAGS: "--output-sync=target"
+  TAIL_N: "1000"
+  VERBOSE_BUILD: "0"
 
 jobs:
   android:
     name: Android ${{ matrix.arch }} (API ${{ matrix.api }}, NDK ${{ matrix.ndk_ver }})
     runs-on: ubuntu-22.04
     timeout-minutes: 120
-    concurrency:
-      group: android-${{ github.ref }}-${{ matrix.arch }}
-      cancel-in-progress: true
     strategy:
       fail-fast: false
       matrix:
         include:
           - arch: aarch64
-            api: "21"
             host: aarch64-linux-android
-            clang_target: aarch64-linux-android
-            ndk_ver: "23.1.7779620"   # r23b
-          - arch: armv7
+            clang_triple: aarch64-linux-android
             api: "21"
+            ndk_ver: "23.1.7779620"
+          - arch: armv7
             host: arm-linux-androideabi
-            clang_target: armv7a-linux-android
-            ndk_ver: "23.1.7779620"   # r23b
+            clang_triple: armv7a-linux-androideabi
+            api: "21"
+            ndk_ver: "23.1.7779620"
+
     defaults:
       run:
         shell: bash
 
     steps:
-      - name: [VKAX] checkout
+      - name: [VKAX] Checkout
         uses: actions/checkout@v4
         with:
           lfs: true
           fetch-depth: 0
 
-      - name: [VKAX] Init build log
+      - name: [VKAX] Guards in workflows
         run: |
           set -Eeuo pipefail
-          echo "BUILD_LOG=$RUNNER_TEMP/vkax-build.log" >> "$GITHUB_ENV"
-          echo "TAIL_N=1000" >> "$GITHUB_ENV"
-          : > "$RUNNER_TEMP/vkax-build.log"
-
-      - name: [VKAX] Guard: forbid 'yes | sdkmanager --licenses'
-        run: |
-          set -Eeuo pipefail
-          if grep -R --line-number -F 'yes | sdkmanager --licenses' .github/workflows; then
-            echo "::error::forbidden pattern detected: yes | sdkmanager --licenses"; exit 1
+          if git --no-pager grep -nH --color=never -E 'yes\s*\|\s*sdkmanager\s*--licenses' .github/workflows; then
+            echo "::error::Forbidden pattern 'yes | sdkmanager --licenses' in workflows"
+            exit 1
           fi
-
-      - name: [VKAX] Guard: workflows must not write user-config.jam
-        run: |
-          set -Eeuo pipefail
           if git --no-pager grep -nH --color=never -e 'user-config\.jam' .github/workflows; then
             echo "::error::user-config.jam must be owned by depends/packages/boost.mk, not CI"
             exit 1
@@ -91,20 +85,28 @@ jobs:
 
       - name: [VKAX] System deps
         run: |
-          set -Eeuo pipefail; [ "${VERBOSE_BUILD}" = "1" ] && set -x
+          set -Eeuo pipefail; [ "${VERBOSE_BUILD:-0}" = 1 ] && set -x || true
           sudo apt-get update
           sudo apt-get install -y \
             build-essential automake autoconf libtool pkg-config \
             python3 unzip wget curl cmake ninja-build dos2unix \
-            xz-utils file ccache time jq
+            xz-utils file ccache git-core
 
-      - name: [VKAX] Android SDK + NDK (r23b)
+      - name: [VKAX] Cache ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.ccache
+          key: ccache-${{ runner.os }}-${{ matrix.arch }}-api${{ matrix.api }}-${{ hashFiles('**/configure.ac', '**/Makefile.am', 'depends/**', 'src/**') }}
+          restore-keys: |
+            ccache-${{ runner.os }}-${{ matrix.arch }}-api${{ matrix.api }}-
+
+      - name: [VKAX] Install Android SDK + NDK r23b
         env:
           ANDROID_SDK_ROOT: ${{ github.workspace }}/android-sdk
         run: |
-          set -Eeuo pipefail; [ "${VERBOSE_BUILD}" = "1" ] && set -x
-          mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools"
+          set -Eeuo pipefail; [ "${VERBOSE_BUILD:-0}" = 1 ] && set -x || true
           if [ ! -d "$ANDROID_SDK_ROOT/cmdline-tools/latest" ]; then
+            mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools"
             wget -q https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip -O /tmp/clt.zip
             unzip -q /tmp/clt.zip -d "$ANDROID_SDK_ROOT/cmdline-tools"
             mv "$ANDROID_SDK_ROOT/cmdline-tools/cmdline-tools" "$ANDROID_SDK_ROOT/cmdline-tools/latest"
@@ -112,7 +114,7 @@ jobs:
           export PATH="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH"
           sdkmanager --update >/dev/null 2>&1 || true
           sdkmanager --licenses >/dev/null 2>&1 <<< $'y\ny\ny\ny\ny\ny\ny\n'
-          sdkmanager --install \
+          sdkmanager \
             "platform-tools" \
             "platforms;android-${{ matrix.api }}" \
             "ndk;${{ matrix.ndk_ver }}"
@@ -120,7 +122,10 @@ jobs:
             echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
             echo "ANDROID_SDK=$ANDROID_SDK_ROOT"
             echo "ANDROID_HOME=$ANDROID_SDK_ROOT"
+            echo "ANDROID_API=${{ matrix.api }}"
             echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/${{ matrix.ndk_ver }}"
+            echo "ANDROID_NDK_ROOT=$ANDROID_SDK_ROOT/ndk/${{ matrix.ndk_ver }}"
+            echo "ANDROID_NDK=$ANDROID_SDK_ROOT/ndk/${{ matrix.ndk_ver }}"
           } >> "$GITHUB_ENV"
           {
             echo "$ANDROID_SDK_ROOT/platform-tools"
@@ -128,40 +133,46 @@ jobs:
             echo "$ANDROID_SDK_ROOT/ndk/${{ matrix.ndk_ver }}/toolchains/llvm/prebuilt/linux-x86_64/bin"
           } >> "$GITHUB_PATH"
 
-      - name: [VKAX] Toolchain sanity (fail fast)
+      - name: [VKAX] NDK validator
         run: |
           set -Eeuo pipefail
-          TOOL="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
-          for t in aarch64-linux-android21-clang aarch64-linux-android21-clang++ \
-                   armv7a-linux-android21-clang armv7a-linux-android21-clang++ \
-                   llvm-ar llvm-ranlib; do
-            test -x "$TOOL/$t" || { echo "::error::missing $TOOL/$t"; exit 1; }
-          done
-          echo "CC=ccache ${{ matrix.clang_target }}${{ matrix.api }}-clang"   >> "$GITHUB_ENV"
-          echo "CXX=ccache ${{ matrix.clang_target }}${{ matrix.api }}-clang++" >> "$GITHUB_ENV"
-          echo "AR=llvm-ar" >> "$GITHUB_ENV"
-          echo "RANLIB=llvm-ranlib" >> "$GITHUB_ENV"
+          TOOLCHAIN_BIN="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          [ -d "$TOOLCHAIN_BIN" ] || { echo "::error::NDK toolchain bin not found: $TOOLCHAIN_BIN"; exit 1; }
 
-      - name: [VKAX] Toolchain summary (CC/CXX/AR/RANLIB)
-        if: always()
+      - name: [VKAX] Toolchain sanity & summary
         run: |
           set -Eeuo pipefail
+          api="${{ matrix.api }}"
+          tpfx="${{ matrix.clang_triple }}${api}"
+          want_cc="$tpfx-clang"; want_cxx="$tpfx-clang++"
+          echo "## Toolchain summary (UTC)" >> "$GITHUB_STEP_SUMMARY"
+          date -u '+%Y-%m-%d %H:%M:%S UTC' >> "$GITHUB_STEP_SUMMARY"
           {
-            echo "### Toolchain summary"
-            echo "- CC:     ${CC:-<unset>}     path=$(command -v ${CC%% *} || true)"
-            echo "- CXX:    ${CXX:-<unset>}    path=$(command -v ${CXX%% *} || true)"
-            echo "- AR:     ${AR:-<unset>}     path=$(command -v ${AR%% *} || true)"
-            echo "- RANLIB: ${RANLIB:-<unset>} path=$(command -v ${RANLIB%% *} || true)"
+            echo '```'
+            echo "command -v $want_cc: $(command -v "$want_cc" || echo MISSING)"
+            echo "command -v $want_cxx: $(command -v "$want_cxx" || echo MISSING)"
+            echo "command -v llvm-ar: $(command -v llvm-ar || echo MISSING)"
+            echo "command -v llvm-ranlib: $(command -v llvm-ranlib || echo MISSING)"
+            echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+          if ! command -v "$want_cc" >/dev/null 2>&1; then
+            echo "::error::Missing $want_cc on PATH"; exit 1
+          fi
+          echo "CC=ccache $want_cc" >> "$GITHUB_ENV"
+          echo "CXX=ccache $want_cxx" >> "$GITHUB_ENV"
+          echo "AR=$(command -v llvm-ar)" >> "$GITHUB_ENV"
+          echo "RANLIB=$(command -v llvm-ranlib)" >> "$GITHUB_ENV"
+          echo "MAKEFLAGS=--output-sync=target -j$(nproc)" >> "$GITHUB_ENV"
 
-      - name: [VKAX] Lint Android Makefiles (ASCII / <=400 chars / tab-rule)
+      - name: [VKAX] Lint Android makefiles
         run: |
           set -Eeuo pipefail
-          files="depends/hosts/android.mk depends/packages/ndk.mk"
+          files=(depends/hosts/android.mk depends/packages/ndk.mk)
           bad=0
-          for f in $files; do
-            [ -f "$f" ] || continue
-            LC_ALL=C grep -nP "[^\x00-\x7F]" "$f" && { echo "::error file=$f::non-ASCII"; bad=1; }
+          for f in "${files[@]}"; do
+            if grep -nP '[^\x00-\x7F]' "$f"; then
+              echo "::error file=$f::Non-ASCII byte detected"; bad=1
+            fi
             awk 'length($0)>400{printf "::error file=%s,line=%d::%d chars\n",FILENAME,NR,length($0);b=1}END{exit b}' "$f" || bad=1
             awk '
               BEGIN{in_rule=0;in_def=0;err=0}
@@ -182,92 +193,78 @@ jobs:
         run: |
           set -Eeuo pipefail
           find depends -type f \( -name "*.mk" -o -name "*.sh" \) -print0 | xargs -0 dos2unix || true
-          [ -x depends/config.guess ] || { cp -f /usr/share/misc/config.guess depends/config.guess && chmod +x depends/config.guess; }
-          [ -x depends/config.sub ]   || { cp -f /usr/share/misc/config.sub   depends/config.sub   && chmod +x depends/config.sub; }
+          [ -x depends/config.guess ] || { cp -f /usr/share/misc/config.guess depends/config.guess; }
+          [ -x depends/config.sub ]   || { cp -f /usr/share/misc/config.sub   depends/config.sub; }
 
-      - name: [VKAX] Build depends (NO_QT) with probe + tee
-        env:
-          HOST: ${{ matrix.host }}
-        run: |
-          set -Eeuo pipefail; [ "${VERBOSE_BUILD}" = "1" ] && set -x
-          progress_probe() { while sleep 60; do
-            echo ":: notice $(date -u +%Y-%m-%dT%H:%M:%SZ) :: depends/work hottest files:"
-            find depends/work -type f -printf '%T@ %p\n' 2>/dev/null | sort -nr | head -n 5 \
-            | awk '{ cmd = "date -u -d @" int($1) " +%Y-%m-%dT%H:%M:%SZ"; cmd | getline ts; close(cmd); $1=""; sub(/^ /,""); print "   " ts "  " $0 }' || true
-          done; }
-          progress_probe & PROBE_PID=$!; trap 'kill "$PROBE_PID" 2>/dev/null || true' EXIT
-          export MAKEFLAGS="--output-sync=target -j$(nproc)"
-          make -C depends \
-            build="$(./depends/config.guess)" build_os=linux \
-            HOST="$HOST" ANDROID_NDK="$ANDROID_NDK_HOME" ANDROID_API="${{ matrix.api }}" \
-            NO_QT=1 V=1 |& tee -a "$BUILD_LOG"
-
-      - name: [VKAX] Provenance: user-config.jam
-        if: always()
+      - name: [VKAX] Start liveness probe
         run: |
           set -Eeuo pipefail
-          {
-            echo "### user-config.jam provenance"
-            git --no-pager grep -nH --color=never -e 'user-config\.jam' depends/packages/boost.mk || true
-            for f in "$PWD/depends/user-config.jam" "$HOME/.boost-build/user-config.jam"; do
-              [ -f "$f" ] || continue
-              printf -- "- %s  mtime=%s  sha256=%s\n" \
-                "$f" "$(date -u -r "$f" +%FT%TZ)" "$(sha256sum "$f" | cut -d' ' -f1)"
-              head -n 1 "$f" | sed 's/^/    first line: /'
+          PROBE_LOG="$RUNNER_TEMP/probe.log"
+          (
+            while sleep 60; do
+              echo "[probe $(date -u '+%Y-%m-%d %H:%M:%S UTC')] depends/work hottest files:" | tee -a "$PROBE_LOG"
+              find depends src -type f -printf '%T@ %p\n' 2>/dev/null | sort -nr | head -n 10 | awk '{print $2}' | sed 's|^|  |' | tee -a "$PROBE_LOG" || true
             done
-          } >> "$GITHUB_STEP_SUMMARY"
+          ) &
+          echo "PROBE_PID=$!" >> "$GITHUB_ENV"
 
-      - name: [VKAX] Configure project (logged)
+      - name: [VKAX] Build depends (NO_QT)
         env:
           HOST: ${{ matrix.host }}
         run: |
-          set -Eeuo pipefail; [ "${VERBOSE_BUILD}" = "1" ] && set -x
+          set -Eeuo pipefail
+          export BUILD_TRIPLET="$(./depends/config.guess)"
+          export LOG="$RUNNER_TEMP/vkax-build.log"
+          echo "## depends build (UTC) $(date -u '+%Y-%m-%d %H:%M:%S UTC')" | tee -a "$LOG"
+          make -C depends --output-sync=target -j"$(nproc)" \
+            build="$BUILD_TRIPLET" build_os=linux \
+            HOST="$HOST" ANDROID_NDK="$ANDROID_NDK_HOME" ANDROID_API="${{ matrix.api }}" \
+            NO_QT=1 V=1 2>&1 | tee -a "$LOG"
+          echo "BUILD_LOG=$LOG" >> "$GITHUB_ENV"
+
+      - name: [VKAX] Boost provenance
+        run: |
+          set -Eeuo pipefail
+          echo "## Boost provenance" >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo '```'
+            echo "b2 path: $(command -v b2 || echo not-found)"
+            if command -v b2 >/dev/null 2>&1; then b2 --version || true; fi
+            echo
+            echo "user-config.jam provenance (grep in depends/packages/boost.mk):"
+            grep -n "user-config.jam" depends/packages/boost.mk || echo "(no explicit write in workflow, as expected)"
+            echo
+            echo "Discovered jam files:"
+            find . -name 'user-config.jam' -printf '%p\n' | while read -r p; do
+              sha256sum "$p" | awk '{print $1, "  ", FILENAME}' FILENAME="$p" || true
+              /usr/bin/stat -c 'mtime=%y' "$p" 2>/dev/null || true
+              head -n 1 "$p" 2>/dev/null || true
+              echo
+            done
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: [VKAX] Configure
+        env:
+          HOST: ${{ matrix.host }}
+        run: |
+          set -Eeuo pipefail
           export PKG_CONFIG_PATH="$PWD/depends/${HOST}/lib/pkgconfig"
-          export PKG_CONFIG_LIBDIR="$PKG_CONFIG_PATH"
-          export PKG_CONFIG_SYSROOT_DIR="$PWD/depends/${HOST}"
           export CPPFLAGS="-I$PWD/depends/${HOST}/include"
-          export LDFLAGS="-L$PWD/depends/${HOST}/lib $LDFLAGS"
-          [ -x ./autogen.sh ] && ./autogen.sh |& tee -a "$BUILD_LOG" || true
+          export LDFLAGS="-L$PWD/depends/${HOST}/lib"
+          [ -x ./autogen.sh ] && ./autogen.sh || true
           ./configure \
-            --host="${HOST}" --build="$(./depends/config.guess)" \
+            --host="$HOST" --build="$(./depends/config.guess)" \
             --prefix="$PWD/depends/${HOST}" \
             --with-incompatible-bdb \
             --without-gui --disable-bench --disable-tests \
             CC="${CC}" CXX="${CXX}" AR="${AR}" RANLIB="${RANLIB}" \
-            CXXFLAGS="-O2 -fPIC" |& tee -a "$BUILD_LOG"
-          if [ -f config.log ]; then
-            echo "::group::config.log (tail -200)"; tail -n 200 config.log || true; echo "::endgroup::"
-          fi
+            CXXFLAGS="-O2 -fPIC"
 
-      - name: [VKAX] Build (logged) with probe
-        run: |
-          set -Eeuo pipefail; [ "${VERBOSE_BUILD}" = "1" ] && set -x
-          progress_probe() { while sleep 60; do
-            echo ":: notice $(date -u +%Y-%m-%dT%H:%M:%SZ) :: depends/work hottest files:"
-            find depends/work -type f -printf '%T@ %p\n' 2>/dev/null | sort -nr | head -n 5 \
-            | awk '{ cmd = "date -u -d @" int($1) " +%Y-%m-%dT%H:%M:%SZ"; cmd | getline ts; close(cmd); $1=""; sub(/^ /,""); print "   " ts "  " $0 }' || true
-          done; }
-          progress_probe & PROBE_PID=$!; trap 'kill "$PROBE_PID" 2>/dev/null || true' EXIT
-          export MAKEFLAGS="--output-sync=target -j$(nproc)"
-          make V=1 |& tee -a "$BUILD_LOG"
-
-      - name: [VKAX] Boost b2 version
-        if: always()
+      - name: [VKAX] Build
         run: |
           set -Eeuo pipefail
-          {
-            echo "### Boost b2 version"
-            B2="$(command -v b2 || true)"
-            if [ -z "$B2" ]; then
-              B2="$(find "$PWD/depends/work" -type f -name b2 -perm -111 -print -quit 2>/dev/null || true)"
-            fi
-            if [ -n "$B2" ]; then
-              echo "- b2 path: $B2"
-              "$B2" --version 2>&1 | head -n 5 | sed 's/^/    /'
-            else
-              echo "_b2 not found (Boost not built in this phase or cleaned)_"
-            fi
-          } >> "$GITHUB_STEP_SUMMARY"
+          make --output-sync=target -j"$(nproc)" 2>&1 | tee -a "$BUILD_LOG"
 
       - name: [VKAX] Package artifacts
         run: |
@@ -276,8 +273,12 @@ jobs:
           shopt -s nullglob
           files=(src/vkaxd src/vkax-cli src/vkax-tx)
           have_any=false; for f in "${files[@]}"; do [ -f "$f" ] && have_any=true; done
-          if ! $have_any; then files=(src/vkax*); [ ${#files[@]} -gt 0 ] || { echo "No vkax binaries produced"; exit 1; }; fi
-          llvm-strip -s "${files[@]}" || true
+          if ! $have_any; then
+            echo "::error::Expected binaries not found; listing src/" ; ls -l src/ || true ; exit 1
+          fi
+          if command -v llvm-strip >/dev/null 2>&1; then
+            llvm-strip -s "${files[@]}" || true
+          fi
           cp -v "${files[@]}" artifacts/
           tar -C artifacts -czf "vkax-android-${{ matrix.arch }}-ndk${{ matrix.ndk_ver }}-${GITHUB_SHA::7}.tar.gz" .
 
@@ -308,4 +309,4 @@ jobs:
           path: ${{ env.BUILD_LOG }}
           if-no-files-found: warn
 
-# Path: .github/workflows/build.yaml | 2025-09-07 UTC
+# Path: .github/workflows/build.yaml | 2025-09-08 UTC
