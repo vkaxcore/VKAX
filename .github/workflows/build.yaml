@@ -3,7 +3,7 @@ name: CI • Smoke-first + OS builds (Android on Ubuntu AMD64)
 
 on:
   push:
-    branches: ["v100.11.5-android"]
+    branches: ["**"]
   pull_request:
   workflow_dispatch:
 
@@ -195,7 +195,18 @@ jobs:
         run: |
           set -euo pipefail
           [ -d depends ] || { echo "::error::depends/ directory missing; required for Ubuntu builds."; exit 2; }
-          make -C depends -j"$(nproc || echo 2)" HOST='${{ matrix.host }}'
+          J=$(nproc 2>/dev/null || echo 2); [ "$J" -gt 4 ] && J=4
+          make -C depends -j"$J" HOST='${{ matrix.host }}'
+          {
+            echo "### depends packages built on ${{ matrix.name }}";
+            pkgs=$(find depends/work -type f -name .stamp_built 2>/dev/null | while read -r f; do d=$(dirname "$f"); bn=$(basename "$d"); echo "$bn"; done | sed -E 's/-[0-9].*$//' | sort -u || true);
+            if [ -z "$pkgs" ]; then
+              echo "_no .stamp_built files found; build may be cached or produced no targets_";
+            else
+              printf '%s
+' "$pkgs" | sed 's/^/- /';
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
           echo ok > .smoke_depends_pass
 
       - name: Upload depends smoke artifacts
@@ -234,7 +245,18 @@ jobs:
         run: |
           set -euo pipefail
           [ -d depends ] || { echo "::error::depends/ directory missing; required for macOS builds."; exit 2; }
-          make -C depends -j"$(sysctl -n hw.ncpu || echo 2)" HOST=x86_64-apple-darwin
+          J=$(sysctl -n hw.ncpu 2>/dev/null || echo 2); [ "$J" -gt 4 ] && J=4
+          make -C depends -j"$J" HOST=x86_64-apple-darwin
+          {
+            echo "### depends packages built on ${{ matrix.macos }}";
+            pkgs=$(find depends/work -type f -name .stamp_built 2>/dev/null | while read -r f; do d=$(dirname "$f"); bn=$(basename "$d"); echo "$bn"; done | sed -E 's/-[0-9].*$//' | sort -u || true);
+            if [ -z "$pkgs" ]; then
+              echo "_no .stamp_built files found; build may be cached or produced no targets_";
+            else
+              printf '%s
+' "$pkgs" | sed 's/^/- /';
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
           echo ok > .smoke_depends_pass
 
       - name: Upload depends smoke artifacts
