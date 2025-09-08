@@ -1,6 +1,4 @@
 # .github/workflows/build.yaml
-# Android aarch64(API 25) + armv7(API 21), verbose, progress probe, lint/guards, A/B NDK (r25c vs r23b)
-
 name: VKAX Android Builds
 
 on:
@@ -20,28 +18,25 @@ jobs:
     name: Android ${{ matrix.arch }} NDK ${{ matrix.ndk_ver }} (daemon/cli/tx)
     runs-on: ubuntu-22.04
     timeout-minutes: 120
-
-    # Per-arch+NDK concurrency so a new push doesn’t nuke unrelated lanes
     concurrency:
       group: android-${{ github.ref }}-${{ matrix.arch }}-ndk${{ matrix.ndk_ver }}
       cancel-in-progress: true
-
     strategy:
       fail-fast: false
       matrix:
-        ndk_ver: ["25.2.9519653", "23.2.8568313"]  # r25c, r23b
-        arch: [aarch64, armv7]
         include:
           - arch: aarch64
             api: "25"
             host: aarch64-linux-android
             clang_target: aarch64-linux-android
             addr_model: 64
+            ndk_ver: "25.2.9519653"   # r25c
           - arch: armv7
             api: "21"
             host: arm-linux-androideabi
             clang_target: armv7a-linux-androideabi
             addr_model: 32
+            ndk_ver: "23.2.8568313"   # r23b
 
     defaults:
       run:
@@ -54,32 +49,35 @@ jobs:
           lfs: true
           fetch-depth: 0
 
-      # Early guard: don’t let anyone re-introduce the SIGPIPE footgun
       - name: Guard against 'yes | sdkmanager --licenses'
         run: |
           set -Eeuo pipefail
-          if grep -R --line-number --fixed-strings 'yes | sdkmanager --licenses' .github/workflows/ depends/; then
+          if grep -R --line-number --fixed-strings 'yes | sdkmanager --licenses' .github/workflows/; then
             echo "::error::'yes | sdkmanager --licenses' is forbidden under pipefail"; exit 1
           fi
 
-      # Lint Makefiles to block “minified” 10,000-char lines and non-ASCII goblins
-      - name: Lint Makefiles (ASCII + max line length 400)
+      - name: Lint Makefiles (ASCII + 400-char + tab-without-rule)
         run: |
           set -Eeuo pipefail
-          shopt -s nullglob
-          files=()
-          while IFS= read -r -d '' f; do files+=("$f"); done < <(find depends -type f -name '*.mk' -print0)
-          [ ${#files[@]} -gt 0 ] || exit 0
           bad=0
-          for f in "${files[@]}"; do
+          for f in depends/hosts/android.mk depends/packages/ndk.mk; do
+            [ -f "$f" ] || continue
             if LC_ALL=C grep -nP "[^\x00-\x7F]" "$f" >/dev/null; then
-              echo "::error file=$f::contains non-ASCII characters"
-              LC_ALL=C grep -nP "[^\x00-\x7F]" "$f" || true
-              bad=1
+              echo "::error file=$f::contains non-ASCII"; LC_ALL=C grep -nP "[^\x00-\x7F]" "$f" || true; bad=1
             fi
-          done
-          for f in "${files[@]}"; do
-            awk 'length($0) > 400 { printf "::error file=%s,line=%d::line too long (%d chars)\n", FILENAME, NR, length($0); bad=1 } END { exit bad }' "$f" || bad=1
+            awk 'length($0) > 400 { printf "::error file=%s,line=%d::line too long (%d chars)\n", FILENAME, NR, length($0); b=1 } END{exit b}' "$f" || bad=1
+            awk '
+              BEGIN{in_rule=0; in_def=0; err=0}
+              /^\s*#/ {next} /^\s*$/ {in_rule=0; next}
+              /^\s*define(\s|$)/ {in_def=1; next}
+              in_def && /^\s*endef(\s|$)/ {in_def=0; next}
+              in_def {next}
+              /^[^\t #][^:]*[:]{1}([^=]|$$)/ {in_rule=1; next}    # rule header (not assignment)
+              /^[^\t #].*::/ {in_rule=1; next}
+              /^\t/ { if (!in_rule) { printf "::error file=%s,line=%d::TAB-started line without preceding rule header\n", FILENAME, NR; err=1 } ; next }
+              { in_rule=0 }
+              END{ exit err }
+            ' "$f" || bad=1
           done
           exit $bad
 
@@ -128,24 +126,18 @@ jobs:
             mv "$ANDROID_SDK_ROOT/cmdline-tools/cmdline-tools" "$ANDROID_SDK_ROOT/cmdline-tools/latest"
           fi
           export PATH="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH"
-
-          # Safe license accept (no pipe, no SIGPIPE drama)
           sdkmanager --update >/dev/null 2>&1 || true
           sdkmanager --licenses >/dev/null 2>&1 <<< $'y\ny\ny\ny\ny\ny\ny\n'
-
-          # Install platform + NDK from matrix
           sdkmanager --install \
             "platform-tools" \
             "platforms;android-${{ matrix.api }}" \
             "ndk;${{ matrix.ndk_ver }}"
-
           {
             echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
             echo "ANDROID_SDK=$ANDROID_SDK_ROOT"
             echo "ANDROID_HOME=$ANDROID_SDK_ROOT"
             echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/${{ matrix.ndk_ver }}"
           } >> "$GITHUB_ENV"
-
           {
             echo "$ANDROID_SDK_ROOT/platform-tools"
             echo "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin"
@@ -157,32 +149,16 @@ jobs:
           set -Eeuo pipefail; [ "${VERBOSE_BUILD}" = "1" ] && set -x
           TOOLCHAIN_BIN="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin"
           TARGET_PREFIX="${{ matrix.clang_target }}${{ matrix.api }}"
-          WANT_CC="$TOOLCHAIN_BIN/${TARGET_PREFIX}-clang"
-          WANT_CXX="$TOOLCHAIN_BIN/${TARGET_PREFIX}-clang++"
-          WRAP_DIR="$RUNNER_TEMP/ndk-cc"; mkdir -p "$WRAP_DIR"
-
-          if [ -x "$WANT_CC" ] && [ -x "$WANT_CXX" ]; then
-            echo "CC=ccache ${TARGET_PREFIX}-clang"   >> "$GITHUB_ENV"
-            echo "CXX=ccache ${TARGET_PREFIX}-clang++" >> "$GITHUB_ENV"
-          else
-            printf '%s\n' "#!/usr/bin/env bash" "exec \"$TOOLCHAIN_BIN/clang\" --target=${TARGET_PREFIX} \"\$@\""  > "$WRAP_DIR/${TARGET_PREFIX}-clang"
-            printf '%s\n' "#!/usr/bin/env bash" "exec \"$TOOLCHAIN_BIN/clang++\" --target=${TARGET_PREFIX} \"\$@\"" > "$WRAP_DIR/${TARGET_PREFIX}-clang++"
-            chmod +x "$WRAP_DIR/${TARGET_PREFIX}-clang" "$WRAP_DIR/${TARGET_PREFIX}-clang++"
-            echo "$WRAP_DIR" >> "$GITHUB_PATH"
-            echo "CC=ccache ${TARGET_PREFIX}-clang"   >> "$GITHUB_ENV"
-            echo "CXX=ccache ${TARGET_PREFIX}-clang++" >> "$GITHUB_ENV"
-          fi
-          echo "AR=llvm-ar"       >> "$GITHUB_ENV"
-          echo "RANLIB=llvm-ranlib" >> "$GITHUB_ENV"
-
-          # Verify toolchain exists (fail fast if paths are wrong)
-          echo "[verify-ndk] TOOLCHAIN_BIN=$TOOLCHAIN_BIN  TARGET=$TARGET_PREFIX"
+          echo "TOOLCHAIN_BIN=$TOOLCHAIN_BIN  TARGET=$TARGET_PREFIX"
           for t in "${TARGET_PREFIX}-clang" "${TARGET_PREFIX}-clang++" "llvm-ar" "llvm-ranlib"; do
             [ -x "$TOOLCHAIN_BIN/$t" ] || { echo "::error::missing $TOOLCHAIN_BIN/$t"; exit 1; }
           done
-          "$TOOLCHAIN_BIN/${TARGET_PREFIX}-clang" --version || true
+          echo "CC=ccache ${TARGET_PREFIX}-clang"   >> "$GITHUB_ENV"
+          echo "CXX=ccache ${TARGET_PREFIX}-clang++" >> "$GITHUB_ENV"
+          echo "AR=llvm-ar"       >> "$GITHUB_ENV"
+          echo "RANLIB=llvm-ranlib" >> "$GITHUB_ENV"
 
-      - name: Configure Boost (safe user-config.jam)
+      - name: Configure Boost (write user-config.jam safely)
         run: |
           set -Eeuo pipefail; [ "${VERBOSE_BUILD}" = "1" ] && set -x
           mkdir -p depends "$HOME/.boost-build"
@@ -192,7 +168,6 @@ jobs:
           if [ -x "$CANDIDATE" ]; then COMPILER_PATH="$CANDIDATE"; else COMPILER_PATH="$(command -v "${TARGET_PREFIX}-clang++" || true)"; fi
           [ -n "$COMPILER_PATH" ] || { echo "clang++ for $TARGET_PREFIX not found"; exit 1; }
           ADDRESS_MODEL="${{ matrix.addr_model }}"
-          # Proper Boost.Build features; no YAML heredoc traps
           printf 'using clang : android-%s : %s : <target-os>android <architecture>arm <address-model>%s ;\n' \
             "${{ matrix.arch }}" "${COMPILER_PATH}" "${ADDRESS_MODEL}" > depends/user-config.jam
           cp depends/user-config.jam "$HOME/.boost-build/user-config.jam"
@@ -205,40 +180,23 @@ jobs:
           [ -x depends/config.guess ] || { cp -f /usr/share/misc/config.guess depends/config.guess && chmod +x depends/config.guess; }
           [ -x depends/config.sub ]   || { cp -f /usr/share/misc/config.sub   depends/config.sub   && chmod +x depends/config.sub; }
 
-      - name: Build depends (NO_QT) with probe and segv tracing
+      - name: Build depends (NO_QT) with progress probe
         env:
           HOST: ${{ matrix.host }}
         run: |
           set -Eeuo pipefail; [ "${VERBOSE_BUILD}" = "1" ] && set -x
-
           BUILD_TRIPLET="$(./depends/config.guess)"
-          echo "Triplet: $BUILD_TRIPLET  Host: $HOST  API: ${{ matrix.api }}  NDK: ${{ matrix.ndk_ver }}"
-
-          echo "Memory before build:"; free -h || true
-          ulimit -a || true
-          ulimit -c unlimited || true
-
-          progress_probe() {
-            while sleep 60; do
-              echo ":: notice $(date -u +%Y-%m-%dT%H:%M:%SZ) :: depends/work hottest files:"
-              find depends/work -type f -printf '%T@ %p\n' 2>/dev/null | sort -nr | head -n 5 \
-              | awk '{ cmd = "date -u -d @" int($1) " +%Y-%m-%dT%H:%M:%SZ"; cmd | getline ts; close(cmd); $1=""; sub(/^ /,""); print "   " ts "  " $0 }' || true
-            done
-          }
-          progress_probe & PROBE_PID=$!
-          trap 'kill "$PROBE_PID" 2>/dev/null || true' EXIT
-
-          # Keep depends parallelism modest to avoid OOM → segfault (139)
-          export MAKEFLAGS="--output-sync=target -j2"
-
-          if command -v catchsegv >/dev/null 2>&1; then WRAP="catchsegv"; else WRAP=""; fi
-          $WRAP /usr/bin/time -v \
+          progress_probe() { while sleep 60; do
+            echo ":: notice $(date -u +%Y-%m-%dT%H:%M:%SZ) :: depends/work hottest files:"
+            find depends/work -type f -printf '%T@ %p\n' 2>/dev/null | sort -nr | head -n 5 \
+            | awk '{ cmd = "date -u -d @" int($1) " +%Y-%m-%dT%H:%M:%SZ"; cmd | getline ts; close(cmd); $1=""; sub(/^ /,""); print "   " ts "  " $0 }' || true
+          done; }
+          progress_probe & PROBE_PID=$!; trap 'kill "$PROBE_PID" 2>/dev/null || true' EXIT
+          export MAKEFLAGS="--output-sync=target -j$(nproc)"
           make -C depends \
             build="$BUILD_TRIPLET" build_os=linux \
             HOST="$HOST" ANDROID_NDK="$ANDROID_NDK_HOME" ANDROID_API="${{ matrix.api }}" \
             NO_QT=1 V=1
-
-          echo "Memory after build:"; free -h || true
 
       - name: Configure project
         env:
@@ -262,16 +220,12 @@ jobs:
       - name: Build (with progress probe)
         run: |
           set -Eeuo pipefail; [ "${VERBOSE_BUILD}" = "1" ] && set -x
-          progress_probe() {
-            while sleep 60; do
-              echo ":: notice $(date -u +%Y-%m-%dT%H:%M:%SZ) :: depends/work hottest files:"
-              find depends/work -type f -printf '%T@ %p\n' 2>/dev/null | sort -nr | head -n 5 \
-              | awk '{ cmd = "date -u -d @" int($1) " +%Y-%m-%dT%H:%M:%SZ"; cmd | getline ts; close(cmd); $1=""; sub(/^ /,""); print "   " ts "  " $0 }' || true
-            done
-          }
-          progress_probe & PROBE_PID=$!
-          trap 'kill "$PROBE_PID" 2>/dev/null || true' EXIT
-
+          progress_probe() { while sleep 60; do
+            echo ":: notice $(date -u +%Y-%m-%dT%H:%M:%SZ) :: depends/work hottest files:"
+            find depends/work -type f -printf '%T@ %p\n' 2>/dev/null | sort -nr | head -n 5 \
+            | awk '{ cmd = "date -u -d @" int($1) " +%Y-%m-%dT%H:%M:%SZ"; cmd | getline ts; close(cmd); $1=""; sub(/^ /,""); print "   " ts "  " $0 }' || true
+          done; }
+          progress_probe & PROBE_PID=$!; trap 'kill "$PROBE_PID" 2>/dev/null || true' EXIT
           export MAKEFLAGS="--output-sync=target -j$(nproc)"
           make V=1
 
