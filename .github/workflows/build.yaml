@@ -4,7 +4,7 @@ name: VKAX Android Builds
 on:
   workflow_dispatch:
   push:
-    branches: [ main, v100.11.5-androidx, dev ]
+    branches: [ main, v100.11.5-android, dev ]
 
 permissions:
   contents: read
