@@ -272,6 +272,8 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
+          
+
       - name: "[VKAX] Install Android SDK components"
         run: |
           set -Eeuo pipefail
@@ -287,6 +289,60 @@ jobs:
           case "$arch" in aarch64|arm64) arch=arm64;; x86_64|amd64) arch=x86_64;; *) arch=x86_64;; esac
           test -x "$ANDROID_SDK_ROOT/ndk/${{ matrix.ndk_ver }}/toolchains/llvm/prebuilt/${os}-${arch}/bin/clang"
 
+
+      - name: "[VKAX] Licenses status (post-install audit)"
+        if: always()
+        run: |
+          set -Eeuo pipefail
+          out="$(mktemp)"
+          sdkmanager --sdk_root="${ANDROID_SDK_ROOT}" --licenses <<< $'n\n' >"$out" 2>&1 || true
+          {
+            echo "## sdkmanager --licenses (post-install)"
+            echo
+            echo '```text'
+            sed -n '1,200p' "$out"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          {
+            echo "## SDK license files present"
+            echo
+            echo '```text'
+            ls -l "${ANDROID_SDK_ROOT}/licenses" || true
+            for f in "${ANDROID_SDK_ROOT}"/licenses/*; do
+              [ -f "$f" ] || continue
+              printf "%s sha1=%s\n" "$(basename "$f")" "$(sha1sum "$f" | awk '{print $1}')"
+            done
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          {
+            echo "## Installed package source.properties"
+            echo
+            echo '```ini'
+            for p in \
+              "${ANDROID_SDK_ROOT}/platform-tools/source.properties" \
+              "${ANDROID_SDK_ROOT}/platforms/android-${{ matrix.api }}/source.properties" \
+              "${ANDROID_SDK_ROOT}/ndk/${{ matrix.ndk_ver }}/source.properties" \
+              "${ANDROID_SDK_ROOT}/cmdline-tools/latest/source.properties"
+            do
+              [ -f "$p" ] || continue
+              echo "[$p]"
+              sed -n '1,120p' "$p"
+              echo
+            done
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          inv="$(mktemp)"
+          sdkmanager --list --sdk_root="${ANDROID_SDK_ROOT}" >"$inv" 2>&1 || true
+          {
+            echo "## sdkmanager --list (post-install inventory)"
+            echo
+            echo '```text'
+            sed -n '1,200p' "$inv"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
 
 
