@@ -4,7 +4,7 @@ name: VKAX Android Builds
 on:
   workflow_dispatch:
   push:
-    branches: [ main, v100.11.5-android, dev ]
+    branches: [ main, v100.11.5-androidx, dev ]
 
 permissions:
   contents: read
@@ -55,14 +55,23 @@ jobs:
       - name: "[VKAX] Guards in workflows"
         run: |
           set -Eeuo pipefail
-          if git --no-pager grep -nH --color=never -E 'yes\s*\|\s*sdkmanager\s*--licenses' .github/workflows; then
-            echo "::error::Forbidden pattern 'yes | sdkmanager --licenses' in workflows"
-            exit 1
+          # Forbid accepting licenses via pipe (ignore commented lines)
+          if matches="$(git --no-pager grep -nH -E '^[^#]*yes[[:space:]]*\|[[:space:]]*sdkmanager[[:space:]]*--licenses' .github/workflows || true)"; then
+            if [ -n "$matches" ]; then
+              echo "## Forbidden pattern found" >> "$GITHUB_STEP_SUMMARY"
+              { echo '```'; echo "$matches"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+              echo "::error::Forbidden pattern 'yes | sdkmanager --licenses' in workflows"
+              exit 1
+            fi
           fi
-          # Exclude this file so the guard doesn't self-flag while still scanning other workflows
-          if git --no-pager grep -nH --color=never -e 'user-config\.jam' -- .github/workflows ':!**/.github/workflows/build.yaml'; then
-            echo "::error::Workflows must not reference user-config.jam (owned by depends/packages/boost.mk)"
-            exit 1
+          # CI must not reference user-config.jam (exclude THIS file from the scan to avoid self-flag)
+          if matches="$(git --no-pager grep -nH -e 'user-config\.jam' -- .github/workflows ':!**/.github/workflows/build.yaml' || true)"; then
+            if [ -n "$matches" ]; then
+              echo "## Illegal user-config.jam references" >> "$GITHUB_STEP_SUMMARY"
+              { echo '```'; echo "$matches"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+              echo "::error::Workflows must not reference user-config.jam (owned by depends/packages/boost.mk)"
+              exit 1
+            fi
           fi
 
       - name: "[VKAX] Java 11"
@@ -170,6 +179,11 @@ jobs:
           set -Eeuo pipefail
           TOOLCHAIN_BIN="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin"
           [ -d "$TOOLCHAIN_BIN" ] || { echo "::error::NDK toolchain bin not found: $TOOLCHAIN_BIN"; exit 1; }
+
+      - name: "[VKAX] Early ndk_install sanity"
+        run: |
+          set -Eeuo pipefail
+          make -C depends ndk_install V=1
 
       - name: "[VKAX] Toolchain sanity & summary"
         run: |
@@ -328,6 +342,16 @@ jobs:
           path: vkax-android-${{ matrix.arch }}-ndk${{ matrix.ndk_ver }}-*.tar.gz
           if-no-files-found: error
           retention-days: 30
+
+      # Optional: download artifacts elsewhere (pinned to v4 via commit SHA)
+      # - name: "[VKAX] Download artifacts (example, pinned)"
+      #   if: always()
+      #   uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      #   with:
+      #     name: "vkax-android-${{ matrix.arch }}-ndk${{ matrix.ndk_ver }}"
+      #     path: "retrieved-artifacts"
+      #     # pattern: "vkax-android-${{ matrix.arch }}-ndk${{ matrix.ndk_ver }}-*.tar.gz"
+      #     # merge-multiple: true
 
       - name: "[VKAX] Summarize last ${TAIL_N} build lines"
         if: always()
