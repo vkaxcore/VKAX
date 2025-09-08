@@ -59,6 +59,10 @@ jobs:
           ./t || true
           echo ok > .smoke_pass
 
+      - name: Setup MSVC env
+        if: ${{ runner.os == 'Windows' }}
+        uses: ilammy/msvc-dev-cmd@v1
+
       - name: Toolchain smoke (Windows)
         if: ${{ runner.os == 'Windows' }}
         shell: pwsh
@@ -76,7 +80,7 @@ jobs:
           echo "### Smoke native ${{ matrix.os }}" >> "$GITHUB_STEP_SUMMARY"
           echo "| component | version | path | sha256 | homepage |" >> "$GITHUB_STEP_SUMMARY"
           echo "|---|---|---|---|---|" >> "$GITHUB_STEP_SUMMARY"
-          bin="$(command -v c++ || true)"; ver="$(c++ --version | head -1 || true)"; sha="$( [ -n "$bin" ] && sha256sum "$bin" | awk '{print $1}' || echo )"
+          bin="$(command -v c++ || true)"; ver="$(c++ --version | head -1 || true)"; if command -v sha256sum >/dev/null 2>&1; then sha="$( [ -n "$bin" ] && sha256sum "$bin" | awk '{print $1}' || echo )"; else sha="$( [ -n "$bin" ] && shasum -a 256 "$bin" | awk '{print $1}' || echo )"; fi
           echo "| c++ | ${ver:-n/a} | ${bin:-n/a} | ${sha:-} | https://gcc.gnu.org/ |" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Inventory (Windows)
