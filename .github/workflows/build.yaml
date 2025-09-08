@@ -504,7 +504,6 @@ jobs:
             "platform-tools" \
             "platforms;android-34" \
             "ndk;${ANDROID_NDK_VERSION}"
-
       - name: Build depends for native Android (optional)
         shell: bash
         run: |
@@ -519,6 +518,23 @@ jobs:
             }
           else
             echo "::notice::No depends/ dir; skipping Android depends build."
+          fi
+
+      - name: Project build for native Android (optional)
+        shell: bash
+        run: |
+          set -euo pipefail
+          : "${ANDROID_API_LEVEL:=34}"
+          : "${ANDROID_TOOLCHAIN_BIN:=${ANDROID_SDK_ROOT}/ndk/${ANDROID_NDK_VERSION}/toolchains/llvm/prebuilt/linux-x86_64/bin}"
+          if [ -f Makefile ]; then
+            J=$(nproc 2>/dev/null || echo 2); [ "$J" -gt 4 ] && J=4
+            echo "::notice::Attempting project build for HOST=aarch64-linux-android (API ${ANDROID_API_LEVEL})."
+            ANDROID_SDK="${ANDROID_SDK_ROOT}" ANDROID_NDK="${ANDROID_SDK_ROOT}/ndk/${ANDROID_NDK_VERSION}" \
+            make -j"$J" HOST=aarch64-linux-android ANDROID_API_LEVEL="${ANDROID_API_LEVEL}" ANDROID_TOOLCHAIN_BIN="${ANDROID_TOOLCHAIN_BIN}" || {
+              echo "::warning::Top-level Android make build failed; continuing with Gradle/native checks.";
+            }
+          else
+            echo "::notice::No top-level Makefile; skipping Android make build."
           fi
 
       - name: Setup Gradle cache
@@ -791,6 +807,77 @@ jobs:
           path: |
             dist/**/*
             build/**/*
+          if-no-files-found: warn
+  # =====================================
+  # Windows cross (MinGW-w64 on Ubuntu) — produce .exe via depends
+  # =====================================
+  $1 ubuntu-22.04
+    timeout-minutes: 50
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Sync submodules
+        shell: bash
+        run: |
+          set -euo pipefail
+          git submodule sync --recursive
+          git submodule update --init --recursive
+
+      - name: Tooling (MinGW cross)
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq wget unzip build-essential pkg-config automake libtool autoconf bison cmake ninja-build \
+            mingw-w64 g++-mingw-w64-x86-64 binutils-mingw-w64-x86-64
+
+      - name: Build depends for Windows (x86_64-w64-mingw32)
+        shell: bash
+        run: |
+          set -euo pipefail
+          [ -d depends ] || { echo "::error::depends/ missing; required for Windows cross-build."; exit 2; }
+          J=$(nproc 2>/dev/null || echo 2); [ "$J" -gt 4 ] && J=4
+          make -C depends -j"$J" HOST=x86_64-w64-mingw32
+
+      - name: CMake configure (MinGW-w64)
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PREFIX="depends/x86_64-w64-mingw32"
+          [ -d "$PREFIX" ] || { echo "::error::depends prefix not found at $PREFIX"; exit 2; }
+          cmake -S . -B build-w64 -G Ninja \
+            -DCMAKE_SYSTEM_NAME=Windows \
+            -DCMAKE_C_COMPILER=x86_64-w64-mingw32-gcc \
+            -DCMAKE_CXX_COMPILER=x86_64-w64-mingw32-g++ \
+            -DCMAKE_RC_COMPILER=x86_64-w64-mingw32-windres \
+            -DCMAKE_FIND_ROOT_PATH="$PREFIX" \
+            -DCMAKE_PREFIX_PATH="$PREFIX"
+
+      - name: CMake build (MinGW-w64)
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake --build build-w64 -j"$(nproc 2>/dev/null || echo 2)" || { echo "::error::Windows cross build failed."; exit 2; }
+
+      - name: Collect Windows .exe
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist-w64
+          find build-w64 -type f -name 'vkax-*.exe' -print -exec cp -a {} dist-w64/ \; || true
+          if [ -z "$(ls -A dist-w64 2>/dev/null || true)" ]; then
+            echo "::warning::No vkax Windows executables found; uploading full build dir instead."
+          fi
+
+      - name: Upload Windows cross artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-windows-cross-ubuntu-22.04
+          path: |
+            dist-w64/**/*
+            build-w64/**/*
           if-no-files-found: warn
 
   # =====================================
