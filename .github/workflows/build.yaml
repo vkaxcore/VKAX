@@ -1,607 +1,344 @@
 # .github/workflows/build.yaml
-name: VKAX Android Builds
+name: Build (Ubuntu-first, Android legacy+normal, Qt-toggle-ready)
 
 on:
-  workflow_dispatch:
   push:
-    branches: [ main, v100.11.5-android, dev ]
+    branches: [ master ]
+  pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: android-${{ github.ref }}
+  group: build-${{ github.ref }}
   cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash -e -o pipefail {0}
 
 env:
   TZ: UTC
   LC_ALL: C
   LANG: C.UTF-8
-  TAIL_N: "1000"
-  VERBOSE_BUILD: "0"
+  FORCE_COLOR: "1"
   ALLOW_TTY_LICENSE_ACCEPT: "0"
+  FDROID_CHECKSUMS_URL: https://gitlab.com/fdroid/android-sdk-transparency-log/-/raw/master/checksums.json
+  ANDROID_CLT_URL: https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip
+  ANDROID_SDK_ROOT: ${{ github.workspace }}/.sdk
+  ANDROID_HOME: ${{ github.workspace }}/.sdk
+  JAVA_DIST: temurin
+  JAVA_VERSION: "17"
+  CCACHE_DIR: ${{ github.workspace }}/.ccache
+  CCACHE_MAXSIZE: 2G
+  NO_QT: "1"
 
 jobs:
-  ubuntu:
-    name: Ubuntu (first)
+  guard:
+    name: Guard workflows
     runs-on: ubuntu-22.04
-    timeout-minutes: 30
+    timeout-minutes: 8
     steps:
-      - name: "[VKAX] Checkout"
-        uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
-        with:
-          lfs: true
-          fetch-depth: 0
-
-      - name: "[VKAX] Tooling"
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+      - name: Detect CRLF, TABs, unquoted brackets
         run: |
-          set -Eeuo pipefail
-          sudo apt-get update
-          sudo apt-get install -y \
-            build-essential automake autoconf libtool pkg-config \
-            python3 python3-venv unzip wget curl cmake ninja-build dos2unix \
-            xz-utils file ccache git jq gpg binutils
-          mkdir -p "$HOME/.ccache"
-          ccache --set-config=cache_dir="$HOME/.ccache"
-          ccache --set-config=max_size=1G
-          ccache --set-config=compression=true
-          ccache --set-config=compiler_check=content
-          echo "CCACHE_DIR=$HOME/.ccache" >> "$GITHUB_ENV"
-          echo "CCACHE_BASEDIR=$GITHUB_WORKSPACE" >> "$GITHUB_ENV"
-          echo "CCACHE_NOHASHDIR=1" >> "$GITHUB_ENV"
-          echo "CCACHE_DEPEND=1" >> "$GITHUB_ENV"
-          ccache --zero-stats || true
-
-      - name: "[VKAX] Cache ccache"
-        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
-        with:
-          path: ~/.ccache
-          key: ccache-ubuntu-${{ runner.os }}-${{ github.ref }}-${{ github.sha }}
-          restore-keys: |
-            ccache-ubuntu-${{ runner.os }}-${{ github.ref }}-
-            ccache-ubuntu-${{ runner.os }}-
-
-      - name: "[VKAX] CMake/Ninja cache"
-        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
-        with:
-          path: |
-            build
-            ~/.cache/cmake
-          key: cmake-${{ runner.os }}-${{ hashFiles('CMakeLists.txt', 'cmake/**', 'src/**', 'include/**') }}
-          restore-keys: |
-            cmake-${{ runner.os }}-
-
-      - name: "[VKAX] Ubuntu build stub"
+          set -euo pipefail
+          files=$(git ls-files ".github/workflows/*.yml" ".github/workflows/*.yaml" || true)
+          [ -n "$files" ] || exit 0
+          awk 'BEGIN{bad=0}
+            { if ($0 ~ /\r/) {bad=1; printf "::error file=%s,line=%d::CRLF detected\n", FILENAME, NR}
+              if ($0 ~ /\t/) {bad=1; printf "::error file=%s,line=%d::TAB characters detected\n", FILENAME, NR}
+              if ($0 ~ /^[[:space:]]*- name:[[:space:]]*\[[^]]+\][[:space:]]*$/) {bad=1; printf "::error file=%s,line=%d::Unquoted [brackets] in step name\n", FILENAME, NR}
+            }
+            END{exit(bad)}' $files
+      - name: Forbid unsafe patterns
         run: |
-          set -Eeuo pipefail
-          mkdir -p build
-          echo "OK" > build/ubuntu-stub.txt
-
-      - name: "[VKAX] Upload Ubuntu stub"
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: ubuntu-stub
-          path: build/ubuntu-stub.txt
-          if-no-files-found: warn
-          compression-level: 6
-          retention-days: 7
-
-  android:
-    name: Android ${{ matrix.arch }} (API ${{ matrix.api }}, NDK ${{ matrix.ndk_ver }})
-    runs-on: ubuntu-22.04
-    needs: [ubuntu]
-    timeout-minutes: 120
-
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - arch: aarch64
-            host: aarch64-linux-android
-            clang_triple: aarch64-linux-android
-            api: "21"
-            ndk_ver: "23.1.7779620"
-          - arch: armv7
-            host: arm-linux-androideabi
-            clang_triple: armv7a-linux-androideabi
-            api: "21"
-            ndk_ver: "23.1.7779620"
-
-    defaults:
-      run:
-        shell: bash
-
-    steps:
-      - name: "[VKAX] Checkout"
-        uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
-        with:
-          lfs: true
-          fetch-depth: 0
-
-      - name: "[VKAX] Set umask"
-        run: |
-          set -Eeuo pipefail
-          umask 022
-          umask
-
-      - name: "[VKAX] Init build log"
-        run: |
-          set -Eeuo pipefail
-          LOG="$RUNNER_TEMP/vkax-build.log"
-          : > "$LOG"
-          echo "BUILD_LOG=$LOG" >> "$GITHUB_ENV"
-
-      - name: "[VKAX] Guards in workflows"
-        run: |
-          set -Eeuo pipefail
-          files="$(git ls-files '.github/workflows/*.yml' '.github/workflows/*.yaml' | grep -v -F '.github/workflows/build.yaml' || true)"
-          [ -z "$files" ] && exit 0
-          matches="$(grep -nH -E '^[[:space:]]*yes[[:space:]]*\|[[:space:]]*sdkmanager[[:space:]]*--licenses([[:space:]]|$)' $files || true)"
-          if [ -n "$matches" ]; then
-            echo "## Forbidden pattern found" >> "$GITHUB_STEP_SUMMARY"
-            { echo '```'; echo "$matches"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          set -euo pipefail
+          files=$(git ls-files ".github/workflows/*.yml" ".github/workflows/*.yaml" || true)
+          [ -n "$files" ] || exit 0
+          if grep -nE 'yes[[:space:]]*\|[[:space:]]*sdkmanager[[:space:]]*--licenses' $files; then
             echo "::error::Forbidden pattern 'yes | sdkmanager --licenses' in workflows"
             exit 1
           fi
-          matches="$(grep -nH -e 'user-config\.jam' $files || true)"
-          if [ -n "$matches" ]; then
-            echo "## Illegal user-config.jam references" >> "$GITHUB_STEP_SUMMARY"
-            { echo '```'; echo "$matches"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
-            echo "::error::Workflows must not reference user-config.jam (owned by depends/packages/boost.mk)"
+          if grep -nH -e 'user-config\.jam' $files; then
+            echo "::error::Workflows must not reference user-config.jam"
             exit 1
           fi
 
-      - name: "[VKAX] Workflow hygiene"
+  ubuntu:
+    name: Ubuntu (qt=${{ matrix.qt }})
+    runs-on: ubuntu-22.04
+    timeout-minutes: 40
+    needs: guard
+    strategy:
+      fail-fast: false
+      matrix:
+        qt: [false]
+    env:
+      ENABLE_QT: ${{ matrix.qt && '1' || '0' }}
+      NO_QT: ${{ matrix.qt && '0' || '1' }}
+      BUILD_DIR: build/linux/_cmake
+      SOURCE_DATE_EPOCH: ""
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+
+      - name: Compute SOURCE_DATE_EPOCH
         run: |
-          set -Eeuo pipefail
-          files="$(git ls-files '.github/workflows/*.yml' '.github/workflows/*.yaml' || true)"
-          [ -z "$files" ] && exit 0
-          if grep -nIU $'\r' $files >/tmp/crlf_hits 2>/dev/null; then
-            if [ -s /tmp/crlf_hits ]; then
-              echo "## CRLF in workflows" >> "$GITHUB_STEP_SUMMARY"
-              { echo '```'; cat /tmp/crlf_hits; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
-              echo "::error::CRLF detected in workflow YAML"
-              exit 1
-            fi
-          fi
-          if grep -nP $'\t' $files >/tmp/tab_hits 2>/dev/null; then
-            if [ -s /tmp/tab_hits ]; then
-              echo "## Tabs in workflows" >> "$GITHUB_STEP_SUMMARY"
-              { echo '```'; cat /tmp/tab_hits; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
-              echo "::error::TAB characters detected in workflow YAML"
-              exit 1
-            fi
-          fi
-          if grep -nE '^- name: \[.*\]' $files >/tmp/brack_hits 2>/dev/null; then
-            if [ -s /tmp/brack_hits ]; then
-              echo "## Unquoted bracketed step names" >> "$GITHUB_STEP_SUMMARY"
-              { echo '```'; cat /tmp/brack_hits; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
-              echo "::error::Unquoted [brackets] in step names"
-              exit 1
-            fi
-          fi
+          set -euo pipefail
+          echo "SOURCE_DATE_EPOCH=$(git log -1 --pretty=%ct)" >> "$GITHUB_ENV"
 
-      - name: "[VKAX] Java 11"
-        uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00 # v4.7.1
+      - name: Tooling
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq build-essential ninja-build cmake pkg-config ccache jq dos2unix
+
+      - name: Install Qt deps (only if qt=1)
+        if: ${{ matrix.qt }}
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq qtbase5-dev qttools5-dev qttools5-dev-tools libqt5svg5-dev
+
+      - name: Configure ccache
+        run: |
+          set -euo pipefail
+          mkdir -p "$CCACHE_DIR"
+          ccache --max-size="$CCACHE_MAXSIZE"
+          ccache --set-config=sloppiness=pch_defines,time_macros
+          ccache --set-config=hash_dir=false
+          ccache -p
+          echo "CCACHE_BASEDIR=$GITHUB_WORKSPACE" >> "$GITHUB_ENV"
+          echo "CCACHE_NOHASHDIR=1" >> "$GITHUB_ENV"
+          echo "CCACHE_DEPEND=1" >> "$GITHUB_ENV"
+
+      - name: Cache ccache
+        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809
         with:
-          distribution: temurin
-          java-version: "11"
-          cache: gradle
-          cache-dependency-path: |
-            **/gradle/wrapper/gradle-wrapper.properties
-            **/*.gradle*
-            **/settings.gradle*
-            **/build.gradle*
+          path: ${{ env.CCACHE_DIR }}
+          key: ubuntu-ccache-${{ matrix.qt }}-${{ github.ref }}-${{ hashFiles('**/*.[ch]', '**/*.[ch]pp', '**/CMakeLists.txt', 'cmake/**') }}
+          restore-keys: |
+            ubuntu-ccache-${{ matrix.qt }}-${{ github.ref }}-
+            ubuntu-ccache-${{ matrix.qt }}-
 
-      - name: "[VKAX] Cache Maven"
-        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+      - name: Cache CMake/Ninja
+        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809
+        with:
+          path: |
+            ${{ env.BUILD_DIR }}
+            ~/.cache/cmake
+          key: cmake-${{ matrix.qt }}-${{ runner.os }}-${{ hashFiles('**/CMakeLists.txt', 'cmake/**') }}
+          restore-keys: |
+            cmake-${{ matrix.qt }}-${{ runner.os }}-
+
+      - name: Disk check
+        run: |
+          set -euo pipefail
+          kb=$(df -Pk . | awk 'NR==2{print $4}')
+          [ "$kb" -ge 8000000 ] || { echo "::error::Insufficient disk space"; exit 1; }
+
+      - name: Reproducible flags and PATH
+        run: |
+          set -euo pipefail
+          export PATH=$(printf "%s" "$PATH" | awk -v RS=: '!a[$1]++{if(out)printf ":"; printf "%s",$1} END{print ""}')
+          pfx=$(pwd)
+          echo "CFLAGS=-fdebug-prefix-map=$pfx=/usr/src -g" >> "$GITHUB_ENV"
+          echo "CXXFLAGS=-fdebug-prefix-map=$pfx=/usr/src -g" >> "$GITHUB_ENV"
+
+      - name: Configure (CMake)
+        run: |
+          set -euo pipefail
+          cmake -S . -B "$BUILD_DIR" -G Ninja \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_C_FLAGS="$CFLAGS" \
+            -DCMAKE_CXX_FLAGS="$CXXFLAGS" \
+            -DNO_QT=$NO_QT
+
+      - name: Build vkax-d and vkax-cli
+        run: |
+          set -euo pipefail
+          cmake --build "$BUILD_DIR" --target vkax-d -- -k 0 -j"$(nproc)" || true
+          cmake --build "$BUILD_DIR" --target vkax-cli -- -k 0 -j"$(nproc)" || true
+
+      - name: Build vkax-qt (only if qt=1)
+        if: ${{ matrix.qt }}
+        run: |
+          set -euo pipefail
+          cmake --build "$BUILD_DIR" --target vkax-qt -- -k 0 -j"$(nproc)" || true
+
+      - name: Collect Linux artifacts
+        if: always()
+        run: |
+          set -euo pipefail
+          mkdir -p out/linux
+          find "$BUILD_DIR" -maxdepth 4 -type f -perm -u+x \( -name 'vkax-*' -o -name 'vkax' \) -print -exec cp -f '{}' out/linux/ \; || true
+          find out/linux -type f -exec strip --strip-unneeded {} \; || true
+          printf "%s\n" "version=$(git describe --tags --always --dirty=+)" > out/linux/VERSION.txt
+
+      - name: Upload Linux artifacts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: linux-qt${{ matrix.qt }}
+          path: out/linux
+          if-no-files-found: warn
+
+      - name: ccache stats
+        if: always()
+        run: |
+          set -euo pipefail
+          ccache -s
+          if ! ccache -s | grep -q 'cache hit'; then
+            echo "::error::ccache recorded 0 hits/misses after build (bypassed)."
+            exit 1
+          fi
+
+  android:
+    name: Android (${{ matrix.flavor }}; api=${{ matrix.api }}, ndk=${{ matrix.ndk_ver }})
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    needs: [guard, ubuntu]
+    strategy:
+      fail-fast: false
+      matrix:
+        flavor: [normal, legacy]
+        api: [21]
+        ndk_ver: [23.1.7779620]
+    env:
+      SOURCE_DATE_EPOCH: ""
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+
+      - name: Compute SOURCE_DATE_EPOCH
+        run: |
+          set -euo pipefail
+          echo "SOURCE_DATE_EPOCH=$(git log -1 --pretty=%ct)" >> "$GITHUB_ENV"
+
+      - name: Setup Java (with Gradle cache)
+        uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00
+        with:
+          distribution: ${{ env.JAVA_DIST }}
+          java-version: ${{ env.JAVA_VERSION }}
+          cache: gradle
+
+      - name: Cache Maven
+        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809
         with:
           path: ~/.m2/repository
           key: maven-${{ runner.os }}-${{ hashFiles('**/pom.xml') }}
           restore-keys: |
             maven-${{ runner.os }}-
 
-      - name: "[VKAX] System deps"
+      - name: Tooling
         run: |
-          set -Eeuo pipefail; [ "${VERBOSE_BUILD:-0}" = 1 ] && set -x || true
-          sudo apt-get update
-          sudo apt-get install -y \
-            build-essential automake autoconf libtool pkg-config \
-            python3 python3-venv unzip wget curl cmake ninja-build dos2unix \
-            xz-utils file ccache git jq gpg binutils
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq unzip curl jq dos2unix ccache build-essential
 
-      - name: "[VKAX] Configure ccache"
+      - name: Configure ccache
         run: |
-          set -Eeuo pipefail
-          mkdir -p "$HOME/.ccache"
-          ccache --set-config=cache_dir="$HOME/.ccache"
-          ccache --set-config=max_size=1G
-          ccache --set-config=compression=true
-          ccache --set-config=compiler_check=content
-          echo "CCACHE_DIR=$HOME/.ccache" >> "$GITHUB_ENV"
+          set -euo pipefail
+          mkdir -p "$CCACHE_DIR"
+          ccache --max-size="$CCACHE_MAXSIZE"
+          ccache --set-config=sloppiness=pch_defines,time_macros
+          ccache --set-config=hash_dir=false
+          ccache -p
           echo "CCACHE_BASEDIR=$GITHUB_WORKSPACE" >> "$GITHUB_ENV"
           echo "CCACHE_NOHASHDIR=1" >> "$GITHUB_ENV"
           echo "CCACHE_DEPEND=1" >> "$GITHUB_ENV"
-          ccache --zero-stats || true
 
-      - name: "[VKAX] Cache ccache"
-        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+      - name: Cache ccache
+        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809
         with:
-          path: ~/.ccache
-          key: >
-            ccache-${{ runner.os }}-${{ matrix.arch }}-api${{ matrix.api }}-ndk${{ matrix.ndk_ver }}-
-            ${{ hashFiles('**/configure.ac', '**/Makefile.am', 'depends/**', 'src/**', '.github/workflows/build.yaml') }}
+          path: ${{ env.CCACHE_DIR }}
+          key: android-ccache-${{ matrix.flavor }}-${{ github.ref }}-${{ hashFiles('**/*.[ch]', '**/*.[ch]pp', '**/Android.mk', '**/*.bp', '**/build.gradle*') }}
           restore-keys: |
-            ccache-${{ runner.os }}-${{ matrix.arch }}-api${{ matrix.api }}-ndk${{ matrix.ndk_ver }}-
-            ccache-${{ runner.os }}-${{ matrix.arch }}-api${{ matrix.api }}-
-            ccache-${{ runner.os }}-${{ matrix.arch }}-
-            ccache-${{ runner.os }}-
+            android-ccache-${{ matrix.flavor }}-${{ github.ref }}-
+            android-ccache-${{ matrix.flavor }}-
 
-      - name: "[VKAX] Verify cmdline-tools and seed licenses"
-        env:
-          ANDROID_SDK_ROOT: ${{ github.workspace }}/android-sdk
-          CLT_URL: https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip
+      - name: Prepare Android cmdline-tools (verified)
         run: |
-          set -Eeuo pipefail
-          mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools" "$ANDROID_SDK_ROOT/licenses" /tmp/fdroid "$HOME/.android"
-          : > "$HOME/.android/repositories.cfg"
-          curl -fsSL "https://f-droid.org/repo/index.jar.asc" -o /tmp/fdroid/placeholder.asc || true
-          curl -fsSL "https://f-droid.org/repo/index.jar" -o /tmp/fdroid/placeholder.jar || true
-          curl -fsSL "https://f-droid.org/repo/index-v1.jar" -o /tmp/fdroid/placeholder-v1.jar || true
-          curl -fsSL "https://f-droid.github.io/android-sdk-transparency-log/signed/checksums.json" -o /tmp/fdroid/checksums.json
-          tmpzip="$(mktemp /tmp/clt.XXXXXX.zip)"
-          curl -fsSL "$CLT_URL" -o "$tmpzip"
-          got_sha="$(sha256sum "$tmpzip" | awk '{print $1}')"
-          exp_list="$(jq -r --arg u "$CLT_URL" '.[$u] | if type=="array" then (.[].sha256)[] else .sha256 // empty end' /tmp/fdroid/checksums.json)"
-          [ -n "$exp_list" ] || { echo "::error::F-Droid checksums.json has no entry for $CLT_URL"; exit 1; }
-          printf '%s\n' "$exp_list" | grep -Fxq "$got_sha" || { echo "::error::SHA256 $got_sha not in expected_one_of=$(printf '%s' "$exp_list" | tr '\n' ' ')"; exit 1; }
-          {
-            echo "## Android cmdline-tools integrity"
-            echo
-            echo "- URL: $CLT_URL"
-            echo "- Verified SHA256: \`$got_sha\`"
-          } >> "$GITHUB_STEP_SUMMARY"
-          unzip -q "$tmpzip" -d "$ANDROID_SDK_ROOT/cmdline-tools"
+          set -euo pipefail
+          mkdir -p "$ANDROID_SDK_ROOT" "$HOME/.android" "$ANDROID_SDK_ROOT/cmdline-tools"
+          touch "$HOME/.android/repositories.cfg"
+          tmpdir=$(mktemp -d)
+          trap 'rm -rf "$tmpdir"' EXIT
+          curl -fsSL --retry 5 --retry-delay 2 "$FDROID_CHECKSUMS_URL" -o "$tmpdir/checksums.json"
+          exp_list=$(jq -r --arg u "$ANDROID_CLT_URL" '.[ $u ] | (if type=="array" then .[] else . end) | .sha256' "$tmpdir/checksums.json")
+          [ -n "$exp_list" ] || { echo "::error::No checksum entry for $ANDROID_CLT_URL"; exit 1; }
+          curl -fsSL --retry 5 --retry-delay 2 "$ANDROID_CLT_URL" -o "$tmpdir/cmdline.zip"
+          got_sha=$(sha256sum "$tmpdir/cmdline.zip" | awk '{print $1}')
+          ok=0; for s in $exp_list; do [ "$got_sha" = "$s" ] && ok=1 && break; done
+          [ "$ok" -eq 1 ] || { echo "::error::SHA256 mismatch for commandlinetools"; exit 1; }
+          unzip -q "$tmpdir/cmdline.zip" -d "$ANDROID_SDK_ROOT/cmdline-tools"
           mv "$ANDROID_SDK_ROOT/cmdline-tools/cmdline-tools" "$ANDROID_SDK_ROOT/cmdline-tools/latest"
-          {
-            printf '%s\n' "24333f8a63b6825ea9c5514f83c2829b004d1fee"
-            printf '%s\n' "d56f5187479451eabf01fb78af6dfcb131a6481e"
-            printf '%s\n' "8933bad161af4178b1185d1a37fbf41ea5269c55"
-          } > "$ANDROID_SDK_ROOT/licenses/android-sdk-license"
+          echo "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+
+      - name: Seed Android SDK/NDK licenses
+        run: |
+          set -euo pipefail
+          mkdir -p "$ANDROID_SDK_ROOT/licenses"
+          printf '%s\n' "24333f8a63b6825ea9c5514f83c2829b004d1fee" > "$ANDROID_SDK_ROOT/licenses/android-sdk-license"
+          printf '%s\n' "d56f5187479451eabf01fb78af6dfcb131a6481e" >> "$ANDROID_SDK_ROOT/licenses/android-sdk-license"
+          printf '%s\n' "8933bad161af4178b1185d1a37fbf41ea5269c55" >> "$ANDROID_SDK_ROOT/licenses/android-sdk-license"
           printf '%s\n' "84831b9409646a918e30573bab4c9c91346d8abd" > "$ANDROID_SDK_ROOT/licenses/android-sdk-preview-license"
-          printf '%s\n' "601085b94cd77f0b54ff86406957099ebe79c4d6" > "$ANDROID_SDK_ROOT/licenses/android-ndk-license"
           printf '%s\n' "d975f751698a77b662f1254ddbeed3901e976f5a" > "$ANDROID_SDK_ROOT/licenses/android-sdk-module-license"
+          printf '%s\n' "601085b94cd77f0b54ff86406957099ebe79c4d6" > "$ANDROID_SDK_ROOT/licenses/android-ndk-license"
           find "$ANDROID_SDK_ROOT/licenses" -type f -print0 | xargs -0 dos2unix >/dev/null 2>&1 || true
-          {
-            echo "## SDK license files"
-            echo
-            echo '```'
-            ls -l "$ANDROID_SDK_ROOT/licenses" || true
-            for f in "$ANDROID_SDK_ROOT"/licenses/*; do
-              [ -f "$f" ] || continue
-              printf "%s sha1=%s\n" "$(basename "$f")" "$(sha1sum "$f" | awk '{print $1}')"
-            done
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-          {
-            echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
-            echo "ANDROID_SDK=$ANDROID_SDK_ROOT"
-            echo "ANDROID_HOME=$ANDROID_SDK_ROOT"
-          } >> "$GITHUB_ENV"
-          {
-            echo "$ANDROID_SDK_ROOT/platform-tools"
-            echo "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin"
-          } >> "$GITHUB_PATH"
 
-      - name: "[VKAX] Accept licenses (emergency)"
-        if: env.ALLOW_TTY_LICENSE_ACCEPT == '1'
-        run: |
-          set -Eeuo pipefail
-          feed="$(printf 'y\n%.0s' $(seq 1 80))"
-          sdkmanager --sdk_root="${ANDROID_SDK_ROOT}" --licenses <<< "$feed" || true
-          sdkmanager --sdk_root="${ANDROID_SDK_ROOT}" --update || true
-
-      - name: "[VKAX] Install Android SDK components"
-        run: |
-          set -Eeuo pipefail
-          sdkmanager --sdk_root="${ANDROID_SDK_ROOT}" --install \
-            "platform-tools" \
-            "platforms;android-${{ matrix.api }}" \
-            "ndk;${{ matrix.ndk_ver }}"
-
-      - name: "[VKAX] sdkmanager inventory"
-        run: |
-          set -Eeuo pipefail
-          inv="$(mktemp)"; sdkmanager --sdk_root="${ANDROID_SDK_ROOT}" --list > "$inv" || true
-          {
-            echo "## sdkmanager --list (post-install inventory)"
-            echo
-            echo '```text'
-            sed -n '1,200p' "$inv"
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: "[VKAX] Bind absolute toolchain"
-        run: |
-          set -Eeuo pipefail
-          os="$(uname -s | tr '[:upper:]' '[:lower:]')"
-          case "$os" in linux*) os=linux;; darwin*) os=darwin;; msys*|cygwin*|mingw*) os=windows;; *) os=linux;; esac
-          arch="$(uname -m)"
-          case "$arch" in aarch64|arm64) arch=arm64;; x86_64|amd64) arch=x86_64;; *) arch=x86_64;; esac
-          host_tag="${os}-${arch}"
-          bin="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/${host_tag}/bin"
-          api="${{ matrix.api }}"
-          tpfx="${{ matrix.clang_triple }}${api}"
-          test -x "${bin}/${tpfx}-clang"
-          test -x "${bin}/${tpfx}-clang++"
-          echo "${bin}" >> "$GITHUB_PATH"
-          echo "CC=ccache ${bin}/${tpfx}-clang"    >> "$GITHUB_ENV"
-          echo "CXX=ccache ${bin}/${tpfx}-clang++" >> "$GITHUB_ENV"
-          echo "AR=$(command -v llvm-ar || true)"  >> "$GITHUB_ENV"
-          echo "RANLIB=$(command -v llvm-ranlib || true)" >> "$GITHUB_ENV"
-          {
-            echo "## Toolchain audit"
-            echo
-            echo '```'
-            echo "PATH=$PATH"
-            echo "CC=$CC"
-            echo "CXX=$CXX"
-            echo "AR=$AR"
-            echo "RANLIB=$RANLIB"
-            echo "command -v ${CC%% *}: $(command -v "${CC%% *}" || echo MISSING)"
-            echo "command -v ${CXX%% *}: $(command -v "${CXX%% *}" || echo MISSING)"
-            echo "command -v llvm-ar: $(command -v llvm-ar || echo MISSING)"
-            echo "command -v llvm-ranlib: $(command -v llvm-ranlib || echo MISSING)"
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-          echo "CCACHE_DIR=$HOME/.ccache" >> "$GITHUB_ENV"
-          echo "CCACHE_BASEDIR=$GITHUB_WORKSPACE" >> "$GITHUB_ENV"
-          echo "CFLAGS=${CFLAGS:+$CFLAGS }-fdebug-prefix-map=$GITHUB_WORKSPACE=/src" >> "$GITHUB_ENV"
-          echo "CXXFLAGS=${CXXFLAGS:+$CXXFLAGS }-fdebug-prefix-map=$GITHUB_WORKSPACE=/src" >> "$GITHUB_ENV"
-          echo "MAKEFLAGS=--output-sync=target -j$(( $(nproc)>8 ? 8 : $(nproc) ))" >> "$GITHUB_ENV"
-
-      - name: "[VKAX] Lint Android makefiles"
-        run: |
-          set -Eeuo pipefail
-          files=(depends/hosts/android.mk depends/packages/ndk.mk)
-          bad=0
-          for f in "${files[@]}"; do
-            if grep -nP '[^\x00-\x7F]' "$f"; then echo "::error file=$f::Non-ASCII byte detected"; bad=1; fi
-            awk 'length($0)>400{printf "::error file=%s,line=%d::Line length %d chars\n",FILENAME,NR,length($0);b=1}END{exit b}' "$f" || bad=1
-            awk '
-              BEGIN{in_rule=0;in_def=0;err=0}
-              /^\s*#/ {next} /^\s*$/ {in_rule=0;next}
-              /^\s*define(\s|$)/ {in_def=1;next}
-              in_def && /^\s*endef(\s|$)/ {in_def=0;next}
-              in_def {next}
-              /^[^\t #][^:]*:[^=]*/ {in_rule=1;next}
-              /^[^\t #].*::/ {in_rule=1;next}
-              /^\t/ {if(!in_rule){printf "::error file=%s,line=%d::TAB outside rule\n",FILENAME,NR;err=1} next}
-              {next}
-              END{exit err}
-            ' "$f" || bad=1
-            out="$RUNNER_TEMP/ndk.vars"
-            make -C depends -f packages/ndk.mk ndk_echo_vars > "$out"
-            req="TARGET_HOST ANDROID_CLANG_TRIPLE ANDROID_API ANDROID_NDK_ANDROID_MK host_CC host_CXX host_LDFLAGS NDK_HOST_TAG NDK_BIN NDK_SYSROOT"
-            for k in $req; do
-              v="$(sed -n "s/^${k}=//p" "$out" | head -n1 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
-              if [ -z "$v" ]; then
-                echo "::error::${k} is empty"; bad=1
-              fi
-            done
-            {
-              echo "## Depends vars validation"
-              echo
-              echo '```'
-              cat "$out"
-              echo '```'
-            } >> "$GITHUB_STEP_SUMMARY"
-          done
-          exit $bad
-
-      - name: "[VKAX] Probe depends activity"
-        run: |
-          set -Eeuo pipefail
-          PROBE_LOG="$RUNNER_TEMP/depends-probe.log"
-          : > "$PROBE_LOG"
-          export PROBE_LOG
-          (
-            while true; do
-              sleep 9
-              echo "[probe $(date -u '+%Y-%m-%d %H:%M:%S UTC')] depends/work hottest files:" | tee -a "$PROBE_LOG"
-              find depends src -type f -printf '%T@ %p\n' 2>/dev/null | sort -nr | head -n 10 | awk '{print $2}' | sed 's|^|  |' | tee -a "$PROBE_LOG" || true
-            done
-          ) &
-          echo "PROBE_PID=$!" >> "$GITHUB_ENV"
-
-      - name: "[VKAX] Build depends (NO_QT)"
+      - name: Install Android packages
         env:
-          HOST: ${{ matrix.host }}
-          USE_CCACHE: "1"
-          DEBUG_PREFIX_MAP: "${{ github.workspace }}=/src"
+          PATH: ${{ env.ANDROID_SDK_ROOT }}/cmdline-tools/latest/bin:${{ env.PATH }}
         run: |
-          set -Eeuo pipefail
-          export SOURCE_DATE_EPOCH="$(git log -1 --format=%ct || echo 0)"
-          export BUILD_TRIPLET="$(./depends/config.guess)"
-          echo "## depends build (UTC) $(date -u '+%Y-%m-%d %H:%M:%S UTC')" | tee -a "$BUILD_LOG"
-          make -C depends --output-sync=target -j"$(nproc)" \
-            build="$BUILD_TRIPLET" build_os=linux \
-            HOST="$HOST" ANDROID_NDK="$ANDROID_NDK_HOME" ANDROID_API="${{ matrix.api }}" \
-            NO_QT=1 V=1 2>&1 | tee -a "$BUILD_LOG"
+          set -euo pipefail
+          sdkmanager --sdk_root="$ANDROID_SDK_ROOT" --install "platform-tools" "platforms;android-${{ matrix.api }}" "ndk;${{ matrix.ndk_ver }}"
 
-      - name: "[VKAX] ccache stats (after depends)"
-        if: always()
+      - name: Verify Android packages
         run: |
-          set -Eeuo pipefail
-          ccache --show-stats > "$RUNNER_TEMP/ccache-depends.txt" || true
-          {
-            echo "## ccache (after depends)"
-            echo
-            echo '```'
-            cat "$RUNNER_TEMP/ccache-depends.txt"
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-          ccache --zero-stats || true
+          set -euo pipefail
+          test -x "$ANDROID_SDK_ROOT/platform-tools/adb"
+          test -d "$ANDROID_SDK_ROOT/platforms/android-${{ matrix.api }}"
+          test -d "$ANDROID_SDK_ROOT/ndk/${{ matrix.ndk_ver }}"
 
-      - name: "[VKAX] Upload ccache stats (depends)"
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: ccache-stats-depends-${{ matrix.arch }}
-          path: ${{ runner.temp }}/ccache-depends.txt
-          if-no-files-found: warn
-
-      - name: "[VKAX] Boost provenance"
+      - name: Derive NDK host_tag and smoke test
+        id: hosttag
         run: |
-          set -Eeuo pipefail
-          [ -f depends/packages/boost.mk ] && sed -n '1,120p' depends/packages/boost.mk || true
+          set -euo pipefail
+          os=$(uname -s | tr '[:upper:]' '[:lower:]')
+          arch=$(uname -m)
+          case "$arch" in x86_64|amd64) arch=x86_64;; aarch64|arm64) arch=arm64;; *) echo "::error::Unsupported arch $arch"; exit 1;; esac
+          echo "HOST_TAG=$os-$arch" >> "$GITHUB_OUTPUT"
+          ndk_root="$ANDROID_SDK_ROOT/ndk/${{ matrix.ndk_ver }}"
+          clang_a32="$ndk_root/toolchains/llvm/prebuilt/${os}-${arch}/bin/armv7a-linux-androideabi21-clang++"
+          clang_a64="$ndk_root/toolchains/llvm/prebuilt/${os}-${arch}/bin/aarch64-linux-android21-clang++"
+          mkdir -p smoke && cd smoke
+          printf '%s\n' '#include <atomic>\nint main(){ std::atomic<int> v{0}; v++; return (int)v.load(); }' > t.cpp
+          "$clang_a32" -latomic -fdebug-prefix-map=$PWD=/usr/src t.cpp -o a32
+          "$clang_a64" -fdebug-prefix-map=$PWD=/usr/src t.cpp -o a64
 
-      - name: "[VKAX] Configure"
-        env:
-          HOST: ${{ matrix.host }}
+      - name: Build Android
         run: |
-          set -Eeuo pipefail
-          export SOURCE_DATE_EPOCH="$(git log -1 --format=%ct || echo 0)"
-          export PKG_CONFIG_PATH="$PWD/depends/${HOST}/lib/pkgconfig"
-          export CPPFLAGS="-I$PWD/depends/${HOST}/include"
-          export LDFLAGS="-L$PWD/depends/${HOST}/lib"
-          ./autogen.sh
-          ./configure --host="${HOST}" --prefix="$PWD/depends/${HOST}"
-
-      - name: "[VKAX] Build"
-        run: |
-          set -Eeuo pipefail
-          export SOURCE_DATE_EPOCH="$(git log -1 --format=%ct || echo 0)"
-          make --output-sync=target -j"$(nproc)" 2>&1 | tee -a "$BUILD_LOG"
-
-      - name: "[VKAX] ccache stats (after main)"
-        if: always()
-        run: |
-          set -Eeuo pipefail
-          ccache --show-stats > "$RUNNER_TEMP/ccache-main.txt" || true
-          {
-            echo "## ccache (after main)"
-            echo
-            echo '```'
-            cat "$RUNNER_TEMP/ccache-main.txt"
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-          total_calls="$(awk -F: '/cache hit \(direct\)|cache hit \(preprocessed\)|cache miss/{gsub(",","",$2); s+=$2} END{print s+0}' "$RUNNER_TEMP/ccache-main.txt")"
-          if [ "${total_calls:-0}" -eq 0 ]; then
-            echo "::error::ccache recorded 0 hits/misses after main build (bypassed)."
-            exit 1
-          fi
-
-      - name: "[VKAX] Upload ccache stats (main)"
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: ccache-stats-main-${{ matrix.arch }}
-          path: ${{ runner.temp }}/ccache-main.txt
-          if-no-files-found: warn
-
-      - name: "[VKAX] Link size report"
-        run: |
-          set -Eeuo pipefail
-          bins=(src/vkaxd src/vkax-cli src/vkax-tx)
-          {
-            echo "## Link size report"
-            echo
-            echo '```'
-            for f in "${bins[@]}"; do
-              [ -x "$f" ] || continue
-              echo "== $f =="
-              size -A "$f" 2>/dev/null || true
-              stat -c 'bytes=%s' "$f" || true
-              echo
-            done
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: "[VKAX] Package artifacts"
-        run: |
-          set -Eeuo pipefail
+          set -euo pipefail
           mkdir -p artifacts
-          shopt -s nullglob
-          files=(src/vkaxd src/vkax-cli src/vkax-tx)
-          have_any=false; for f in "${files[@]}"; do [ -f "$f" ] && have_any=true; done
-          if ! $have_any; then
-            echo "No build artifacts detected."
-            exit 0
+          if [ -x "./gradlew" ]; then
+            bash ./gradlew --no-daemon -Dorg.gradle.caching=true -Dorg.gradle.jvmargs="-Xmx3g" clean assembleRelease
+          elif [ -x "./contrib/scripts/build-android.sh" ]; then
+            ./contrib/scripts/build-android.sh "${{ matrix.flavor }}" "${{ matrix.api }}" "${{ matrix.ndk_ver }}"
+          else
+            echo "No known Android build entrypoint found" | tee artifacts/build-skipped.txt
           fi
-          strip -s "${files[@]}" || true
-          tpfx="${{ matrix.clang_triple }}${{ matrix.api }}"
-          {
-            echo "## Packaged binaries"
-            echo
-            echo '```'
-            for f in "${files[@]}"; do
-              echo "== $f =="
-              size -A "$f" 2>/dev/null || true
-              stat -c 'bytes=%s' "$f" || true
-              echo
-            done
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-          {
-            echo "project=VKAX"
-            echo "sha=${GITHUB_SHA}"
-            echo "arch=${{ matrix.arch }}"
-            echo "tuple=${tpfx}"
-            echo "ndk=${{ matrix.ndk_ver }}"
-            echo "sdk_api=${{ matrix.api }}"
-            echo "build_time_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          } > artifacts/VERSION.txt
-          cp -v "${files[@]}" artifacts/
-          tar -C artifacts -czf "vkax-android-${{ matrix.arch }}-ndk${{ matrix.ndk_ver }}-${GITHUB_SHA::7}.tar.gz" .
+          find . -type f \( -name '*.apk' -o -name '*.aab' -o -name 'VKAX*.zip' \) -print -exec cp -f '{}' artifacts/ \; || true
+          printf "%s\n" "version=$(git describe --tags --always --dirty=+)" > artifacts/VERSION.txt
 
-      - name: "[VKAX] Artifact ABI summary"
-        run: |
-          set -Eeuo pipefail
-          {
-            echo "## Artifact ABI summary"
-            echo
-            echo '```'
-            for f in artifacts/vkaxd artifacts/vkax-cli artifacts/vkax-tx; do
-              if [ -f "$f" ]; then
-                printf "%s: %s\n" "$(basename "$f")" "$(file -b "$f")"
-              else
-                printf "%s: %s\n" "$(basename "$f")" "MISSING"
-              fi
-            done
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: "[VKAX] Upload artifacts"
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - name: Upload Android artifacts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: vkax-android-${{ matrix.arch }}-ndk${{ matrix.ndk_ver }}
-          path: vkax-android-${{ matrix.arch }}-ndk${{ matrix.ndk_ver }}-*.tar.gz
-
-      - name: "[VKAX] Summarize last ${TAIL_N} build lines"
-        if: always()
-        run: |
-          set -Eeuo pipefail
-          tail -n "${TAIL_N:-200}" "$BUILD_LOG" > "$RUNNER_TEMP/tail.txt" || true
-          {
-            echo "## tail -n ${TAIL_N:-200} $BUILD_LOG"
-            echo
-            echo '```'
-            cat "$RUNNER_TEMP/tail.txt"
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: "[VKAX] Stop liveness probe"
-        if: always()
-        run: |
-          set -Eeuo pipefail
-          if [ -n "${PROBE_PID:-}" ] && kill -0 "$PROBE_PID" 2>/dev/null; then kill "$PROBE_PID" || true; fi
-
-      - name: "[VKAX] Upload full build log"
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: build-log-${{ matrix.arch }}
-          path: ${{ env.BUILD_LOG }}
+          name: android-${{ matrix.flavor }}-api${{ matrix.api }}-ndk${{ matrix.ndk_ver }}
+          path: artifacts
           if-no-files-found: warn
-          retention-days: 7
