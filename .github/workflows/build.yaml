@@ -3,7 +3,7 @@ name: Build (Ubuntu-first, Android legacy+normal, Qt-toggle-ready)
 
 on:
   push:
-    branches: [ master ]
+    branches: [ v100.11.5-android ]
   pull_request:
   workflow_dispatch:
 
