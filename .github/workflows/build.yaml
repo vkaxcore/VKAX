@@ -1,5 +1,5 @@
 # .github/workflows/build.yaml
-name: CI • Android (modern+legacy on Ubuntu) + Native (Win/macOS-13/Ubuntu 22/24)
+name: CI • Android (modern+legacy) + Native (macOS-13/Ubuntu/Windows)
 
 on:
   push:
@@ -14,32 +14,32 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# Android tools URLs used by Ubuntu-only Android jobs
 env:
   ANDROID_SDK_ROOT: ${{ github.workspace }}/.android-sdk
   ANDROID_HOME: ${{ github.workspace }}/.android-sdk
   ANDROID_CLT_LINUX: https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip
-  ANDROID_NDK_VERSION: "23.1.7779620"   # single source of truth
 
-# -----------------------------
-# ANDROID (modern APIs) — Ubuntu AMD64 only
-# -----------------------------
+# ============================
+# ANDROID (modern APIs, Ubuntu AMD64 only)
+# ============================
 jobs:
   android_modern:
-    name: android • ${{ matrix.name }} • api ${{ matrix.api }} • ndk ${{ env.ANDROID_NDK_VERSION }}
+    name: android • ${{ matrix.os_name }} • api ${{ matrix.api }} • ndk ${{ matrix.ndk }}
     runs-on: ${{ matrix.runs_on }}
     timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
         api: [24, 28, 34, 35]
+        ndk: ["23.1.7779620"]
         include:
-          - name: ubuntu-22-amd64
+          - os_name: ubuntu-22-amd64
             runs_on: ubuntu-22.04
-            host_tag: linux-x86_64
-          - name: ubuntu-24-amd64
+          - os_name: ubuntu-24-amd64
             runs_on: ubuntu-24.04
-            host_tag: linux-x86_64
-
+    env:
+      ANDROID_NDK_VERSION: ${{ matrix.ndk }}  # expose to steps
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -85,22 +85,21 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          pt="$ANDROID_SDK_ROOT/platform-tools/adb"
-          [ -x "$pt" ] || { echo "::error::adb missing at $pt"; exit 1; }
-          pd="$ANDROID_SDK_ROOT/platforms/android-${{ matrix.api }}"
-          [ -d "$pd" ] || { echo "::error::Android platform missing: $pd"; exit 1; }
-          ndk="$ANDROID_SDK_ROOT/ndk/${ANDROID_NDK_VERSION}"
-          [ -d "$ndk" ] || { echo "::error::NDK missing: $ndk"; exit 1; }
-          pre="$ndk/toolchains/llvm/prebuilt/${{ matrix.host_tag }}/bin"
-          [ -d "$pre" ] || { echo "::error::NDK prebuilt not found: $pre"; ls -la "$ndk/toolchains/llvm/prebuilt" || true; exit 1; }
-          ls -1 "$pre" | head -n 5
+          adb_bin="$ANDROID_SDK_ROOT/platform-tools/adb"
+          plat_dir="$ANDROID_SDK_ROOT/platforms/android-${{ matrix.api }}"
+          ndk_dir="$ANDROID_SDK_ROOT/ndk/${ANDROID_NDK_VERSION}"
+          pre="$ndk_dir/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          [ -x "$adb_bin" ] || { echo "::error::adb missing at $adb_bin"; exit 1; }
+          [ -d "$plat_dir" ] || { echo "::error::Android platform missing: $plat_dir"; exit 1; }
+          [ -d "$ndk_dir" ] || { echo "::error::NDK missing: $ndk_dir"; exit 1; }
+          [ -d "$pre" ] || { echo "::error::NDK prebuilt not found: $pre"; ls -la "$ndk_dir/toolchains/llvm/prebuilt" || true; exit 1; }
 
       - name: Smoke compile (armv7a+arm64)
         id: smoke
         shell: bash
         run: |
           set -euo pipefail
-          pre="$ANDROID_SDK_ROOT/ndk/${ANDROID_NDK_VERSION}/toolchains/llvm/prebuilt/${{ matrix.host_tag }}/bin"
+          pre="$ANDROID_SDK_ROOT/ndk/${ANDROID_NDK_VERSION}/toolchains/llvm/prebuilt/linux-x86_64/bin"
           a32="$pre/armv7a-linux-androideabi21-clang++"
           a64="$pre/aarch64-linux-android21-clang++"
           [ -x "$a32" ] || { echo "::error::Missing $a32"; exit 127; }
@@ -118,7 +117,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: smoke-${{ matrix.name }}-api${{ matrix.api }}
+          name: smoke-android-${{ matrix.os_name }}-api${{ matrix.api }}
           path: |
             .smoke_pass
             smoke/**/*
@@ -132,7 +131,7 @@ jobs:
             chmod +x ./gradlew
             ./gradlew --no-daemon --stacktrace assemble
           else
-            echo "::notice::No Gradle wrapper; skipping Android app build."
+            echo "::notice::No Gradle wrapper; skipping."
           fi
 
       - name: CMake build (if present)
@@ -140,29 +139,34 @@ jobs:
         run: |
           set -euo pipefail
           if [ -f CMakeLists.txt ]; then
-            cmake -S . -B build -G Ninja
+            cmake -S . -B build
             cmake --build build -j"$(getconf _NPROCESSORS_ONLN || echo 2)"
           else
-            echo "::notice::No CMakeLists.txt; skipping native build."
+            echo "::notice::No CMakeLists.txt; skipping."
           fi
 
       - name: Upload build artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: build-android-${{ matrix.name }}-api${{ matrix.api }}
+          name: build-android-${{ matrix.os_name }}-api${{ matrix.api }}
           path: |
             build/**/*
             **/build/outputs/**/*
           if-no-files-found: warn
 
-# -----------------------------
-# ANDROID (legacy API 15) — Ubuntu 22 AMD64 only
-# -----------------------------
+  # ============================
+  # ANDROID (legacy API 15, Ubuntu 22 AMD64)
+  # ============================
   android_legacy:
-    name: android-legacy • ubuntu-22-amd64 • api 15 • ndk ${{ env.ANDROID_NDK_VERSION }}
+    name: android-legacy • ubuntu-22-amd64 • api 15 • ndk ${{ matrix.ndk }}
     runs-on: ubuntu-22.04
     timeout-minutes: 40
+    strategy:
+      matrix:
+        ndk: ["23.1.7779620"]
+    env:
+      ANDROID_NDK_VERSION: ${{ matrix.ndk }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -220,133 +224,19 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: smoke-legacy-api15
+          name: smoke-android-legacy-api15
           path: |
             .smoke_pass
             smoke/**/*
           if-no-files-found: warn
 
-# -----------------------------
-# NATIVE (GitHub-hosted) — Win/macOS-13/Ubuntu 22+24 AMD64
-# -----------------------------
-  native_hosted:
-    name: native • ${{ matrix.name }}
-    runs-on: ${{ matrix.runs_on }}
+# ============================
+# macOS (Intel) — native only, no Android deps
+# ============================
+  macos:
+    name: native • macos-13-intel
+    runs-on: macos-13
     timeout-minutes: 25
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: ubuntu-22-amd64
-            runs_on: ubuntu-22.04
-            shell: bash
-          - name: ubuntu-24-amd64
-            runs_on: ubuntu-24.04
-            shell: bash
-          - name: macos-13-intel
-            runs_on: macos-13
-            shell: bash
-          - name: windows-2022
-            runs_on: windows-2022
-            shell: pwsh
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Toolchain smoke (Linux/macOS)
-        if: matrix.shell == 'bash'
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo 'int main(){return 0;}' > t.cpp
-          c++ -v || true
-          c++ -O2 t.cpp -o t
-          ./t || true
-
-      - name: Setup MSVC env (Windows)
-        if: matrix.shell == 'pwsh'
-        uses: ilammy/msvc-dev-cmd@v1
-
-      - name: Toolchain smoke (Windows)
-        if: matrix.shell == 'pwsh'
-        shell: pwsh
-        run: |
-          'int main(){return 0;}' | Set-Content -NoNewline -Path .\t.cpp
-          cl /nologo .\t.cpp /Fe:t.exe
-          .\t.exe
-
-      - name: CMake build (if present) • Linux/macOS
-        if: matrix.shell == 'bash'
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ -f CMakeLists.txt ]; then
-            cmake -S . -B build -G Ninja
-            cmake --build build -j"$(getconf _NPROCESSORS_ONLN || echo 2)"
-          else
-            echo "::notice::No CMakeLists.txt; skipping."
-          fi
-
-      - name: CMake build (if present) • Windows
-        if: matrix.shell == 'pwsh'
-        shell: pwsh
-        run: |
-          if (Test-Path .\CMakeLists.txt) {
-            cmake -S . -B build -G "Ninja"
-            cmake --build build -- -j 2
-          } else {
-            echo "::notice::No CMakeLists.txt; skipping."
-          }
-
-      - name: Gradle build (if present) • Linux/macOS
-        if: matrix.shell == 'bash'
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ -f "./gradlew" ]; then
-            chmod +x ./gradlew
-            ./gradlew --no-daemon --stacktrace assemble
-          else
-            echo "::notice::No Gradle wrapper; skipping."
-          fi
-
-      - name: Gradle build (if present) • Windows
-        if: matrix.shell == 'pwsh'
-        shell: pwsh
-        run: |
-          if (Test-Path .\gradlew.bat) {
-            & .\gradlew.bat --no-daemon --stacktrace assemble
-          } else {
-            echo "::notice::No Gradle wrapper; skipping."
-          }
-
-      - name: Upload native artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: native-${{ matrix.name }}
-          path: |
-            build/**/*
-            **/build/outputs/**/*
-          if-no-files-found: warn
-
-# -----------------------------
-# NATIVE (self-hosted Ubuntu ARM64 22/24) — no Android deps
-# -----------------------------
-  native_linux_arm64_selfhosted:
-    name: native • selfhosted • ${{ matrix.name }}
-    runs-on: ${{ fromJSON(matrix.runs_on) }}
-    timeout-minutes: 25
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: ubuntu-22-arm64
-            runs_on: '["self-hosted","Linux","ARM64","ubuntu-22.04"]'
-          - name: ubuntu-24-arm64
-            runs_on: '["self-hosted","Linux","ARM64","ubuntu-24.04"]'
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -365,7 +255,59 @@ jobs:
         run: |
           set -euo pipefail
           if [ -f CMakeLists.txt ]; then
-            cmake -S . -B build -G Ninja
+            cmake -S . -B build
+            cmake --build build -j"$(sysctl -n hw.ncpu || echo 2)"
+          else
+            echo "::notice::No CMakeLists.txt; skipping."
+          fi
+
+      - name: Upload native artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-macos-13
+          path: |
+            build/**/*
+          if-no-files-found: warn
+
+# ============================
+# Ubuntu (22/24 AMD64 + self-hosted ARM64) — native only
+# ============================
+  ubuntu:
+    name: native • ${{ matrix.name }}
+    runs-on: ${{ fromJSON(matrix.runs_on) }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: ubuntu-22-amd64
+            runs_on: '"ubuntu-22.04"'
+          - name: ubuntu-24-amd64
+            runs_on: '"ubuntu-24.04"'
+          - name: ubuntu-22-arm64
+            runs_on: '["self-hosted","Linux","ARM64","ubuntu-22.04"]'
+          - name: ubuntu-24-arm64
+            runs_on: '["self-hosted","Linux","ARM64","ubuntu-24.04"]'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Toolchain smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo 'int main(){return 0;}' > t.cpp
+          c++ -v || true
+          c++ -O2 t.cpp -o t
+          ./t || true
+
+      - name: CMake build (if present)
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -f CMakeLists.txt ]; then
+            cmake -S . -B build
             cmake --build build -j"$(nproc || echo 2)"
           else
             echo "::notice::No CMakeLists.txt; skipping."
@@ -375,8 +317,47 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: native-selfhosted-${{ matrix.name }}
+          name: native-${{ matrix.name }}
           path: |
             build/**/*
-            **/build/outputs/**/*
+          if-no-files-found: warn
+
+# ============================
+# Windows (PowerShell) — native only, no Android deps
+# ============================
+  windows:
+    name: native • windows-2022
+    runs-on: windows-2022
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup MSVC env
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Toolchain smoke
+        shell: pwsh
+        run: |
+          'int main(){return 0;}' | Set-Content -NoNewline -Path .\t.cpp
+          cl /nologo .\t.cpp /Fe:t.exe
+          .\t.exe
+
+      - name: CMake build (if present)
+        shell: pwsh
+        run: |
+          if (Test-Path .\CMakeLists.txt) {
+            cmake -S . -B build -G "Ninja"
+            cmake --build build -- -j 2
+          } else {
+            echo "::notice::No CMakeLists.txt; skipping."
+          }
+
+      - name: Upload native artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-windows-2022
+          path: |
+            build/**/*
           if-no-files-found: warn
