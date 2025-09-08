@@ -158,26 +158,32 @@ jobs:
           curl -fsSL "$FDROID_BASE/checksums.json.asc" -o /tmp/fdroid/checksums.json.asc
           curl -fsSL "$FDROID_BASE/keyring.gpg"        -o /tmp/fdroid/keyring.gpg
           gpg --batch --no-default-keyring --keyring /tmp/fdroid/keyring.gpg --verify /tmp/fdroid/checksums.json.asc /tmp/fdroid/checksums.json
+
           tmpzip="$(mktemp /tmp/clt.XXXXXX.zip)"
           curl -fsSL "$CLT_URL" -o "$tmpzip"
           got_sha="$(sha256sum "$tmpzip" | awk '{print $1}')"
+
           exp_list="$(jq -r --arg u "$CLT_URL" '.[$u] | if type=="array" then map(.sha256)[] else .sha256 // empty end' /tmp/fdroid/checksums.json)"
           [ -n "$exp_list" ] || { echo "::error::F-Droid checksums.json has no entry for $CLT_URL"; exit 1; }
           printf '%s\n' "$exp_list" | grep -Fxq "$got_sha" || { echo "::error::Checksum mismatch for cmdline-tools: got=$got_sha expected_one_of=$(printf '%s' "$exp_list" | tr '\n' ' ')"; exit 1; }
+
           {
             echo "## Android cmdline-tools integrity"
             echo
             echo "- URL: $CLT_URL"
             echo "- Verified SHA256: \`$got_sha\`"
           } >> "$GITHUB_STEP_SUMMARY"
+
           unzip -q "$tmpzip" -d "$ANDROID_SDK_ROOT/cmdline-tools"
           mv "$ANDROID_SDK_ROOT/cmdline-tools/cmdline-tools" "$ANDROID_SDK_ROOT/cmdline-tools/latest"
+
           {
             echo "8933bad161af4178b1185d1a37fbf41ea5269c55"
             echo "d56f5187479451eabf01fb78af6dfcb131a6481e"
           } > "$ANDROID_SDK_ROOT/licenses/android-sdk-license"
           echo "84831b9409646a918e30573bab4c9c91346d8abd" > "$ANDROID_SDK_ROOT/licenses/android-sdk-preview-license"
           echo "24333f8a63b6825ea9c5514f83c2829b004d1fee" > "$ANDROID_SDK_ROOT/licenses/android-ndk-license"
+
           export ANDROID_SDK_ROOT="$ANDROID_SDK_ROOT"
           export ANDROID_SDK="$ANDROID_SDK_ROOT"
           export ANDROID_HOME="$ANDROID_SDK_ROOT"
@@ -186,6 +192,7 @@ jobs:
             "platform-tools" \
             "platforms;android-${{ matrix.api }}" \
             "ndk;${{ matrix.ndk_ver }}"
+
           {
             echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
             echo "ANDROID_SDK=$ANDROID_SDK_ROOT"
@@ -195,11 +202,13 @@ jobs:
             echo "ANDROID_NDK_ROOT=$ANDROID_SDK_ROOT/ndk/${{ matrix.ndk_ver }}"
             echo "ANDROID_NDK=$ANDROID_SDK_ROOT/ndk/${{ matrix.ndk_ver }}"
           } >> "$GITHUB_ENV"
+
           {
             echo "$ANDROID_SDK_ROOT/platform-tools"
             echo "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin"
             echo "$ANDROID_SDK_ROOT/ndk/${{ matrix.ndk_ver }}/toolchains/llvm/prebuilt/linux-x86_64/bin"
           } >> "$GITHUB_PATH"
+
 
 
 
