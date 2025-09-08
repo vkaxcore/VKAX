@@ -1,22 +1,5 @@
 # File: .github/workflows/build.yaml
-# Purpose: Android daemon/cli/tx builds for aarch64 + armv7 on API-21 + NDK r23b, with safe SDK licenses,
-#          toolchain sanity, Android mk lint, progress probe, tee'd logs, 1000-line summary tail,
-#          provenance for user-config.jam (owned by boost.mk), and Boost b2 version print.
-# Key vars/switches:
-#   matrix.arch: aarch64 | armv7
-#   matrix.api:  "21"
-#   matrix.ndk_ver: "23.1.7779620" (r23b)
-#   CC/CXX: set to ${clang_target}${api}-{clang,clang++} via ccache
-#   ANDROID_SDK_ROOT, ANDROID_NDK_HOME: set per job
-#   MAKEFLAGS: --output-sync=target -j$(nproc)
-#   VERBOSE_BUILD=1: enables set -x for major steps
-# External expectations:
-#   boost.mk emits user-config.jam (workflow never writes it)
-#   depends uses NO_QT=1 (daemon/cli/tx only)
-# =============================
-# File: .github/workflows/build.yaml
-# =============================
-name: VKAX Android Build
+name: VKAX Android Builds
 
 on:
   workflow_dispatch:
@@ -76,8 +59,9 @@ jobs:
             echo "::error::Forbidden pattern 'yes | sdkmanager --licenses' in workflows"
             exit 1
           fi
-          if git --no-pager grep -nH --color=never -e 'user-config\.jam' .github/workflows; then
-            echo "::error::user-config.jam must be owned by depends/packages/boost.mk, not CI"
+          # Exclude this file so the guard doesn't self-flag while still scanning other workflows
+          if git --no-pager grep -nH --color=never -e 'user-config\.jam' -- .github/workflows ':!**/.github/workflows/build.yaml'; then
+            echo "::error::Workflows must not reference user-config.jam (owned by depends/packages/boost.mk)"
             exit 1
           fi
 
@@ -113,12 +97,12 @@ jobs:
           set -Eeuo pipefail; [ "${VERBOSE_BUILD:-0}" = 1 ] && set -x || true
           mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools" "$ANDROID_SDK_ROOT/licenses" /tmp/fdroid
 
-          # 1) Fetch signed transparency log and keyring
+          # 1) Download signed checksum metadata + keyring
           curl -fsSL "$FDROID_BASE/checksums.json"     -o /tmp/fdroid/checksums.json
           curl -fsSL "$FDROID_BASE/checksums.json.asc" -o /tmp/fdroid/checksums.json.asc
           curl -fsSL "$FDROID_BASE/keyring.gpg"        -o /tmp/fdroid/keyring.gpg
 
-          # 2) Verify the signed checksums.json using F-Droid keyring
+          # 2) Verify signature
           gpg --batch --no-default-keyring --keyring /tmp/fdroid/keyring.gpg --verify \
               /tmp/fdroid/checksums.json.asc /tmp/fdroid/checksums.json
 
@@ -138,11 +122,19 @@ jobs:
             exit 1
           fi
 
-          # 5) Install cmdline-tools as 'latest'
+          # 5) Print verified SHA to Job Summary for audit
+          {
+            echo "## Android cmdline-tools integrity"
+            echo
+            echo "- URL: $CLT_URL"
+            echo "- Verified SHA256: \`$got_sha\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          # 6) Install cmdline-tools as 'latest'
           unzip -q "$tmpzip" -d "$ANDROID_SDK_ROOT/cmdline-tools"
           mv "$ANDROID_SDK_ROOT/cmdline-tools/cmdline-tools" "$ANDROID_SDK_ROOT/cmdline-tools/latest"
 
-          # 6) Write license hash files (no piping to sdkmanager --licenses)
+          # 7) Write license hash files (no piping to sdkmanager --licenses)
           {
             echo "8933bad161af4178b1185d1a37fbf41ea5269c55"
             echo "d56f5187479451eabf01fb78af6dfcb131a6481e"
@@ -150,7 +142,7 @@ jobs:
           echo "84831b9409646a918e30573bab4c9c91346d8abd" > "$ANDROID_SDK_ROOT/licenses/android-sdk-preview-license"
           echo "24333f8a63b6825ea9c5514f83c2829b004d1fee" > "$ANDROID_SDK_ROOT/licenses/android-ndk-license"
 
-          # 7) Install platform-tools, API 21, and NDK r23b
+          # 8) Install platform-tools, API 21, and NDK r23b
           export PATH="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH"
           sdkmanager --install \
             "platform-tools" \
