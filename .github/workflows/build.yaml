@@ -1,6 +1,5 @@
-# File: .github/workflows/build.yaml
-# Purpose: Android aarch64(API 25) + armv7(API 21) with verbose logs, safe license accept,
-#          depends caching, OOM-friendly parallelism, and a 60s progress probe during long builds.
+# .github/workflows/build.yaml
+# Android aarch64(API 25) + armv7(API 21), verbose, progress probe, lint/guards, A/B NDK (r25c vs r23b)
 
 name: VKAX Android Builds
 
@@ -12,23 +11,26 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: android-${{ github.ref }}
-  cancel-in-progress: true
-
 env:
-  ANDROID_NDK_VER: "25.2.9519653"   # r25c; if segfault persists, try r23b (23.2.8568313)
   VERBOSE_BUILD: "1"
   MAKEFLAGS: "--output-sync=target"
 
 jobs:
   android:
-    name: Android ${{ matrix.arch }} (daemon/cli/tx)
+    name: Android ${{ matrix.arch }} NDK ${{ matrix.ndk_ver }} (daemon/cli/tx)
     runs-on: ubuntu-22.04
     timeout-minutes: 120
+
+    # Per-arch+NDK concurrency so a new push doesn’t nuke unrelated lanes
+    concurrency:
+      group: android-${{ github.ref }}-${{ matrix.arch }}-ndk${{ matrix.ndk_ver }}
+      cancel-in-progress: true
+
     strategy:
       fail-fast: false
       matrix:
+        ndk_ver: ["25.2.9519653", "23.2.8568313"]  # r25c, r23b
+        arch: [aarch64, armv7]
         include:
           - arch: aarch64
             api: "25"
@@ -40,6 +42,7 @@ jobs:
             host: arm-linux-androideabi
             clang_target: armv7a-linux-androideabi
             addr_model: 32
+
     defaults:
       run:
         shell: bash
@@ -48,8 +51,37 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
           lfs: true
+          fetch-depth: 0
+
+      # Early guard: don’t let anyone re-introduce the SIGPIPE footgun
+      - name: Guard against 'yes | sdkmanager --licenses'
+        run: |
+          set -Eeuo pipefail
+          if grep -R --line-number --fixed-strings 'yes | sdkmanager --licenses' .github/workflows/ depends/; then
+            echo "::error::'yes | sdkmanager --licenses' is forbidden under pipefail"; exit 1
+          fi
+
+      # Lint Makefiles to block “minified” 10,000-char lines and non-ASCII goblins
+      - name: Lint Makefiles (ASCII + max line length 400)
+        run: |
+          set -Eeuo pipefail
+          shopt -s nullglob
+          files=()
+          while IFS= read -r -d '' f; do files+=("$f"); done < <(find depends -type f -name '*.mk' -print0)
+          [ ${#files[@]} -gt 0 ] || exit 0
+          bad=0
+          for f in "${files[@]}"; do
+            if LC_ALL=C grep -nP "[^\x00-\x7F]" "$f" >/dev/null; then
+              echo "::error file=$f::contains non-ASCII characters"
+              LC_ALL=C grep -nP "[^\x00-\x7F]" "$f" || true
+              bad=1
+            fi
+          done
+          for f in "${files[@]}"; do
+            awk 'length($0) > 400 { printf "::error file=%s,line=%d::line too long (%d chars)\n", FILENAME, NR, length($0); bad=1 } END { exit bad }' "$f" || bad=1
+          done
+          exit $bad
 
       - name: Java 11
         uses: actions/setup-java@v4
@@ -59,8 +91,7 @@ jobs:
 
       - name: System deps
         run: |
-          set -Eeuo pipefail
-          [ "${VERBOSE_BUILD}" = "1" ] && set -x
+          set -Eeuo pipefail; [ "${VERBOSE_BUILD}" = "1" ] && set -x
           sudo apt-get update
           sudo apt-get install -y \
             build-essential automake autoconf libtool pkg-config \
@@ -71,9 +102,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.ccache
-          key: ccache-${{ runner.os }}-${{ matrix.arch }}-api${{ matrix.api }}-ndk${{ env.ANDROID_NDK_VER }}-${{ hashFiles('**/configure.ac', '**/Makefile.am', 'depends/**', 'src/**') }}
+          key: ccache-${{ runner.os }}-${{ matrix.arch }}-api${{ matrix.api }}-ndk${{ matrix.ndk_ver }}-${{ hashFiles('**/configure.ac', '**/Makefile.am', 'depends/**', 'src/**') }}
           restore-keys: |
-            ccache-${{ runner.os }}-${{ matrix.arch }}-api${{ matrix.api }}-ndk${{ env.ANDROID_NDK_VER }}-
+            ccache-${{ runner.os }}-${{ matrix.arch }}-api${{ matrix.api }}-ndk${{ matrix.ndk_ver }}-
 
       - name: Cache depends outputs
         uses: actions/cache@v4
@@ -81,17 +112,15 @@ jobs:
           path: |
             depends/built
             depends/sources
-          key: depends-${{ runner.os }}-${{ matrix.arch }}-api${{ matrix.api }}-ndk${{ env.ANDROID_NDK_VER }}-${{ hashFiles('depends/packages/*', 'depends/*.mk') }}
+          key: depends-${{ runner.os }}-${{ matrix.arch }}-api${{ matrix.api }}-ndk${{ matrix.ndk_ver }}-${{ hashFiles('depends/packages/*', 'depends/*.mk') }}
           restore-keys: |
-            depends-${{ runner.os }}-${{ matrix.arch }}-api${{ matrix.api }}-ndk${{ env.ANDROID_NDK_VER }}-
+            depends-${{ runner.os }}-${{ matrix.arch }}-api${{ matrix.api }}-ndk${{ matrix.ndk_ver }}-
 
       - name: Android SDK + NDK
         env:
           ANDROID_SDK_ROOT: ${{ github.workspace }}/android-sdk
         run: |
-          set -Eeuo pipefail
-          [ "${VERBOSE_BUILD}" = "1" ] && set -x
-
+          set -Eeuo pipefail; [ "${VERBOSE_BUILD}" = "1" ] && set -x
           if [ ! -d "$ANDROID_SDK_ROOT/cmdline-tools/latest" ]; then
             mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools"
             wget -q https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip -O /tmp/clt.zip
@@ -100,33 +129,32 @@ jobs:
           fi
           export PATH="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH"
 
-          # Safe license accept (no SIGPIPE with pipefail)
+          # Safe license accept (no pipe, no SIGPIPE drama)
           sdkmanager --update >/dev/null 2>&1 || true
           sdkmanager --licenses >/dev/null 2>&1 <<< $'y\ny\ny\ny\ny\ny\ny\n'
 
-          # Install platform + NDK for this arch's API
+          # Install platform + NDK from matrix
           sdkmanager --install \
             "platform-tools" \
             "platforms;android-${{ matrix.api }}" \
-            "ndk;${ANDROID_NDK_VER}"
+            "ndk;${{ matrix.ndk_ver }}"
 
           {
             echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
             echo "ANDROID_SDK=$ANDROID_SDK_ROOT"
             echo "ANDROID_HOME=$ANDROID_SDK_ROOT"
-            echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/${ANDROID_NDK_VER}"
+            echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/${{ matrix.ndk_ver }}"
           } >> "$GITHUB_ENV"
 
           {
             echo "$ANDROID_SDK_ROOT/platform-tools"
             echo "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin"
-            echo "$ANDROID_SDK_ROOT/ndk/${ANDROID_NDK_VER}/toolchains/llvm/prebuilt/linux-x86_64/bin"
+            echo "$ANDROID_SDK_ROOT/ndk/${{ matrix.ndk_ver }}/toolchains/llvm/prebuilt/linux-x86_64/bin"
           } >> "$GITHUB_PATH"
 
       - name: Toolchain setup
         run: |
-          set -Eeuo pipefail
-          [ "${VERBOSE_BUILD}" = "1" ] && set -x
+          set -Eeuo pipefail; [ "${VERBOSE_BUILD}" = "1" ] && set -x
           TOOLCHAIN_BIN="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin"
           TARGET_PREFIX="${{ matrix.clang_target }}${{ matrix.api }}"
           WANT_CC="$TOOLCHAIN_BIN/${TARGET_PREFIX}-clang"
@@ -147,10 +175,16 @@ jobs:
           echo "AR=llvm-ar"       >> "$GITHUB_ENV"
           echo "RANLIB=llvm-ranlib" >> "$GITHUB_ENV"
 
+          # Verify toolchain exists (fail fast if paths are wrong)
+          echo "[verify-ndk] TOOLCHAIN_BIN=$TOOLCHAIN_BIN  TARGET=$TARGET_PREFIX"
+          for t in "${TARGET_PREFIX}-clang" "${TARGET_PREFIX}-clang++" "llvm-ar" "llvm-ranlib"; do
+            [ -x "$TOOLCHAIN_BIN/$t" ] || { echo "::error::missing $TOOLCHAIN_BIN/$t"; exit 1; }
+          done
+          "$TOOLCHAIN_BIN/${TARGET_PREFIX}-clang" --version || true
+
       - name: Configure Boost (safe user-config.jam)
         run: |
-          set -Eeuo pipefail
-          [ "${VERBOSE_BUILD}" = "1" ] && set -x
+          set -Eeuo pipefail; [ "${VERBOSE_BUILD}" = "1" ] && set -x
           mkdir -p depends "$HOME/.boost-build"
           TOOLCHAIN_BIN="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin"
           TARGET_PREFIX="${{ matrix.clang_target }}${{ matrix.api }}"
@@ -158,6 +192,7 @@ jobs:
           if [ -x "$CANDIDATE" ]; then COMPILER_PATH="$CANDIDATE"; else COMPILER_PATH="$(command -v "${TARGET_PREFIX}-clang++" || true)"; fi
           [ -n "$COMPILER_PATH" ] || { echo "clang++ for $TARGET_PREFIX not found"; exit 1; }
           ADDRESS_MODEL="${{ matrix.addr_model }}"
+          # Proper Boost.Build features; no YAML heredoc traps
           printf 'using clang : android-%s : %s : <target-os>android <architecture>arm <address-model>%s ;\n' \
             "${{ matrix.arch }}" "${COMPILER_PATH}" "${ADDRESS_MODEL}" > depends/user-config.jam
           cp depends/user-config.jam "$HOME/.boost-build/user-config.jam"
@@ -165,8 +200,7 @@ jobs:
 
       - name: Prep depends
         run: |
-          set -Eeuo pipefail
-          [ "${VERBOSE_BUILD}" = "1" ] && set -x
+          set -Eeuo pipefail; [ "${VERBOSE_BUILD}" = "1" ] && set -x
           find depends -type f \( -name "*.mk" -o -name "*.sh" \) -print0 | xargs -0 dos2unix || true
           [ -x depends/config.guess ] || { cp -f /usr/share/misc/config.guess depends/config.guess && chmod +x depends/config.guess; }
           [ -x depends/config.sub ]   || { cp -f /usr/share/misc/config.sub   depends/config.sub   && chmod +x depends/config.sub; }
@@ -175,18 +209,15 @@ jobs:
         env:
           HOST: ${{ matrix.host }}
         run: |
-          set -Eeuo pipefail
-          [ "${VERBOSE_BUILD}" = "1" ] && set -x
+          set -Eeuo pipefail; [ "${VERBOSE_BUILD}" = "1" ] && set -x
 
           BUILD_TRIPLET="$(./depends/config.guess)"
-          echo "Triplet: $BUILD_TRIPLET  Host: $HOST  API: ${{ matrix.api }}"
+          echo "Triplet: $BUILD_TRIPLET  Host: $HOST  API: ${{ matrix.api }}  NDK: ${{ matrix.ndk_ver }}"
 
-          echo "Memory before build:"
-          free -h || true
+          echo "Memory before build:"; free -h || true
           ulimit -a || true
           ulimit -c unlimited || true
 
-          # Progress probe every 60s to show what file is hottest under depends/work
           progress_probe() {
             while sleep 60; do
               echo ":: notice $(date -u +%Y-%m-%dT%H:%M:%SZ) :: depends/work hottest files:"
@@ -200,7 +231,6 @@ jobs:
           # Keep depends parallelism modest to avoid OOM → segfault (139)
           export MAKEFLAGS="--output-sync=target -j2"
 
-          # catchsegv + time give a stack-ish trace and resource stats if a tool crashes
           if command -v catchsegv >/dev/null 2>&1; then WRAP="catchsegv"; else WRAP=""; fi
           $WRAP /usr/bin/time -v \
           make -C depends \
@@ -208,15 +238,13 @@ jobs:
             HOST="$HOST" ANDROID_NDK="$ANDROID_NDK_HOME" ANDROID_API="${{ matrix.api }}" \
             NO_QT=1 V=1
 
-          echo "Memory after build:"
-          free -h || true
+          echo "Memory after build:"; free -h || true
 
       - name: Configure project
         env:
           HOST: ${{ matrix.host }}
         run: |
-          set -Eeuo pipefail
-          [ "${VERBOSE_BUILD}" = "1" ] && set -x
+          set -Eeuo pipefail; [ "${VERBOSE_BUILD}" = "1" ] && set -x
           export PKG_CONFIG_PATH="$PWD/depends/${HOST}/lib/pkgconfig"
           export PKG_CONFIG_LIBDIR="$PKG_CONFIG_PATH"
           export PKG_CONFIG_SYSROOT_DIR="$PWD/depends/${HOST}"
@@ -233,9 +261,7 @@ jobs:
 
       - name: Build (with progress probe)
         run: |
-          set -Eeuo pipefail
-          [ "${VERBOSE_BUILD}" = "1" ] && set -x
-
+          set -Eeuo pipefail; [ "${VERBOSE_BUILD}" = "1" ] && set -x
           progress_probe() {
             while sleep 60; do
               echo ":: notice $(date -u +%Y-%m-%dT%H:%M:%SZ) :: depends/work hottest files:"
@@ -251,8 +277,7 @@ jobs:
 
       - name: Package artifacts
         run: |
-          set -Eeuo pipefail
-          [ "${VERBOSE_BUILD}" = "1" ] && set -x
+          set -Eeuo pipefail; [ "${VERBOSE_BUILD}" = "1" ] && set -x
           mkdir -p artifacts
           shopt -s nullglob
           files=(src/vkaxd src/vkax-cli src/vkax-tx)
@@ -260,12 +285,12 @@ jobs:
           if ! $have_any; then files=(src/vkax*); [ ${#files[@]} -gt 0 ] || { echo "No vkax binaries produced"; exit 1; }; fi
           llvm-strip -s "${files[@]}" || true
           cp -v "${files[@]}" artifacts/
-          tar -C artifacts -czf "vkax-android-${{ matrix.arch }}-${GITHUB_SHA::7}.tar.gz" .
+          tar -C artifacts -czf "vkax-android-${{ matrix.arch }}-ndk${{ matrix.ndk_ver }}-${GITHUB_SHA::7}.tar.gz" .
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: vkax-android-${{ matrix.arch }}
-          path: vkax-android-${{ matrix.arch }}-*.tar.gz
+          name: vkax-android-${{ matrix.arch }}-ndk${{ matrix.ndk_ver }}
+          path: vkax-android-${{ matrix.arch }}-ndk${{ matrix.ndk_ver }}-*.tar.gz
           if-no-files-found: error
           retention-days: 30
