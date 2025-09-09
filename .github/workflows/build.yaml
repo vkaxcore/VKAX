@@ -297,41 +297,6 @@ jobs:
             depends/work/**/.stamp_built
             depends/packages/*.mk
           if-no-files-found: warn
-
-  # ───────────────────────── macOS ─────────────────────────
-  macos:
-    name: native • macOS • macos-13
-    runs-on: macos-13
-    timeout-minutes: 45
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          submodules: true
-          fetch-depth: 0
-
-      - name: Resolve Homebrew cmake tap conflict
-        shell: bash
-        run: |
-          set -euo pipefail
-          brew update-reset || true
-          brew uninstall --ignore-dependencies cmake || true
-          brew install cmake
-          brew doctor || true
-
-      - name: Build (best-effort)
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ -x contrib/ci/macos.sh ]; then
-            ./contrib/ci/macos.sh || true
-          elif [ -f CMakeLists.txt ]; then
-            cmake -S . -B build -G Ninja
-            cmake --build build -j"$(sysctl -n hw.ncpu)" || true
-          else
-            echo "No macOS build script or CMakeLists.txt; skipping"
-          fi
-
   # ───────────────────────── Linux (Ubuntu) ─────────────────────────
   ubuntu:
     name: native • ubuntu • ${{ matrix.name }}
@@ -406,6 +371,40 @@ jobs:
           } else {
             Write-Output "::notice::No CMakeLists.txt; skipping."
           }
+
+    # ───────────────────────── macOS ─────────────────────────
+  macos:
+    name: native • macOS • macos-13
+    runs-on: macos-13
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+          fetch-depth: 0
+
+      - name: Resolve Homebrew cmake tap conflict
+        shell: bash
+        run: |
+          set -euo pipefail
+          brew update-reset || true
+          brew uninstall --ignore-dependencies cmake || true
+          brew install cmake
+          brew doctor || true
+
+      - name: Build (best-effort)
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -x contrib/ci/macos.sh ]; then
+            ./contrib/ci/macos.sh || true
+          elif [ -f CMakeLists.txt ]; then
+            cmake -S . -B build -G Ninja
+            cmake --build build -j"$(sysctl -n hw.ncpu)" || true
+          else
+            echo "No macOS build script or CMakeLists.txt; skipping"
+          fi
 
   # ───────────────────────── Depends audit (manual) ─────────────────────────
   depends_audit:
