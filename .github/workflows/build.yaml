@@ -87,7 +87,7 @@ jobs:
             "platforms;android-34" \
             "ndk;${ANDROID_NDK_VERSION}"
 
-      - name: Build depends (${ { matrix.host }})
+      - name: Build depends (${{ matrix.host }})
         shell: bash
         env:
           CCACHE_DIR: ~/.ccache
@@ -105,9 +105,9 @@ jobs:
         run: |
           set -euo pipefail
           if ls depends/${{ matrix.host }}* >/dev/null 2>&1; then
-            echo "Found depends prefix for ${matrix.host}"
+            echo "Found depends prefix for ${{ matrix.host }}"
           else
-            echo "::error::Vendored depends prefix not found for host ${matrix.host} (expected depends/${{ matrix.host }}*)"
+            echo "::error::Vendored depends prefix not found for host ${{ matrix.host }} (expected depends/${{ matrix.host }}*)"
             exit 1
           fi
 
@@ -666,9 +666,10 @@ jobs:
           else
             HOST=x86_64-apple-darwin
           fi
-          if ls depends/${HOST}* >/dev/null 2>&1; then
-            echo "Found depends prefix: $(ls -d depends/${HOST}* | tr '
-' ' ')"
+          deps_list=$(ls -d depends/${HOST}* 2>/dev/null | tr '
+' ' ')
+          if [ -n "$deps_list" ]; then
+            echo "Found depends prefix: $deps_list"
           else
             echo "::error::Vendored depends prefix not found for macOS host $HOST (expected depends/${HOST}*)"
             exit 1
