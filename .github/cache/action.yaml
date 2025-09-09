@@ -1,48 +1,63 @@
-name: "cache wrapper"
-description: "Centralized caching for depends sources and ccache"
+name: "Cache wrapper"
+
+description: "Thin wrapper around actions/cache@v4 to accept 'paths' input (newline-separated) and forward to 'path' expected by actions/cache. Adds diagnostics and guards when no paths are provided."
 
 inputs:
   key:
-    description: "Primary cache key"
+    description: 'Cache key'
     required: true
   paths:
-    description: "Newline-separated list of cache paths"
+    description: 'Newline-separated paths to cache (maps to actions/cache path).'
     required: false
-    default: |
-      depends/sources
-      ~/.ccache
-  restore_keys:
-    description: "Restore keys prefix (optional)"
+  restore-keys:
+    description: 'Restore keys (newline-separated)'
     required: false
-    default: ""
+  upload-chunk-size:
+    description: 'Optional upload chunk size'
+    required: false
+  enableCrossOsArchive:
+    description: 'Optional pass-through (boolean)'
+    required: false
+  fail-on-cache-miss:
+    description: 'Optional pass-through (boolean)'
+    required: false
+  lookup-only:
+    description: 'Optional pass-through (boolean)'
+    required: false
+  save-always:
+    description: 'Optional pass-through (boolean)'
+    required: false
 
 runs:
-  using: "composite"
+  using: composite
   steps:
-    - name: Ensure ccache defaults
+    - name: Echo cache inputs
       shell: bash
       run: |
-        set -euo pipefail
-        mkdir -p "$HOME/.ccache"
-        : "${CCACHE_DIR:=$HOME/.ccache}"
-        : "${CCACHE_COMPRESS:=1}"
-        : "${CCACHE_MAXSIZE:=750M}"
-        {
-          echo "CCACHE_DIR=$CCACHE_DIR"
-          echo "CCACHE_COMPRESS=$CCACHE_COMPRESS"
-          echo "CCACHE_MAXSIZE=$CCACHE_MAXSIZE"
-        } >> "$GITHUB_ENV"
+        echo "Cache wrapper — key: ${{ inputs.key }}"
+        echo "Paths: '${{ inputs['paths'] }}'"
+        echo "Restore keys: '${{ inputs['restore-keys'] }}'"
+        echo "upload-chunk-size: '${{ inputs['upload-chunk-size'] }}'"
+        echo "enableCrossOsArchive: '${{ inputs['enableCrossOsArchive'] }}'"
+        echo "fail-on-cache-miss: '${{ inputs['fail-on-cache-miss'] }}'"
+        echo "lookup-only: '${{ inputs['lookup-only'] }}'"
+        echo "save-always: '${{ inputs['save-always'] }}'"
 
-    - name: Cache
-      id: c
+    - name: Skip cache when no paths provided
+      if: ${{ inputs['paths'] == '' || inputs['paths'] == null }}
+      shell: bash
+      run: |
+        echo "No paths provided to cache — skipping actions/cache"
+
+    - name: Run actions/cache@v4
+      if: ${{ inputs['paths'] != '' && inputs['paths'] != null }}
       uses: actions/cache@v4
       with:
         key: ${{ inputs.key }}
-        restore-keys: ${{ inputs.restore_keys }}
-        path: |
-          ${{ inputs.paths }}
-
-outputs:
-  cache-hit:
-    description: "Whether an exact key match was found"
-    value: ${{ steps.c.outputs.cache-hit }}
+        path: ${{ inputs['paths'] }}
+        restore-keys: ${{ inputs['restore-keys'] }}
+        upload-chunk-size: ${{ inputs['upload-chunk-size'] }}
+        enableCrossOsArchive: ${{ inputs['enableCrossOsArchive'] }}
+        fail-on-cache-miss: ${{ inputs['fail-on-cache-miss'] }}
+        lookup-only: ${{ inputs['lookup-only'] }}
+        save-always: ${{ inputs['save-always'] }}
