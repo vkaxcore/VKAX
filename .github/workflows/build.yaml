@@ -27,7 +27,7 @@ env:
 jobs:
   android:
     env:
-      JOB_NAME: $JOB_NAME
+      JOB_NAME: ${{ github.job }}
     name: android • build • ubuntu-24.04 • api 34 • ndk 23.1.7779620
     runs-on: ubuntu-24.04
     timeout-minutes: 90
@@ -215,7 +215,7 @@ jobs:
 # ---------------------
   android_legacy:
     env:
-      JOB_NAME: $JOB_NAME
+      JOB_NAME: ${{ github.job }}
     name: android • legacy • ubuntu-22.04 • api 15 • ndk 23.1.7779620
     runs-on: ubuntu-22.04
     timeout-minutes: 60
@@ -323,7 +323,7 @@ jobs:
 # ---------------------
   macos:
     env:
-      JOB_NAME: $JOB_NAME
+      JOB_NAME: ${{ github.job }}
     name: native • macOS • ${{ matrix.macos }}
     runs-on: ${{ matrix.macos }}
     timeout-minutes: 60
@@ -409,7 +409,10 @@ jobs:
 # ---------------------
   ubuntu:
     env:
-      JOB_NAME: $JOB_NAME
+      JOB_NAME: ${{ github.job }}
+      MATRIX_TRIPLE: ${{ matrix.triple }}
+      MATRIX_NAME: ${{ matrix.name }}
+      MATRIX_RUNS_ON: ${{ matrix.runs_on }}
     name: native • ubuntu • ${{ matrix.name }}
     runs-on: ${{ matrix.runs_on }}
     timeout-minutes: 60
@@ -448,7 +451,7 @@ jobs:
             sudo apt-get update -qq
             sudo apt-get install -y -qq build-essential pkg-config automake libtool autoconf bison cmake ninja-build python3 || true
             J=$(nproc 2>/dev/null || echo 2); [ "$J" -gt 8 ] && J=8
-            make -C depends -j"$J" HOST=${{ matrix.triple }} || true
+            make -C depends -j"$J" HOST=$MATRIX_TRIPLE || true
           else
             echo "::notice::No depends/ dir; skipping vendored deps."
           fi
@@ -460,8 +463,8 @@ jobs:
           if [ ! -f CMakeLists.txt ]; then
             echo "::notice::No CMakeLists.txt; skipping."; exit 0
           fi
-          if [ -d "depends/${{ matrix.triple }}" ]; then
-            export CMAKE_PREFIX_PATH="depends/${{ matrix.triple }}"
+          if [ -d "depends/$MATRIX_TRIPLE" ]; then
+            export CMAKE_PREFIX_PATH="depends/$MATRIX_TRIPLE"
           else
             echo "::warning::Vendored depends prefix not found; continuing without depends.";
           fi
@@ -519,7 +522,7 @@ jobs:
 # ---------------------
   windows:
     env:
-      JOB_NAME: $JOB_NAME
+      JOB_NAME: ${{ github.job }}
     name: native • windows • windows-2022
     runs-on: windows-2022
     timeout-minutes: 45
@@ -564,7 +567,7 @@ jobs:
 # ---------------------
   windows_cross:
     env:
-      JOB_NAME: $JOB_NAME
+      JOB_NAME: ${{ github.job }}
     name: native • windows-cross • ubuntu-22.04
     runs-on: ubuntu-22.04
     timeout-minutes: 60
