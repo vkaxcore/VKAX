@@ -1,3 +1,4 @@
+# .github/workflows/build.yaml
 name: "CI • Production builds (Android + Native)"
 
 on:
@@ -49,9 +50,10 @@ jobs:
           distribution: temurin
           java-version: '11'
 
-      - name: Cache (depends sources + ccache)
+      - name: Restore cache (depends sources + ccache)
         uses: ./.github/cache
         with:
+          mode: restore
           key: ${{ runner.os }}-android-${{ matrix.abi }}-23.1.7779620-${{ hashFiles('depends/packages/*.mk') }}
           paths: |
             depends/sources
@@ -162,6 +164,16 @@ jobs:
             dist_android/**/*
           if-no-files-found: warn
 
+      - name: Save cache (depends sources + ccache)
+        if: always()
+        uses: ./.github/cache
+        with:
+          mode: save
+          key: ${{ runner.os }}-android-${{ matrix.abi }}-23.1.7779620-${{ hashFiles('depends/packages/*.mk') }}
+          paths: |
+            depends/sources
+            ~/.ccache
+
   android_legacy:
     name: android • legacy • ubuntu-22.04 • api 15 • ndk 23.1.7779620
     runs-on: ubuntu-22.04
@@ -238,36 +250,6 @@ jobs:
             dist_android_legacy/**/*
           if-no-files-found: warn
 
-  android_summary:
-    name: android • summary
-    needs: [android, android_legacy]
-    runs-on: ubuntu-22.04
-    steps:
-      - name: Download Android artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: android_assets
-          merge-multiple: true
-
-      - name: Produce android summary
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p android_summary
-          out=android_summary/summary.txt
-          echo "Android artifact summary - $(date)" > "$out"
-          if compgen -G "android_assets/**" > /dev/null; then
-            find android_assets -type f -maxdepth 3 -print >> "$out" || true
-            (cd android_assets && sha256sum * > ../android_summary/SHA256SUMS.txt) || true
-          else
-            echo "No android artifacts found" >> "$out"
-          fi
-      - name: Upload android summary
-        uses: actions/upload-artifact@v4
-        with:
-          name: android-summary
-          path: android_summary
-
   # ---------------------
   # Group: Ubuntu / Linux builds (production)
   # ---------------------
@@ -292,9 +274,10 @@ jobs:
           submodules: true
           fetch-depth: 0
 
-      - name: Cache depends + ccache
+      - name: Restore cache (depends + ccache)
         uses: ./.github/cache
         with:
+          mode: restore
           key: ${{ runner.os }}-linux-23.1.7779620-${{ hashFiles('depends/packages/*.mk') }}
           paths: |
             depends/sources
@@ -312,14 +295,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [ -d depends ]; then
-            J=1
-            # raise soft file-descriptor limit
-            ulimit -n 4096 || true
-            make -C depends -j1 HOST=${{ matrix.triple }} || true
-          else
-            echo "::notice::No depends/ dir; skipping vendored deps."
-          fi
+          if [ ! -d depends ]; then echo "::error::depends/ dir missing; required for Linux build"; exit 2; fi
+          J=1
+          ulimit -n 4096 || true
+          make -C depends -j1 HOST=${{ matrix.triple }}
 
       - name: Check vendored depends prefix (Linux)
         shell: bash
@@ -328,7 +307,7 @@ jobs:
           if ls depends/${{ matrix.triple }}* >/dev/null 2>&1; then
             echo "Vendored depends prefix found for ${{ matrix.triple }}"
           else
-            echo "::warning::Vendored depends prefix not found for host ${{ matrix.triple }} (expected depends/${{ matrix.triple }}*)"
+            echo "::error::Vendored depends prefix not found for host ${{ matrix.triple }} (expected depends/${{ matrix.triple }}*)"; exit 2
           fi
 
       - name: CMake build (Linux)
@@ -338,11 +317,7 @@ jobs:
           if [ ! -f CMakeLists.txt ]; then
             echo "::notice::No CMakeLists.txt; skipping."; exit 0
           fi
-          if [ -d "depends/${{ matrix.triple }}" ]; then
-            export CMAKE_PREFIX_PATH="depends/${{ matrix.triple }}"
-          else
-            echo "::warning::Vendored depends prefix not found; continuing without depends."
-          fi
+          export CMAKE_PREFIX_PATH="depends/${{ matrix.triple }}"
           cmake -S . -B build -G Ninja
           cmake --build build -j1 || true
 
@@ -363,6 +338,16 @@ jobs:
             dist_linux/**/*
           if-no-files-found: warn
 
+      - name: Save cache (depends + ccache)
+        if: always()
+        uses: ./.github/cache
+        with:
+          mode: save
+          key: ${{ runner.os }}-linux-23.1.7779620-${{ hashFiles('depends/packages/*.mk') }}
+          paths: |
+            depends/sources
+            ~/.ccache
+
   # ---------------------
   # Group: Windows Cross (MinGw on Ubuntu) — production
   # ---------------------
@@ -378,9 +363,10 @@ jobs:
           submodules: true
           fetch-depth: 0
 
-      - name: Cache (depends sources)
+      - name: Restore cache (depends sources)
         uses: ./.github/cache
         with:
+          mode: restore
           key: ${{ runner.os }}-mingw-${{ hashFiles('depends/packages/*.mk') }}
           paths: |
             depends/sources
@@ -398,7 +384,6 @@ jobs:
           set -euo pipefail
           if [ ! -d depends ]; then echo "::error::depends/ missing"; exit 2; fi
           J=1
-          # raise soft file-descriptor limit
           ulimit -n 4096 || true
           make -C depends -j1 HOST=x86_64-w64-mingw32
 
@@ -428,6 +413,15 @@ jobs:
           path: |
             dist-w64/**/*
           if-no-files-found: warn
+
+      - name: Save cache (depends sources)
+        if: always()
+        uses: ./.github/cache
+        with:
+          mode: save
+          key: ${{ runner.os }}-mingw-${{ hashFiles('depends/packages/*.mk') }}
+          paths: |
+            depends/sources
 
   # ---------------------
   # Group: Windows (MSVC) — native
@@ -480,7 +474,7 @@ jobs:
         shell: powershell
         run: |
           Set-StrictMode -Version Latest
-          $vcpkgRoot = 'C:\vcpkg'
+          $vcpkgRoot = 'C:\\vcpkg'
           if (-Not (Test-Path $vcpkgRoot)) {
             git clone https://github.com/microsoft/vcpkg $vcpkgRoot
           }
@@ -495,7 +489,7 @@ jobs:
           Set-StrictMode -Version Latest
           $hasDepends = $false
           if ($env:DEPENDS_WINDOWS_PREFIX) { $hasDepends = $true; Write-Output "Using depends prefix: $env:DEPENDS_WINDOWS_PREFIX" }
-          $vpath = 'C:\vcpkg\installed\x64-windows\include\boost'
+          $vpath = 'C:\\vcpkg\\installed\\x64-windows\\include\\boost'
           $hasVcpkgBoost = Test-Path $vpath
           if ($hasVcpkgBoost) { Write-Output "Found vcpkg boost at $vpath" }
           if (-not $hasDepends -and -not $hasVcpkgBoost) {
@@ -555,7 +549,7 @@ jobs:
         shell: powershell
         run: |
           Write-Output "VCPKG_ROOT=$env:VCPKG_ROOT"
-          if (Test-Path C:\vcpkg) { Get-ChildItem C:\vcpkg -Depth 2 | Select-Object -First 40 }
+          if (Test-Path C:\\vcpkg) { Get-ChildItem C:\\vcpkg -Depth 2 | Select-Object -First 40 }
           Write-Output "Listing depends prefixes (top-level):"
           Get-ChildItem .\depends -Directory -ErrorAction SilentlyContinue | Select-Object -First 40 | ForEach-Object { Write-Output $_.FullName }
           Write-Output "Looking for depends/x86_64-pc-windows-msvc*"
@@ -624,6 +618,16 @@ jobs:
           submodules: true
           fetch-depth: 0
 
+      - name: Restore cache (depends sources + ccache)
+        uses: ./.github/cache
+        with:
+          mode: restore
+          key: ${{ runner.os }}-macos-23.1.7779620-${{ hashFiles('depends/packages/*.mk') }}
+          paths: |
+            depends/sources
+            ~/.ccache
+          restore-keys: ${{ runner.os }}-macos-
+
       - name: Resolve Homebrew and install build tools
         shell: bash
         run: |
@@ -635,15 +639,6 @@ jobs:
           else
             brew install automake libtool pkg-config cmake ninja libnatpmp || true
           fi
-
-      - name: Cache depends sources + ccache
-        uses: ./.github/cache
-        with:
-          key: ${{ runner.os }}-macos-23.1.7779620-${{ hashFiles('depends/packages/*.mk') }}
-          paths: |
-            depends/sources
-            ~/.ccache
-          restore-keys: ${{ runner.os }}-macos-
 
       - name: "Diagnostic: CMakeLists and tree"
         shell: bash
@@ -658,8 +653,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ ! -d depends ]; then
-            echo "::warning::No depends/ dir found; skipping vendored deps"
-            exit 0
+            echo "::error::No depends/ dir found; required for macOS build"; exit 2
           fi
           ARCH=$(uname -m)
           if [ "$ARCH" = "arm64" ]; then
@@ -669,9 +663,8 @@ jobs:
           fi
           echo "Building depends for host: $HOST"
           J=1
-          # raise soft file-descriptor limit
           ulimit -n 4096 || true
-          make -C depends -j1 HOST="$HOST" || true
+          make -C depends -j1 HOST="$HOST"
 
       - name: Check vendored depends prefix (macOS)
         shell: bash
@@ -686,7 +679,7 @@ jobs:
           if ls depends/${HOST}* >/dev/null 2>&1; then
             echo "Found depends prefix: $(ls -d depends/${HOST}* | tr '\n' ' ')"
           else
-            echo "::warning::Vendored depends prefix not found for macOS host $HOST (expected depends/${HOST}*)"
+            echo "::error::Vendored depends prefix not found for macOS host $HOST (expected depends/${HOST}*)"; exit 2
           fi
 
       - name: Configure & build (macOS)
@@ -715,6 +708,16 @@ jobs:
           find build-macos -type f -perm -111 -name 'vkax*' -exec cp -a {} dist_macos/ \; || true
           find src -type f -perm -111 -name 'vkax*' -exec cp -a {} dist_macos/ \; || true
           if [ -d dist_macos ]; then (cd dist_macos && sha256sum * > sha256sums.txt || true); fi
+
+      - name: Save cache (depends sources + ccache)
+        if: always()
+        uses: ./.github/cache
+        with:
+          mode: save
+          key: ${{ runner.os }}-macos-23.1.7779620-${{ hashFiles('depends/packages/*.mk') }}
+          paths: |
+            depends/sources
+            ~/.ccache
 
   # ---------------------
   # Final sanity / audit
@@ -814,3 +817,4 @@ jobs:
         shell: bash
         run: |
           echo "(release step placeholder)"
+# .github/workflows/build.yaml
