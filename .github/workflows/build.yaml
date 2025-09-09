@@ -480,7 +480,7 @@ jobs:
             git clone https://github.com/microsoft/vcpkg $vcpkgRoot
           }
           & $vcpkgRoot\bootstrap-vcpkg.bat
-          & $vcpkgRoot\vcpkg.exe install boost-filesystem boost-system openssl --triplet x64-windows || true
+          & "$vcpkgRoot\vcpkg.exe" install boost-filesystem boost-system openssl --triplet x64-windows; if ($LASTEXITCODE -ne 0) { Write-Output "::warning::vcpkg install failed (continuing)"; }
           echo "VCPKG_ROOT=$vcpkgRoot" | Out-File -FilePath $env:GITHUB_ENV -Encoding ascii -Append
 
       - name: Validate depends prefix or vcpkg boost
@@ -628,6 +628,7 @@ jobs:
             depends/sources
             ~/.ccache
           restore_keys: ${{ runner.os }}-macos-
+
       - name: "Diagnostic: CMakeLists and tree"
         shell: bash
         run: |
