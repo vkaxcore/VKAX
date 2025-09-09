@@ -505,6 +505,10 @@ jobs:
           $base='.'
           foreach ($p in $baseCandidates) { if (Test-Path $p) { $base=$p; break } }
 
+          # Ensure config/ exists for config-style headers expected by clientversion.h
+          $configDir = Join-Path $base 'config'
+          if (-Not (Test-Path $configDir)) { New-Item -ItemType Directory -Path $configDir | Out-Null }
+
           $clientVersion = Join-Path $base 'clientversion.h'
           if (-Not (Test-Path $clientVersion)) {
             $clientVersionContent = @(
@@ -513,24 +517,29 @@ jobs:
               '#define CLIENT_VERSION_MAJOR 0'
               '#define CLIENT_VERSION_MINOR 0'
               '#define CLIENT_VERSION_REVISION 0'
-              '#define CLIENT_VERSION_BUILD 0'
+              '#define CLIENT_VERSION_BUILD 0',
+              '#define COPYRIGHT_YEAR 2025',
               '#endif'
             ) -join "`r`n"
             $clientVersionContent | Out-File -FilePath $clientVersion -Encoding ascii
             Write-Output "Generated $clientVersion"
           } else { Write-Output "$clientVersion exists; skipping" }
 
-          $dashcfg = Join-Path $base 'dash-config.h'
+          $dashcfg = Join-Path $configDir 'dash-config.h'
           if (-Not (Test-Path $dashcfg)) {
             $dashcfgContent = @(
-              '#ifndef DASH_CONFIG_H'
-              '#define DASH_CONFIG_H'
-              '#define VERSION "0.0.0"'
-              '#define CLIENT_VERSION_MAJOR 0'
-              '#define CLIENT_VERSION_MINOR 0'
-              '#define CLIENT_VERSION_REVISION 0'
-              '#define CLIENT_VERSION_BUILD 0'
-              '#define HAVE_BOOST 1'
+              '#ifndef DASH_CONFIG_H',
+              '#define DASH_CONFIG_H',
+              '#define PACKAGE_NAME "VKAX"',
+              '#define PACKAGE_VERSION "0.0.0"',
+              '#define VERSION "0.0.0"',
+              '#define CLIENT_VERSION_MAJOR 0',
+              '#define CLIENT_VERSION_MINOR 0',
+              '#define CLIENT_VERSION_REVISION 0',
+              '#define CLIENT_VERSION_BUILD 0',
+              '#define CLIENT_VERSION_IS_RELEASE 0',
+              '#define COPYRIGHT_YEAR 2025',
+              '#define HAVE_BOOST 1',
               '#endif'
             ) -join "`r`n"
             $dashcfgContent | Out-File -FilePath $dashcfg -Encoding ascii
@@ -567,6 +576,8 @@ jobs:
             }
             $cmakeArgs += "-DCMAKE_CXX_STANDARD=20"
             $cmakeArgs += "-DBUILD_TESTS=OFF"
+            $cmakeArgs += "-DCMAKE_C_FLAGS=/DHAVE_CONFIG_H"
+            $cmakeArgs += "-DCMAKE_CXX_FLAGS=/DHAVE_CONFIG_H"
             $cmakeCmd = "cmake -S . -B build -G Ninja " + ($cmakeArgs -join ' ')
             Write-Output "Running: $cmakeCmd"
             Invoke-Expression $cmakeCmd
