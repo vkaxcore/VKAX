@@ -94,13 +94,13 @@ jobs:
           java-version: '11'
 
       - name: Cache (depends sources + ccache)
-        uses: actions/cache@v4
+        uses: ./.github/cache
         with:
           key: ${{ runner.os }}-android-${{ matrix.abi }}-23.1.7779620-${{ hashFiles('depends/packages/*.mk') }}
-          path: |
+          paths: |
             depends/sources
             ~/.ccache
-          restore-keys: ${{ runner.os }}-android-${{ matrix.abi }}-
+          restore_keys: ${{ runner.os }}-android-${{ matrix.abi }}-
 
       - name: Prepare SDK + cmdline-tools
         shell: bash
@@ -274,10 +274,11 @@ jobs:
           fetch-depth: 0
 
       - name: Cache (depends sources)
-        uses: actions/cache@v4
+        uses: ./.github/cache
         with:
           key: ${{ runner.os }}-mingw-${{ hashFiles('depends/packages/*.mk') }}
-          paths: depends/sources
+          paths: |
+            depends/sources
 
       - name: Build depends (x86_64-w64-mingw32)
         shell: bash
