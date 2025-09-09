@@ -586,7 +586,7 @@ jobs:
             $cmakeCmd = "cmake -S . -B build -G Ninja " + ($cmakeArgs -join ' ')
             Write-Output "Running: $cmakeCmd"
             Invoke-Expression $cmakeCmd
-            cmake --build build --config Release -- -j:1
+            cmake --build build --config Release -- -j1
           } else {
             Write-Output "::notice::No CMakeLists.txt; skipping."
           }
