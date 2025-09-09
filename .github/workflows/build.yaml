@@ -95,6 +95,8 @@ jobs:
           set -euo pipefail
           if [ ! -d depends ]; then echo "::error::depends/ missing"; exit 2; fi
           J=1
+          # raise soft file-descriptor limit to avoid EMFILE during packaging operations
+          ulimit -n 4096 || true
           export ANDROID_SDK="${ANDROID_SDK_ROOT}"
           export ANDROID_NDK="${ANDROID_SDK_ROOT}/ndk/${ANDROID_NDK_VERSION}"
           make -C depends -j1 HOST=${{ matrix.host }} ANDROID_SDK="${ANDROID_SDK}" ANDROID_NDK="${ANDROID_NDK}"
@@ -203,6 +205,8 @@ jobs:
           set -euo pipefail
           if [ ! -d depends ]; then echo "::error::depends/ directory missing; required for Android legacy build."; exit 2; fi
           J=1
+          # raise soft file-descriptor limit
+          ulimit -n 4096 || true
           export ANDROID_SDK="${ANDROID_SDK_ROOT}"
           export ANDROID_NDK="${ANDROID_SDK_ROOT}/ndk/23.1.7779620"
           make -C depends -j1 HOST=aarch64-linux-android ANDROID_SDK="${ANDROID_SDK}" ANDROID_NDK="${ANDROID_NDK}" || true
@@ -310,6 +314,8 @@ jobs:
           set -euo pipefail
           if [ -d depends ]; then
             J=1
+            # raise soft file-descriptor limit
+            ulimit -n 4096 || true
             make -C depends -j1 HOST=${{ matrix.triple }} || true
           else
             echo "::notice::No depends/ dir; skipping vendored deps."
@@ -392,6 +398,8 @@ jobs:
           set -euo pipefail
           if [ ! -d depends ]; then echo "::error::depends/ missing"; exit 2; fi
           J=1
+          # raise soft file-descriptor limit
+          ulimit -n 4096 || true
           make -C depends -j1 HOST=x86_64-w64-mingw32
 
       - name: Check vendored depends prefix (mingw)
@@ -661,6 +669,8 @@ jobs:
           fi
           echo "Building depends for host: $HOST"
           J=1
+          # raise soft file-descriptor limit
+          ulimit -n 4096 || true
           make -C depends -j1 HOST="$HOST" || true
 
       - name: Check vendored depends prefix (macOS)
@@ -749,7 +759,17 @@ jobs:
             if [ -n "$fname" ] && [ -f "depends/sources/$fname" ]; then
               file_path="depends/sources/$fname"
             else
-              cand=$(ls -1 depends/sources 2>/dev/null | grep -Ei "^${pkg}(|[-_.].*)\\.(tar\\.gz|tgz|tar\\.bz2|tbz2|tar\\.xz|txz|zip|7z)$" | head -n1 || true)
+              cand=""
+              if [ -d depends/sources ]; then
+                for file in depends/sources/*; do
+                  [ -e "$file" ] || continue
+                  fname_b=$(basename "$file")
+                  if [[ "$fname_b" =~ ^${pkg}(|[-_.].*)\.(tar\.gz|tgz|tar\.bz2|tbz2|tar\.xz|txz|zip|7z)$ ]]; then
+                    cand="$fname_b"
+                    break
+                  fi
+                done
+              fi
               [ -n "$cand" ] && file_path="depends/sources/$cand"
             fi
 
