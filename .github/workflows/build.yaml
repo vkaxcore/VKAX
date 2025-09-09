@@ -26,6 +26,8 @@ env:
 # ---------------------
 jobs:
   android:
+    env:
+      JOB_NAME: $JOB_NAME
     name: android • build • ubuntu-24.04 • api 34 • ndk 23.1.7779620
     runs-on: ubuntu-24.04
     timeout-minutes: 90
@@ -83,7 +85,7 @@ jobs:
         run: |
           set -euo pipefail
           summary_file="$GITHUB_STEP_SUMMARY"
-          echo "### depends packages built on ${{ github.job }}" >> "$summary_file"
+          echo "### depends packages built on $JOB_NAME" >> "$summary_file"
           if [ ! -d depends ]; then
             echo "_depends/ missing; nothing to report_" >> "$summary_file"
             echo "::notice::depends/ missing; nothing to report"
@@ -108,8 +110,7 @@ jobs:
                     echo "  - local source sha256: $sha" >> "$summary_file"
                   fi
                 fi
-                meta=$(grep -Eoi "(homepage|url|src_uri|distname|sha256|sha1|md5)[[:space:]]*[:=].*" "$mk" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | tr '
-' ' ')
+                meta=$(grep -Eoi "(homepage|url|src_uri|distname|sha256|sha1|md5)[[:space:]]*[:=].*" "$mk" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | paste -sd' ' -)
                 if [ -n "$meta" ]; then
                   echo "  - metadata: $meta" >> "$summary_file"
                 fi
@@ -166,8 +167,7 @@ jobs:
         run: |
           set -euo pipefail
           echo "### depends packages built (Android)" >> "$GITHUB_STEP_SUMMARY"
-          pkgs=$(find depends/work -maxdepth 3 -type f -name .stamp_built -print0 2>/dev/null | xargs -0 -n1 dirname 2>/dev/null | xargs -n1 basename | sed -E 's/-[0-9].*$//' | sort -u | tr '
-' ' ')
+          pkgs=$(find depends/work -maxdepth 3 -type f -name .stamp_built -print0 2>/dev/null | xargs -0 -n1 dirname 2>/dev/null | xargs -n1 basename | sed -E 's/-[0-9].*$//' | sort -u | paste -sd' ' -)
           if [ -z "$pkgs" ]; then
             echo "- _no .stamp_built files found; build may be cached or produced no targets_" >> "$GITHUB_STEP_SUMMARY"
           else
@@ -214,6 +214,8 @@ jobs:
 # Android legacy (API 15) - Ubuntu 22 AMD64
 # ---------------------
   android_legacy:
+    env:
+      JOB_NAME: $JOB_NAME
     name: android • legacy • ubuntu-22.04 • api 15 • ndk 23.1.7779620
     runs-on: ubuntu-22.04
     timeout-minutes: 60
@@ -277,8 +279,7 @@ jobs:
         run: |
           set -euo pipefail
           echo "### depends packages built (Android legacy)" >> "$GITHUB_STEP_SUMMARY"
-          pkgs=$(find depends/work -maxdepth 3 -type f -name .stamp_built -print0 2>/dev/null | xargs -0 -n1 dirname 2>/dev/null | xargs -n1 basename | sed -E 's/-[0-9].*$//' | sort -u | tr '
-' ' ')
+          pkgs=$(find depends/work -maxdepth 3 -type f -name .stamp_built -print0 2>/dev/null | xargs -0 -n1 dirname 2>/dev/null | xargs -n1 basename | sed -E 's/-[0-9].*$//' | sort -u | paste -sd' ' -)
           if [ -z "$pkgs" ]; then
             echo "- _no .stamp_built files found; build may be cached or produced no targets_" >> "$GITHUB_STEP_SUMMARY"
           else
@@ -321,6 +322,8 @@ jobs:
 # Group: macOS builds (production)
 # ---------------------
   macos:
+    env:
+      JOB_NAME: $JOB_NAME
     name: native • macOS • ${{ matrix.macos }}
     runs-on: ${{ matrix.macos }}
     timeout-minutes: 60
@@ -360,8 +363,7 @@ jobs:
         run: |
           set -euo pipefail
           echo "### depends packages built (macOS)" >> "$GITHUB_STEP_SUMMARY"
-          pkgs=$(find depends/work -maxdepth 3 -type f -name .stamp_built -print0 2>/dev/null | xargs -0 -n1 dirname 2>/dev/null | xargs -n1 basename | sed -E 's/-[0-9].*$//' | sort -u | tr '
-' ' ')
+          pkgs=$(find depends/work -maxdepth 3 -type f -name .stamp_built -print0 2>/dev/null | xargs -0 -n1 dirname 2>/dev/null | xargs -n1 basename | sed -E 's/-[0-9].*$//' | sort -u | paste -sd' ' -)
           if [ -z "$pkgs" ]; then
             echo "- _no .stamp_built files found; build may be cached or produced no targets_" >> "$GITHUB_STEP_SUMMARY"
           else
@@ -406,6 +408,8 @@ jobs:
 # - AMD64 (GitHub-hosted) and ARM64 (public preview labels) separated in matrix
 # ---------------------
   ubuntu:
+    env:
+      JOB_NAME: $JOB_NAME
     name: native • ubuntu • ${{ matrix.name }}
     runs-on: ${{ matrix.runs_on }}
     timeout-minutes: 60
@@ -414,19 +418,19 @@ jobs:
       matrix:
         include:
           - name: ubuntu-22-amd64
-            runs_on: ubuntu-22.04
+            runs_on: 'ubuntu-22.04'
             triple: x86_64-pc-linux-gnu
             allow_failures: false
           - name: ubuntu-24-amd64
-            runs_on: ubuntu-24.04
+            runs_on: 'ubuntu-24.04'
             triple: x86_64-pc-linux-gnu
             allow_failures: false
           - name: ubuntu-22-arm64
-            runs_on: ubuntu-22.04-arm
+            runs_on: 'ubuntu-22.04-arm'
             triple: aarch64-linux-gnu
             allow_failures: true
           - name: ubuntu-24-arm64
-            runs_on: ubuntu-24.04-arm
+            runs_on: 'ubuntu-24.04-arm'
             triple: aarch64-linux-gnu
             allow_failures: true
     steps:
@@ -469,8 +473,7 @@ jobs:
         run: |
           set -euo pipefail
           echo "### depends packages built (linux)" >> "$GITHUB_STEP_SUMMARY"
-          pkgs=$(find depends/work -maxdepth 3 -type f -name .stamp_built -print0 2>/dev/null | xargs -0 -n1 dirname 2>/dev/null | xargs -n1 basename | sed -E 's/-[0-9].*$//' | sort -u | tr '
-' ' ')
+          pkgs=$(find depends/work -maxdepth 3 -type f -name .stamp_built -print0 2>/dev/null | xargs -0 -n1 dirname 2>/dev/null | xargs -n1 basename | sed -E 's/-[0-9].*$//' | sort -u | paste -sd' ' -)
           if [ -z "$pkgs" ]; then
             echo "- _no .stamp_built files found; build may be cached or produced no targets_" >> "$GITHUB_STEP_SUMMARY"
           else
@@ -515,6 +518,8 @@ jobs:
 # - Native MSVC and Cross (MinGW) are separate jobs
 # ---------------------
   windows:
+    env:
+      JOB_NAME: $JOB_NAME
     name: native • windows • windows-2022
     runs-on: windows-2022
     timeout-minutes: 45
@@ -558,6 +563,8 @@ jobs:
 # Group: Windows Cross (MinGW on Ubuntu) — production
 # ---------------------
   windows_cross:
+    env:
+      JOB_NAME: $JOB_NAME
     name: native • windows-cross • ubuntu-22.04
     runs-on: ubuntu-22.04
     timeout-minutes: 60
@@ -596,8 +603,7 @@ jobs:
         run: |
           set -euo pipefail
           echo "### depends packages built (windows-cross)" >> "$GITHUB_STEP_SUMMARY"
-          pkgs=$(find depends/work -maxdepth 3 -type f -name .stamp_built -print0 2>/dev/null | xargs -0 -n1 dirname 2>/dev/null | xargs -n1 basename | sed -E 's/-[0-9].*$//' | sort -u | tr '
-' ' ')
+          pkgs=$(find depends/work -maxdepth 3 -type f -name .stamp_built -print0 2>/dev/null | xargs -0 -n1 dirname 2>/dev/null | xargs -n1 basename | sed -E 's/-[0-9].*$//' | sort -u | paste -sd' ' -)
           if [ -z "$pkgs" ]; then
             echo "- _no .stamp_built files found; build may be cached or produced no targets_" >> "$GITHUB_STEP_SUMMARY"
           else
