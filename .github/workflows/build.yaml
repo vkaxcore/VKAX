@@ -1,4 +1,5 @@
-name: CI • Production builds (Android + Native)
+name: CI • Production builds (Android + Native
+)
 
 on:
   push:
@@ -485,6 +486,7 @@ jobs:
       - name: Validate depends prefix or vcpkg boost
         shell: powershell
         run: |
+          Set-StrictMode -Version Latest
           $hasDepends = $false
           if ($env:DEPENDS_WINDOWS_PREFIX) { $hasDepends = $true; Write-Output "Using depends prefix: $env:DEPENDS_WINDOWS_PREFIX" }
           $vpath = 'C:\vcpkg\installed\x64-windows\include\boost'
@@ -492,8 +494,6 @@ jobs:
           if ($hasVcpkgBoost) { Write-Output "Found vcpkg boost at $vpath" }
           if (-not $hasDepends -and -not $hasVcpkgBoost) {
             Write-Output "::warning::No MSVC depends prefix found and vcpkg boost not present. Will attempt CMake anyway."
-          }
-            exit 1
           }
 
       - name: Generate robust fallback headers (CI)
@@ -516,8 +516,8 @@ jobs:
               '#define CLIENT_VERSION_MAJOR 0'
               '#define CLIENT_VERSION_MINOR 0'
               '#define CLIENT_VERSION_REVISION 0'
-              '#define CLIENT_VERSION_BUILD 0',
-              '#define COPYRIGHT_YEAR 2025',
+              '#define CLIENT_VERSION_BUILD 0'
+              '#define COPYRIGHT_YEAR 2025'
               '#endif'
             ) -join "`r`n"
             $clientVersionContent | Out-File -FilePath $clientVersion -Encoding ascii
@@ -527,18 +527,18 @@ jobs:
           $dashcfg = Join-Path $configDir 'dash-config.h'
           if (-Not (Test-Path $dashcfg)) {
             $dashcfgContent = @(
-              '#ifndef DASH_CONFIG_H',
-              '#define DASH_CONFIG_H',
-              '#define PACKAGE_NAME "VKAX"',
-              '#define PACKAGE_VERSION "0.0.0"',
-              '#define VERSION "0.0.0"',
-              '#define CLIENT_VERSION_MAJOR 0',
-              '#define CLIENT_VERSION_MINOR 0',
-              '#define CLIENT_VERSION_REVISION 0',
-              '#define CLIENT_VERSION_BUILD 0',
-              '#define CLIENT_VERSION_IS_RELEASE 0',
-              '#define COPYRIGHT_YEAR 2025',
-              '#define HAVE_BOOST 1',
+              '#ifndef DASH_CONFIG_H'
+              '#define DASH_CONFIG_H'
+              '#define PACKAGE_NAME "VKAX"'
+              '#define PACKAGE_VERSION "0.0.0"'
+              '#define VERSION "0.0.0"'
+              '#define CLIENT_VERSION_MAJOR 0'
+              '#define CLIENT_VERSION_MINOR 0'
+              '#define CLIENT_VERSION_REVISION 0'
+              '#define CLIENT_VERSION_BUILD 0'
+              '#define CLIENT_VERSION_IS_RELEASE 0'
+              '#define COPYRIGHT_YEAR 2025'
+              '#define HAVE_BOOST 1'
               '#endif'
             ) -join "`r`n"
             $dashcfgContent | Out-File -FilePath $dashcfg -Encoding ascii
@@ -721,19 +721,68 @@ jobs:
           submodules: true
           fetch-depth: 0
 
-      - name: List depends packages and stamps
+      - name: Generate dependency source URL report (text)
         shell: bash
         run: |
           set -euo pipefail
-          echo "Found depends packages:"; ls -1 depends/packages || true
-          echo "Stamp count:"; find depends/work -type f -name .stamp_built 2>/dev/null | wc -l || true
-      - name: Upload audit
+          outdir=depends_audit
+          mkdir -p "$outdir"
+          out="$outdir/DEPENDENCY_SOURCES.txt"
+          {
+            echo "Dependency Source Report"
+            echo "Generated: $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+            echo
+          } > "$out"
+          shopt -s nullglob
+          for f in depends/packages/*.mk; do
+            pkg=$(sed -n 's/^package[[:space:]]*=[[:space:]]*//p' "$f" | head -n1)
+            [ -z "$pkg" ] && pkg=$(basename "$f" .mk)
+            url=$(sed -n 's/^[[:space:]]*\$[(]package[)]_url[[:space:]]*[:+?]*=[[:space:]]*//p' "$f" | head -n1)
+            giturl=$(sed -n 's/^[[:space:]]*\$[(]package[)]_git_url[[:space:]]*[:+?]*=[[:space:]]*//p' "$f" | head -n1)
+            fname=$(sed -n 's/^[[:space:]]*\$[(]package[)]_file_name[[:space:]]*[:+?]*=[[:space:]]*//p' "$f" | head -n1)
+            [ -z "$fname" ] && fname=$(sed -n 's/^[[:space:]]*\$[(]package[)]_filename[[:space:]]*[:+?]*=[[:space:]]*//p' "$f" | head -n1)
+            sha_decl=$(sed -n 's/^[[:space:]]*\$[(]package[)]_sha256\(sum\)*[[:space:]]*[:+?]*=[[:space:]]*//p' "$f" | head -n1)
+
+            typ=unknown; src=""
+            [ -n "$giturl" ] && { typ=git; src="$giturl"; }
+            [ -n "$url" ] && { typ=archive; src="$url"; }
+
+            file_path=""
+            if [ -n "$fname" ] && [ -f "depends/sources/$fname" ]; then
+              file_path="depends/sources/$fname"
+            else
+              cand=$(ls -1 depends/sources 2>/dev/null | grep -Ei "^${pkg}(|[-_.].*)\\.(tar\\.gz|tgz|tar\\.bz2|tbz2|tar\\.xz|txz|zip|7z)$" | head -n1 || true)
+              [ -n "$cand" ] && file_path="depends/sources/$cand"
+            fi
+
+            size="n/a"; mtime="n/a"; sha256="n/a"
+            if [ -n "$file_path" ] && [ -f "$file_path" ]; then
+              size=$(stat -c%s "$file_path" 2>/dev/null || stat -f%z "$file_path")
+              epoch=$(stat -c%Y "$file_path" 2>/dev/null || stat -f%m "$file_path")
+              mtime=$(date -u -d "@${epoch}" +'%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || date -u -r "$epoch" +'%Y-%m-%dT%H:%M:%SZ')
+              sha256=$(sha256sum "$file_path" 2>/dev/null | awk '{print $1}')
+            elif [ -n "$sha_decl" ]; then
+              sha256="$sha_decl"
+            fi
+
+            {
+              echo "Package: $pkg"
+              echo "Type: $typ"
+              echo "URL: ${src:-n/a}"
+              echo "File: ${file_path:-missing}"
+              echo "Size: $size"
+              echo "DownloadedAt: $mtime"
+              echo "SHA256: $sha256"
+              echo "-----"
+            } >> "$out"
+          done
+          echo "Wrote $out"
+
+      - name: Upload dependency URL report
         uses: actions/upload-artifact@v4
         with:
-          name: depends-audit
-          path: |
-            depends/packages
-            depends/work/**/.stamp_built
+          name: depends-source-urls
+          path: depends_audit/DEPENDENCY_SOURCES.txt
           if-no-files-found: warn
 
   release:
