@@ -140,8 +140,9 @@ jobs:
           mkdir -p dist_android
           shopt -s nullglob
           for f in dist_apk/*.apk; do cp -a "$f" dist_android/; done
-          if [ -n "${GITHUB_REF_NAME:-}" ] && [ "${GITHUB_REF_TYPE:-}" = "tag" ]; then
-            VERSION="$GITHUB_REF_NAME"
+          # Prefer the tag name when running on a tag; fall back to run/build identifiers
+          if [[ "${GITHUB_REF:-}" == refs/tags/* ]]; then
+            VERSION="${GITHUB_REF#refs/tags/}"
           else
             VERSION="build-${GITHUB_RUN_NUMBER}-${GITHUB_SHA:0:7}"
           fi
@@ -152,9 +153,27 @@ jobs:
             [ $i -gt 1 ] && base="${base}-${i}"
             mv "$f" "dist_android/${base}.apk"
           done
+          # produce checksums and ensure any .asc signatures are present next step
           if compgen -G "dist_android/*.apk" > /dev/null; then
             (cd dist_android && sha256sum *.apk > SHA256SUMS.txt)
           fi
+
+      - name: ccache stats
+        shell: bash
+        run: |
+          ccache -s || true
+          { echo "### ccache (${{ matrix.abi }})"; ccache -s || true; } >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
+
+      - name: Upload Android artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-apk-${{ matrix.abi }}
+          path: |
+            dist_android/**/*
+            dist_android/*.apk.asc
+            dist_android/SHA256SUMS.txt
+          if-no-files-found: warn
 
       - name: ccache stats
         shell: bash
@@ -402,10 +421,14 @@ jobs:
           set -euo pipefail
           mkdir -p release_filtered
           shopt -s nullglob globstar
+          # Binaries
           for f in release_assets/**/*.apk; do cp -a "$f" release_filtered/; done
           for f in release_assets/**/*.{zip,tar.gz,exe,dmg,AppImage,deb,rpm}; do cp -a "$f" release_filtered/ 2>/dev/null || true; done
+          # Detached signatures
+          for f in release_assets/**/*.asc; do cp -a "$f" release_filtered/; done
+          # Checksums (exclude .asc to avoid hashing signatures)
           if compgen -G "release_filtered/*" > /dev/null; then
-            (cd release_filtered && sha256sum * > SHA256SUMS.txt)
+            find release_filtered -maxdepth 1 -type f ! -name "*.asc" -print0 | xargs -0 -r sha256sum > release_filtered/SHA256SUMS.txt || true
           else
             echo "::warning::No releasable files found in artifacts"
           fi
