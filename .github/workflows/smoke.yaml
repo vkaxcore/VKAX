@@ -3,7 +3,7 @@ name: CI • Smoke (toolchains • depends • android)
 
 on:
   push:
-    branches: ["v100.11.5-android"]
+    branches: ["v100.11.5-androidx"]
   pull_request:
   workflow_dispatch:
 
