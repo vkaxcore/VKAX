@@ -29,7 +29,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     steps:
-- name: Checkout
+      - name: Checkout
         uses: actions/checkout@v4
         with:
           submodules: true
@@ -80,10 +80,14 @@ jobs:
 
       - name: Build native Android targets (vkax-d, vkax-cli)
         shell: bash
-        env:
-          ANDROID_API_LEVEL: '34'
-          ANDROID_TOOLCHAIN_BIN: ${{ github.workspace }}/.android-sdk/ndk/${{ env.ANDROID_NDK_VERSION }}/toolchains/llvm/prebuilt/linux-x86_64/bin
         run: |
+          set -euo pipefail
+          ANDROID_API_LEVEL=34
+          ANDROID_TOOLCHAIN_BIN="${GITHUB_WORKSPACE}/.android-sdk/ndk/${ANDROID_NDK_VERSION}/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          J=$(nproc 2>/dev/null || echo 2); [ "$J" -gt 8 ] && J=8
+          ANDROID_SDK="${ANDROID_SDK_ROOT}" ANDROID_NDK="${ANDROID_SDK_ROOT}/ndk/${ANDROID_NDK_VERSION}" 
+            make -C . -j"$J" V=1 HOST=aarch64-linux-android ANDROID_API_LEVEL=${ANDROID_API_LEVEL} 
+            ANDROID_TOOLCHAIN_BIN=${ANDROID_TOOLCHAIN_BIN} vkax-d vkax-cli || true
           set -euo pipefail
           J=$(nproc 2>/dev/null || echo 2); [ "$J" -gt 8 ] && J=8
           ANDROID_SDK="${ANDROID_SDK_ROOT}" ANDROID_NDK="${ANDROID_SDK_ROOT}/ndk/${ANDROID_NDK_VERSION}" \
@@ -142,6 +146,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          submodules: true
+          fetch-depth: 0
 
       - name: Setup Java 11
         uses: actions/setup-java@v4
@@ -217,7 +224,7 @@ jobs:
       matrix:
         macos: [macos-13]
     steps:
-- name: Checkout
+      - name: Checkout
         uses: actions/checkout@v4
         with:
           submodules: true
@@ -289,7 +296,7 @@ jobs:
             triple: aarch64-linux-gnu
             allow_failures: true
     steps:
-- name: Checkout
+      - name: Checkout
         uses: actions/checkout@v4
         with:
           submodules: true
@@ -349,7 +356,7 @@ jobs:
     runs-on: windows-2022
     timeout-minutes: 45
     steps:
-- name: Checkout
+      - name: Checkout
         uses: actions/checkout@v4
         with:
           submodules: true
@@ -392,7 +399,7 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 60
     steps:
-- name: Checkout
+      - name: Checkout
         uses: actions/checkout@v4
         with:
           submodules: true
