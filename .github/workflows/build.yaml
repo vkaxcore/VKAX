@@ -1,4 +1,6 @@
 # .github/workflows/build.yaml
+# CI: Production builds for Android + Native (Linux, macOS, Windows). Split cache restore/save using
+# local cache wrapper. Strict depends checks on Linux/macOS. Increased file descriptor limits.
 name: "CI • Production builds (Android + Native)"
 
 on:
@@ -14,16 +16,10 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
-env:
-  ANDROID_SDK_ROOT: ${{ github.workspace }}/.android-sdk
-  ANDROID_HOME: ${{ github.workspace }}/.android-sdk
-  ANDROID_CLT_LINUX: https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip
-  ANDROID_NDK_VERSION: "23.1.7779620"
-
-# ---------------------
-# Group: Android builds (production)
-# ---------------------
 jobs:
+  # ---------------------
+  # Android builds (production)
+  # ---------------------
   android:
     name: android • build • ${{ matrix.abi }}
     runs-on: ubuntu-24.04
@@ -37,6 +33,12 @@ jobs:
             host: aarch64-linux-android
           - abi: armeabi-v7a
             host: arm-linux-androideabi
+    env:
+      ANDROID_SDK_ROOT: ${{ github.workspace }}/.android-sdk
+      ANDROID_HOME: ${{ github.workspace }}/.android-sdk
+      ANDROID_CLT_LINUX: https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip
+      ANDROID_NDK_VERSION: "23.1.7779620"
+      FALLBACK_DOWNLOAD_PATH: ${{ runner.temp }}/depends-sources
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -50,15 +52,16 @@ jobs:
           distribution: temurin
           java-version: '11'
 
-      - name: Restore cache (depends sources + ccache)
+      - name: Cache (depends sources + ccache) • restore
         uses: ./.github/cache
         with:
           mode: restore
-          key: ${{ runner.os }}-android-${{ matrix.abi }}-23.1.7779620-${{ hashFiles('depends/packages/*.mk') }}
+          key: ${{ runner.os }}-android-${{ matrix.abi }}-${{ env.ANDROID_NDK_VERSION }}-${{ hashFiles('depends/packages/*.mk') }}
           paths: |
             depends/sources
             ~/.ccache
-          restore-keys: ${{ runner.os }}-android-${{ matrix.abi }}-
+          restore-keys: |
+            ${{ runner.os }}-android-${{ matrix.abi }}-
 
       - name: Prepare SDK + cmdline-tools
         shell: bash
@@ -76,6 +79,7 @@ jobs:
             echo "$ANDROID_SDK_ROOT/platform-tools"
             echo "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin"
           } >> "$GITHUB_PATH"
+
       - name: Accept Android licenses
         uses: ./.github/actions/android-accept-licenses
 
@@ -96,9 +100,11 @@ jobs:
         run: |
           set -euo pipefail
           if [ ! -d depends ]; then echo "::error::depends/ missing"; exit 2; fi
-          J=1
-          # raise soft file-descriptor limit to avoid EMFILE during packaging operations
-          ulimit -n 4096 || true
+          # Raise soft file-descriptor limit to mitigate EMFILE during packaging operations
+          hard=$(ulimit -H -n || echo 4096)
+          soft_target=65535; [ "$hard" -lt 65535 ] && soft_target=$hard
+          ulimit -n "$soft_target" || true
+          echo "ulimit -n now: $(ulimit -n) (hard: $hard)"
           export ANDROID_SDK="${ANDROID_SDK_ROOT}"
           export ANDROID_NDK="${ANDROID_SDK_ROOT}/ndk/${ANDROID_NDK_VERSION}"
           make -C depends -j1 HOST=${{ matrix.host }} ANDROID_SDK="${ANDROID_SDK}" ANDROID_NDK="${ANDROID_NDK}"
@@ -155,6 +161,16 @@ jobs:
           find build -type f -name 'vkax-*' -exec cp -a {} dist_android/ \; || true
           if [ -d dist_android ]; then (cd dist_android && sha256sum * > sha256sums.txt || true); fi
 
+      - name: Cache (depends sources + ccache) • save
+        if: always()
+        uses: ./.github/cache
+        with:
+          mode: save
+          key: ${{ runner.os }}-android-${{ matrix.abi }}-${{ env.ANDROID_NDK_VERSION }}-${{ hashFiles('depends/packages/*.mk') }}
+          paths: |
+            depends/sources
+            ~/.ccache
+
       - name: Upload Android artifacts
         if: always()
         uses: actions/upload-artifact@v4
@@ -164,20 +180,16 @@ jobs:
             dist_android/**/*
           if-no-files-found: warn
 
-      - name: Save cache (depends sources + ccache)
-        if: always()
-        uses: ./.github/cache
-        with:
-          mode: save
-          key: ${{ runner.os }}-android-${{ matrix.abi }}-23.1.7779620-${{ hashFiles('depends/packages/*.mk') }}
-          paths: |
-            depends/sources
-            ~/.ccache
-
   android_legacy:
     name: android • legacy • ubuntu-22.04 • api 15 • ndk 23.1.7779620
     runs-on: ubuntu-22.04
     timeout-minutes: 60
+    env:
+      ANDROID_SDK_ROOT: ${{ github.workspace }}/.android-sdk
+      ANDROID_HOME: ${{ github.workspace }}/.android-sdk
+      ANDROID_CLT_LINUX: https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip
+      ANDROID_NDK_VERSION: "23.1.7779620"
+      FALLBACK_DOWNLOAD_PATH: ${{ runner.temp }}/depends-sources
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -191,6 +203,15 @@ jobs:
           distribution: temurin
           java-version: '11'
 
+      - name: Cache (depends sources + ccache) • restore
+        uses: ./.github/cache
+        with:
+          mode: restore
+          key: ${{ runner.os }}-android-legacy-${{ env.ANDROID_NDK_VERSION }}-${{ hashFiles('depends/packages/*.mk') }}
+          paths: |
+            depends/sources
+            ~/.ccache
+
       - name: Prepare SDK + cmdline-tools
         shell: bash
         run: |
@@ -202,6 +223,7 @@ jobs:
           unzip -q "$tmp/cmdline.zip" -d "$ANDROID_SDK_ROOT/cmdline-tools"
           mv "$ANDROID_SDK_ROOT/cmdline-tools/cmdline-tools" "$ANDROID_SDK_ROOT/cmdline-tools/latest" || true
           echo "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+
       - name: Accept Android licenses
         uses: ./.github/actions/android-accept-licenses
 
@@ -209,26 +231,28 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="${ANDROID_SDK_ROOT}" "platform-tools" "platforms;android-15" "ndk;23.1.7779620"
+          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="${ANDROID_SDK_ROOT}" "platform-tools" "platforms;android-15" "ndk;${ANDROID_NDK_VERSION}"
 
       - name: Build vendored depends (legacy)
         shell: bash
         run: |
           set -euo pipefail
           if [ ! -d depends ]; then echo "::error::depends/ directory missing; required for Android legacy build."; exit 2; fi
-          J=1
-          # raise soft file-descriptor limit
-          ulimit -n 4096 || true
+          # Raise soft file-descriptor limit
+          hard=$(ulimit -H -n || echo 4096)
+          soft_target=65535; [ "$hard" -lt 65535 ] && soft_target=$hard
+          ulimit -n "$soft_target" || true
+          echo "ulimit -n now: $(ulimit -n) (hard: $hard)"
           export ANDROID_SDK="${ANDROID_SDK_ROOT}"
-          export ANDROID_NDK="${ANDROID_SDK_ROOT}/ndk/23.1.7779620"
-          make -C depends -j1 HOST=aarch64-linux-android ANDROID_SDK="${ANDROID_SDK}" ANDROID_NDK="${ANDROID_NDK}" || true
+          export ANDROID_NDK="${ANDROID_SDK_ROOT}/ndk/${ANDROID_NDK_VERSION}"
+          make -C depends -j1 HOST=aarch64-linux-android ANDROID_SDK="${ANDROID_SDK}" ANDROID_NDK="${ANDROID_NDK}"
 
       - name: Build legacy targets (vkax-d, vkax-cli)
         shell: bash
         run: |
           set -euo pipefail
           export ANDROID_SDK="${ANDROID_SDK_ROOT}"
-          export ANDROID_NDK="${ANDROID_SDK_ROOT}/ndk/23.1.7779620"
+          export ANDROID_NDK="${ANDROID_SDK_ROOT}/ndk/${ANDROID_NDK_VERSION}"
           export ANDROID_API_LEVEL=15
           export ANDROID_TOOLCHAIN_BIN="${ANDROID_NDK}/toolchains/llvm/prebuilt/linux-x86_64/bin"
           make -C . -j1 V=1 HOST=aarch64-linux-android ANDROID_API_LEVEL=${ANDROID_API_LEVEL} ANDROID_TOOLCHAIN_BIN=${ANDROID_TOOLCHAIN_BIN} vkax-d vkax-cli || true
@@ -241,6 +265,16 @@ jobs:
           find build -type f -name 'vkax-*' -exec cp -a {} dist_android_legacy/ \; || true
           if [ -d dist_android_legacy ]; then (cd dist_android_legacy && sha256sum * > sha256sums.txt || true); fi
 
+      - name: Cache (depends sources + ccache) • save
+        if: always()
+        uses: ./.github/cache
+        with:
+          mode: save
+          key: ${{ runner.os }}-android-legacy-${{ env.ANDROID_NDK_VERSION }}-${{ hashFiles('depends/packages/*.mk') }}
+          paths: |
+            depends/sources
+            ~/.ccache
+
       - name: Upload Android legacy artifacts
         if: always()
         uses: actions/upload-artifact@v4
@@ -251,7 +285,7 @@ jobs:
           if-no-files-found: warn
 
   # ---------------------
-  # Group: Ubuntu / Linux builds (production)
+  # Ubuntu / Linux builds (production)
   # ---------------------
   ubuntu:
     name: native • ubuntu • ${{ matrix.name }}
@@ -267,6 +301,8 @@ jobs:
           - name: ubuntu-24-amd64
             runs_on: ubuntu-24.04
             triple: x86_64-pc-linux-gnu
+    env:
+      FALLBACK_DOWNLOAD_PATH: ${{ runner.temp }}/depends-sources
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -274,30 +310,32 @@ jobs:
           submodules: true
           fetch-depth: 0
 
-      - name: Restore cache (depends + ccache)
+      - name: Cache depends + ccache • restore
         uses: ./.github/cache
         with:
           mode: restore
-          key: ${{ runner.os }}-linux-23.1.7779620-${{ hashFiles('depends/packages/*.mk') }}
+          key: ${{ runner.os }}-linux-${{ hashFiles('depends/packages/*.mk') }}
           paths: |
             depends/sources
             ~/.ccache
-          restore-keys: ${{ runner.os }}-linux-
 
       - name: Install system build deps
         shell: bash
         run: |
           set -euo pipefail
           sudo apt-get update -qq
-          sudo apt-get install -y -qq build-essential pkg-config automake libtool autoconf bison cmake ninja-build python3 || true
+          sudo apt-get install -y -qq build-essential pkg-config automake libtool autoconf bison cmake ninja-build python3
 
       - name: Build vendored depends (Linux)
         shell: bash
         run: |
           set -euo pipefail
-          if [ ! -d depends ]; then echo "::error::depends/ dir missing; required for Linux build"; exit 2; fi
-          J=1
-          ulimit -n 4096 || true
+          if [ ! -d depends ]; then echo "::error::depends/ dir missing; required for Linux builds."; exit 2; fi
+          # Raise soft file-descriptor limit
+          hard=$(ulimit -H -n || echo 4096)
+          soft_target=65535; [ "$hard" -lt 65535 ] && soft_target=$hard
+          ulimit -n "$soft_target" || true
+          echo "ulimit -n now: $(ulimit -n) (hard: $hard)"
           make -C depends -j1 HOST=${{ matrix.triple }}
 
       - name: Check vendored depends prefix (Linux)
@@ -317,7 +355,9 @@ jobs:
           if [ ! -f CMakeLists.txt ]; then
             echo "::notice::No CMakeLists.txt; skipping."; exit 0
           fi
-          export CMAKE_PREFIX_PATH="depends/${{ matrix.triple }}"
+          if [ -d "depends/${{ matrix.triple }}" ]; then
+            export CMAKE_PREFIX_PATH="depends/${{ matrix.triple }}"
+          fi
           cmake -S . -B build -G Ninja
           cmake --build build -j1 || true
 
@@ -329,6 +369,16 @@ jobs:
           find build -type f -perm -111 -name 'vkax*' -exec cp -a {} dist_linux/ \; || true
           if [ -d dist_linux ]; then (cd dist_linux && sha256sum * > sha256sums.txt || true); fi
 
+      - name: Cache depends + ccache • save
+        if: always()
+        uses: ./.github/cache
+        with:
+          mode: save
+          key: ${{ runner.os }}-linux-${{ hashFiles('depends/packages/*.mk') }}
+          paths: |
+            depends/sources
+            ~/.ccache
+
       - name: Upload linux artifacts
         if: always()
         uses: actions/upload-artifact@v4
@@ -338,24 +388,16 @@ jobs:
             dist_linux/**/*
           if-no-files-found: warn
 
-      - name: Save cache (depends + ccache)
-        if: always()
-        uses: ./.github/cache
-        with:
-          mode: save
-          key: ${{ runner.os }}-linux-23.1.7779620-${{ hashFiles('depends/packages/*.mk') }}
-          paths: |
-            depends/sources
-            ~/.ccache
-
   # ---------------------
-  # Group: Windows Cross (MinGw on Ubuntu) — production
+  # Windows Cross (MinGW on Ubuntu) — production
   # ---------------------
   native-windows-cross:
     name: native-windows-cross • depends • ubuntu-24.04 • x86_64-w64-mingw32
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     continue-on-error: true
+    env:
+      FALLBACK_DOWNLOAD_PATH: ${{ runner.temp }}/depends-sources
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -363,7 +405,7 @@ jobs:
           submodules: true
           fetch-depth: 0
 
-      - name: Restore cache (depends sources)
+      - name: Cache (depends sources) • restore
         uses: ./.github/cache
         with:
           mode: restore
@@ -376,15 +418,17 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update -qq
-          sudo apt-get install -y -qq build-essential pkg-config automake libtool autoconf bison cmake ninja-build python3 g++-mingw-w64-x86-64 || true
+          sudo apt-get install -y -qq build-essential pkg-config automake libtool autoconf bison cmake ninja-build python3 g++-mingw-w64-x86-64 binutils-mingw-w64-x86-64
 
       - name: Build depends (x86_64-w64-mingw32)
         shell: bash
         run: |
           set -euo pipefail
           if [ ! -d depends ]; then echo "::error::depends/ missing"; exit 2; fi
-          J=1
-          ulimit -n 4096 || true
+          hard=$(ulimit -H -n || echo 4096)
+          soft_target=65535; [ "$hard" -lt 65535 ] && soft_target=$hard
+          ulimit -n "$soft_target" || true
+          echo "ulimit -n now: $(ulimit -n) (hard: $hard)"
           make -C depends -j1 HOST=x86_64-w64-mingw32
 
       - name: Check vendored depends prefix (mingw)
@@ -405,6 +449,15 @@ jobs:
           find build-w64 -type f -name 'vkax-*.exe' -exec cp -a {} dist-w64/ \; || true
           if [ -d dist-w64 ]; then (cd dist-w64 && sha256sum * > sha256s.txt || true); fi
 
+      - name: Cache (depends sources) • save
+        if: always()
+        uses: ./.github/cache
+        with:
+          mode: save
+          key: ${{ runner.os }}-mingw-${{ hashFiles('depends/packages/*.mk') }}
+          paths: |
+            depends/sources
+
       - name: Upload Windows cross artifacts
         if: always()
         uses: actions/upload-artifact@v4
@@ -414,17 +467,8 @@ jobs:
             dist-w64/**/*
           if-no-files-found: warn
 
-      - name: Save cache (depends sources)
-        if: always()
-        uses: ./.github/cache
-        with:
-          mode: save
-          key: ${{ runner.os }}-mingw-${{ hashFiles('depends/packages/*.mk') }}
-          paths: |
-            depends/sources
-
   # ---------------------
-  # Group: Windows (MSVC) — native
+  # Windows (MSVC) — native
   # ---------------------
   windows:
     name: native • windows • windows-2022
@@ -454,14 +498,10 @@ jobs:
             Write-Output "::warning::make not found on PATH; cannot build depends on Windows runner"
             exit 0
           }
-          $J = $env:NUMBER_OF_PROCESSORS
-          if (-not $J) { $J = 1 }
-          if ($J -gt 1) { $J = 1 }
+          $J = $env:NUMBER_OF_PROCESSORS; if (-not $J) { $J = 1 }; if ($J -gt 1) { $J = 1 }
           Write-Output "Running: make -C depends HOST=x86_64-pc-windows-msvc PREFIX=depends/x86_64-pc-windows-msvc -j$J"
           $proc = Start-Process -FilePath "make" -ArgumentList "-C","depends","HOST=x86_64-pc-windows-msvc","PREFIX=depends/x86_64-pc-windows-msvc","-j$J" -NoNewWindow -Wait -PassThru
-          if ($proc.ExitCode -ne 0) {
-            Write-Output "::warning::make returned exit code $($proc.ExitCode)"
-          }
+          if ($proc.ExitCode -ne 0) { Write-Output "::warning::make returned exit code $($proc.ExitCode)" }
           $prefix = Get-ChildItem -Path .\depends -Directory -Filter "x86_64-pc-windows-msvc*" -ErrorAction SilentlyContinue | Select-Object -First 1
           if ($null -ne $prefix) {
             Write-Output "Found depends prefix: $($prefix.FullName)"
@@ -475,9 +515,7 @@ jobs:
         run: |
           Set-StrictMode -Version Latest
           $vcpkgRoot = 'C:\\vcpkg'
-          if (-Not (Test-Path $vcpkgRoot)) {
-            git clone https://github.com/microsoft/vcpkg $vcpkgRoot
-          }
+          if (-Not (Test-Path $vcpkgRoot)) { git clone https://github.com/microsoft/vcpkg $vcpkgRoot }
           & $vcpkgRoot\bootstrap-vcpkg.bat
           & "$vcpkgRoot\vcpkg.exe" install boost-filesystem boost-system openssl --triplet x64-windows
           if ($LASTEXITCODE -ne 0) { Write-Output "::warning::vcpkg install failed (continuing)" }
@@ -501,46 +539,19 @@ jobs:
         run: |
           Set-StrictMode -Version Latest
           $baseCandidates = @('src','src\version','src\qt','src\client','.')
-          $base='.'
-          foreach ($p in $baseCandidates) { if (Test-Path $p) { $base=$p; break } }
-
-          # Ensure config/ exists for config-style headers expected by clientversion.h
-          $configDir = Join-Path $base 'config'
-          if (-Not (Test-Path $configDir)) { New-Item -ItemType Directory -Path $configDir | Out-Null }
-
+          $base='.'; foreach ($p in $baseCandidates) { if (Test-Path $p) { $base=$p; break } }
+          $configDir = Join-Path $base 'config'; if (-Not (Test-Path $configDir)) { New-Item -ItemType Directory -Path $configDir | Out-Null }
           $clientVersion = Join-Path $base 'clientversion.h'
           if (-Not (Test-Path $clientVersion)) {
             $clientVersionContent = @(
-              '#ifndef CLIENTVERSION_H'
-              '#define CLIENTVERSION_H'
-              '#define CLIENT_VERSION_MAJOR 0'
-              '#define CLIENT_VERSION_MINOR 0'
-              '#define CLIENT_VERSION_REVISION 0'
-              '#define CLIENT_VERSION_BUILD 0'
-              '#define COPYRIGHT_YEAR 2025'
-              '#endif'
-            ) -join "`r`n"
+              '#ifndef CLIENTVERSION_H','\n#define CLIENTVERSION_H','\n#define CLIENT_VERSION_MAJOR 0','\n#define CLIENT_VERSION_MINOR 0','\n#define CLIENT_VERSION_REVISION 0','\n#define CLIENT_VERSION_BUILD 0','\n#define COPYRIGHT_YEAR 2025','\n#endif' ) -join "\r\n"
             $clientVersionContent | Out-File -FilePath $clientVersion -Encoding ascii
             Write-Output "Generated $clientVersion"
           } else { Write-Output "$clientVersion exists; skipping" }
-
           $dashcfg = Join-Path $configDir 'dash-config.h'
           if (-Not (Test-Path $dashcfg)) {
             $dashcfgContent = @(
-              '#ifndef DASH_CONFIG_H'
-              '#define DASH_CONFIG_H'
-              '#define PACKAGE_NAME "VKAX"'
-              '#define PACKAGE_VERSION "0.0.0"'
-              '#define VERSION "0.0.0"'
-              '#define CLIENT_VERSION_MAJOR 0'
-              '#define CLIENT_VERSION_MINOR 0'
-              '#define CLIENT_VERSION_REVISION 0'
-              '#define CLIENT_VERSION_BUILD 0'
-              '#define CLIENT_VERSION_IS_RELEASE 0'
-              '#define COPYRIGHT_YEAR 2025'
-              '#define HAVE_BOOST 1'
-              '#endif'
-            ) -join "`r`n"
+              '#ifndef DASH_CONFIG_H','\n#define DASH_CONFIG_H','\n#define PACKAGE_NAME "VKAX"','\n#define PACKAGE_VERSION "0.0.0"','\n#define VERSION "0.0.0"','\n#define CLIENT_VERSION_MAJOR 0','\n#define CLIENT_VERSION_MINOR 0','\n#define CLIENT_VERSION_REVISION 0','\n#define CLIENT_VERSION_BUILD 0','\n#define CLIENT_VERSION_IS_RELEASE 0','\n#define COPYRIGHT_YEAR 2025','\n#define HAVE_BOOST 1','\n#endif' ) -join "\r\n"
             $dashcfgContent | Out-File -FilePath $dashcfg -Encoding ascii
             Write-Output "Generated $dashcfg"
           } else { Write-Output "$dashcfg exists; skipping" }
@@ -550,12 +561,9 @@ jobs:
         run: |
           Write-Output "VCPKG_ROOT=$env:VCPKG_ROOT"
           if (Test-Path C:\\vcpkg) { Get-ChildItem C:\\vcpkg -Depth 2 | Select-Object -First 40 }
-          Write-Output "Listing depends prefixes (top-level):"
-          Get-ChildItem .\depends -Directory -ErrorAction SilentlyContinue | Select-Object -First 40 | ForEach-Object { Write-Output $_.FullName }
-          Write-Output "Looking for depends/x86_64-pc-windows-msvc*"
-          Get-ChildItem .\depends -Directory -Filter "x86_64-pc-windows-msvc*" -ErrorAction SilentlyContinue | ForEach-Object { Write-Output $_.FullName }
-          Write-Output "Checking for generated headers:"
-          Get-ChildItem -Path . -Filter clientversion.h -Recurse -ErrorAction SilentlyContinue | Select-Object -First 10
+          Write-Output "Listing depends prefixes (top-level):"; Get-ChildItem .\depends -Directory -ErrorAction SilentlyContinue | Select-Object -First 40 | ForEach-Object { Write-Output $_.FullName }
+          Write-Output "Looking for depends/x86_64-pc-windows-msvc*"; Get-ChildItem .\depends -Directory -Filter "x86_64-pc-windows-msvc*" -ErrorAction SilentlyContinue | ForEach-Object { Write-Output $_.FullName }
+          Write-Output "Checking for generated headers:"; Get-ChildItem -Path . -Filter clientversion.h -Recurse -ErrorAction SilentlyContinue | Select-Object -First 10
           if (Test-Path .\src\clientversion.h) { Get-Content .\src\clientversion.h | Select-Object -First 40 }
 
       - name: CMake configure & build (MSVC + depends/vcpkg)
@@ -565,25 +573,11 @@ jobs:
         run: |
           if (Test-Path .\CMakeLists.txt) {
             $cmakeArgs = @()
-            if ($env:DEPENDS_WINDOWS_PREFIX) {
-              Write-Output "Using depends prefix: $env:DEPENDS_WINDOWS_PREFIX"
-              $cmakeArgs += "-DCMAKE_PREFIX_PATH=$env:DEPENDS_WINDOWS_PREFIX"
-            } else {
-              $toolchain = Join-Path $env:VCPKG_ROOT 'scripts\buildsystems\vcpkg.cmake'
-              Write-Output "Using vcpkg toolchain: $toolchain"
-              $cmakeArgs += "-DCMAKE_TOOLCHAIN_FILE=$toolchain"
-            }
-            $cmakeArgs += "-DCMAKE_CXX_STANDARD=20"
-            $cmakeArgs += "-DBUILD_TESTS=OFF"
-            $cmakeArgs += "-DCMAKE_C_FLAGS=/DHAVE_CONFIG_H"
-            $cmakeArgs += "-DCMAKE_CXX_FLAGS=/DHAVE_CONFIG_H"
-            $cmakeCmd = "cmake -S . -B build -G Ninja " + ($cmakeArgs -join ' ')
-            Write-Output "Running: $cmakeCmd"
-            Invoke-Expression $cmakeCmd
-            cmake --build build --config Release -- -j1
-          } else {
-            Write-Output "::notice::No CMakeLists.txt; skipping."
-          }
+            if ($env:DEPENDS_WINDOWS_PREFIX) { $cmakeArgs += "-DCMAKE_PREFIX_PATH=$env:DEPENDS_WINDOWS_PREFIX" }
+            else { $toolchain = Join-Path $env:VCPKG_ROOT 'scripts\buildsystems\vcpkg.cmake'; $cmakeArgs += "-DCMAKE_TOOLCHAIN_FILE=$toolchain" }
+            $cmakeArgs += "-DCMAKE_CXX_STANDARD=20"; $cmakeArgs += "-DBUILD_TESTS=OFF"; $cmakeArgs += "-DCMAKE_C_FLAGS=/DHAVE_CONFIG_H"; $cmakeArgs += "-DCMAKE_CXX_FLAGS=/DHAVE_CONFIG_H"
+            $cmakeCmd = "cmake -S . -B build -G Ninja " + ($cmakeArgs -join ' '); Write-Output "Running: $cmakeCmd"; Invoke-Expression $cmakeCmd; cmake --build build --config Release -- -j1
+          } else { Write-Output "::notice::No CMakeLists.txt; skipping." }
 
       - name: Collect Windows binaries
         shell: powershell
@@ -601,7 +595,7 @@ jobs:
           if-no-files-found: warn
 
   # ---------------------
-  # Group: macOS builds (production)
+  # macOS builds (production)
   # ---------------------
   macos:
     name: native • macOS • ${{ matrix.macos }}
@@ -611,22 +605,14 @@ jobs:
       fail-fast: false
       matrix:
         macos: [macos-13]
+    env:
+      FALLBACK_DOWNLOAD_PATH: ${{ runner.temp }}/depends-sources
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           submodules: true
           fetch-depth: 0
-
-      - name: Restore cache (depends sources + ccache)
-        uses: ./.github/cache
-        with:
-          mode: restore
-          key: ${{ runner.os }}-macos-23.1.7779620-${{ hashFiles('depends/packages/*.mk') }}
-          paths: |
-            depends/sources
-            ~/.ccache
-          restore-keys: ${{ runner.os }}-macos-
 
       - name: Resolve Homebrew and install build tools
         shell: bash
@@ -640,30 +626,34 @@ jobs:
             brew install automake libtool pkg-config cmake ninja libnatpmp || true
           fi
 
-      - name: "Diagnostic: CMakeLists and tree"
+      - name: Cache depends sources + ccache • restore
+        uses: ./.github/cache
+        with:
+          mode: restore
+          key: ${{ runner.os }}-macos-${{ hashFiles('depends/packages/*.mk') }}
+          paths: |
+            depends/sources
+            ~/.ccache
+
+      - name: Diagnostic: tree
         shell: bash
         run: |
           set -euo pipefail
           echo "CMakeLists.txt present: " $( [ -f CMakeLists.txt ] && echo yes || echo no )
-          echo "Top-level files:"
-          ls -la | sed -n '1,120p' || true
+          echo "Top-level files:"; ls -la | sed -n '1,120p' || true
 
       - name: Build vendored depends (macOS host)
         shell: bash
         run: |
           set -euo pipefail
-          if [ ! -d depends ]; then
-            echo "::error::No depends/ dir found; required for macOS build"; exit 2
-          fi
+          if [ ! -d depends ]; then echo "::error::No depends/ dir found; required for macOS build"; exit 2; fi
           ARCH=$(uname -m)
-          if [ "$ARCH" = "arm64" ]; then
-            HOST=aarch64-apple-darwin
-          else
-            HOST=x86_64-apple-darwin
-          fi
+          if [ "$ARCH" = "arm64" ]; then HOST=aarch64-apple-darwin; else HOST=x86_64-apple-darwin; fi
           echo "Building depends for host: $HOST"
-          J=1
-          ulimit -n 4096 || true
+          hard=$(ulimit -H -n || echo 256)
+          soft_target=65535; [ "$hard" -lt 65535 ] && soft_target=$hard
+          ulimit -n "$soft_target" || true
+          echo "ulimit -n now: $(ulimit -n) (hard: $hard)"
           make -C depends -j1 HOST="$HOST"
 
       - name: Check vendored depends prefix (macOS)
@@ -671,11 +661,7 @@ jobs:
         run: |
           set -euo pipefail
           ARCH=$(uname -m)
-          if [ "$ARCH" = "arm64" ]; then
-            HOST=aarch64-apple-darwin
-          else
-            HOST=x86_64-apple-darwin
-          fi
+          if [ "$ARCH" = "arm64" ]; then HOST=aarch64-apple-darwin; else HOST=x86_64-apple-darwin; fi
           if ls depends/${HOST}* >/dev/null 2>&1; then
             echo "Found depends prefix: $(ls -d depends/${HOST}* | tr '\n' ' ')"
           else
@@ -709,112 +695,13 @@ jobs:
           find src -type f -perm -111 -name 'vkax*' -exec cp -a {} dist_macos/ \; || true
           if [ -d dist_macos ]; then (cd dist_macos && sha256sum * > sha256sums.txt || true); fi
 
-      - name: Save cache (depends sources + ccache)
+      - name: Cache depends sources + ccache • save
         if: always()
         uses: ./.github/cache
         with:
           mode: save
-          key: ${{ runner.os }}-macos-23.1.7779620-${{ hashFiles('depends/packages/*.mk') }}
+          key: ${{ runner.os }}-macos-${{ hashFiles('depends/packages/*.mk') }}
           paths: |
             depends/sources
             ~/.ccache
-
-  # ---------------------
-  # Final sanity / audit
-  # ---------------------
-  depends_audit:
-    name: depends • audit
-    runs-on: ubuntu-22.04
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          submodules: true
-          fetch-depth: 0
-
-      - name: Generate dependency source URL report (text)
-        shell: bash
-        run: |
-          set -euo pipefail
-          outdir=depends_audit
-          mkdir -p "$outdir"
-          out="$outdir/DEPENDENCY_SOURCES.txt"
-          {
-            echo "Dependency Source Report"
-            echo "Generated: $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
-            echo
-          } > "$out"
-          shopt -s nullglob
-          for f in depends/packages/*.mk; do
-            pkg=$(sed -n 's/^package[[:space:]]*=[[:space:]]*//p' "$f" | head -n1)
-            [ -z "$pkg" ] && pkg=$(basename "$f" .mk)
-            url=$(sed -n 's/^[[:space:]]*\$[(]package[)]_url[[:space:]]*[:+?]*=[[:space:]]*//p' "$f" | head -n1)
-            giturl=$(sed -n 's/^[[:space:]]*\$[(]package[)]_git_url[[:space:]]*[:+?]*=[[:space:]]*//p' "$f" | head -n1)
-            fname=$(sed -n 's/^[[:space:]]*\$[(]package[)]_file_name[[:space:]]*[:+?]*=[[:space:]]*//p' "$f" | head -n1)
-            [ -z "$fname" ] && fname=$(sed -n 's/^[[:space:]]*\$[(]package[)]_filename[[:space:]]*[:+?]*=[[:space:]]*//p' "$f" | head -n1)
-            sha_decl=$(sed -n 's/^[[:space:]]*\$[(]package[)]_sha256\(sum\)*[[:space:]]*[:+?]*=[[:space:]]*//p' "$f" | head -n1)
-
-            typ=unknown; src=""
-            [ -n "$giturl" ] && { typ=git; src="$giturl"; }
-            [ -n "$url" ] && { typ=archive; src="$url"; }
-
-            file_path=""
-            if [ -n "$fname" ] && [ -f "depends/sources/$fname" ]; then
-              file_path="depends/sources/$fname"
-            else
-              cand=""
-              if [ -d depends/sources ]; then
-                for file in depends/sources/*; do
-                  [ -e "$file" ] || continue
-                  fname_b=$(basename "$file")
-                  if [[ "$fname_b" =~ ^${pkg}(|[-_.].*)\.(tar\.gz|tgz|tar\.bz2|tbz2|tar\.xz|txz|zip|7z)$ ]]; then
-                    cand="$fname_b"
-                    break
-                  fi
-                done
-              fi
-              [ -n "$cand" ] && file_path="depends/sources/$cand"
-            fi
-
-            size="n/a"; mtime="n/a"; sha256="n/a"
-            if [ -n "$file_path" ] && [ -f "$file_path" ]; then
-              size=$(stat -c%s "$file_path" 2>/dev/null || stat -f%z "$file_path")
-              epoch=$(stat -c%Y "$file_path" 2>/dev/null || stat -f%m "$file_path")
-              mtime=$(date -u -d "@${epoch}" +'%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || date -u -r "$epoch" +'%Y-%m-%dT%H:%M:%SZ')
-              sha256=$(sha256sum "$file_path" 2>/dev/null | awk '{print $1}')
-            elif [ -n "$sha_decl" ]; then
-              sha256="$sha_decl"
-            fi
-
-            {
-              echo "Package: $pkg"
-              echo "Type: $typ"
-              echo "URL: ${src:-n/a}"
-              echo "File: ${file_path:-missing}"
-              echo "Size: $size"
-              echo "DownloadedAt: $mtime"
-              echo "SHA256: $sha256"
-              echo "-----"
-            } >> "$out"
-          done
-          echo "Wrote $out"
-      - name: Upload dependency URL report
-        uses: actions/upload-artifact@v4
-        with:
-          name: depends-source-urls
-          path: depends_audit/DEPENDENCY_SOURCES.txt
-          if-no-files-found: warn
-
-  release:
-    name: Release (tag only)
-    if: startsWith(github.ref, 'refs/tags/')
-    runs-on: ubuntu-22.04
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Promote artifacts to release
-        shell: bash
-        run: |
-          echo "(release step placeholder)"
-# .github/workflows/build.yaml
+# End of file
