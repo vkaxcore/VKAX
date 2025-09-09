@@ -708,7 +708,7 @@ jobs:
             depends/sources
             ~/.ccache
 
-      - name: Diagnostic: tree
+      - name: "Diagnostic: tree"
         shell: bash
         run: |
           set -euo pipefail
