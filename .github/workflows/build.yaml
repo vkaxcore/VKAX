@@ -70,32 +70,75 @@ jobs:
             "platforms;android-34" \
             "ndk;${ANDROID_NDK_VERSION}"
 
-      - name: Build vendored depends (Android aarch64)
+      - name: Build depends (x86_64-w64-mingw32)
         shell: bash
         run: |
           set -euo pipefail
-          if [ ! -d depends ]; then
-            echo "::error::depends/ directory missing; required for Android native build."; exit 2
-          fi
+          if [ ! -d depends ]; then echo "::error::depends/ missing"; exit 2; fi
           J=$(nproc 2>/dev/null || echo 2); [ "$J" -gt 8 ] && J=8
-          make -C depends -j"$J" HOST=aarch64-linux-android ANDROID_API_LEVEL=34 \
-            ANDROID_SDK="${ANDROID_SDK_ROOT}" ANDROID_NDK="${ANDROID_SDK_ROOT}/ndk/${ANDROID_NDK_VERSION}"
+          make -C depends -j"$J" HOST=x86_64-w64-mingw32 || true
 
-      - name: Build native Android targets (vkax-d, vkax-cli)
+      - name: Depends summary & annotations
+        shell: bash
+        run: |
+          set -euo pipefail
+          summary_file="$GITHUB_STEP_SUMMARY"
+          echo "### depends packages built on ${{ github.job }}" >> "$summary_file"
+          if [ ! -d depends ]; then
+            echo "_depends/ missing; nothing to report_" >> "$summary_file"
+            echo "::notice::depends/ missing; nothing to report"
+            exit 0
+          fi
+          pkgs=$(find depends/work -type f -name .stamp_built 2>/dev/null | while read -r f; do dirname "$f" | xargs basename; done | sort -u)
+          if [ -z "$pkgs" ]; then
+            echo "_no .stamp_built files found; build may be cached or produced no targets_" >> "$summary_file"
+            echo "::notice::No .stamp_built files found for depends"
+          else
+            for p in $pkgs; do
+              echo "- $p" >> "$summary_file"
+              mk=$(ls depends/packages/${p}*.mk 2>/dev/null | head -n1 || true)
+              if [ -n "$mk" ]; then
+                echo "  - package file: ${mk}" >> "$summary_file"
+                url=$(grep -Eo 'https?://[^ \"\']+' "$mk" | head -n1 || true)
+                if [ -n "$url" ]; then
+                  echo "  - source URL: $url" >> "$summary_file"
+                  bn=$(basename "$url")
+                  if [ -f "depends/sources/$bn" ]; then
+                    sha=$(sha256sum "depends/sources/$bn" | awk '{print $1}')
+                    echo "  - local source sha256: $sha" >> "$summary_file"
+                  fi
+                fi
+                meta=$(grep -Eoi "(homepage|url|src_uri|distname|sha256|sha1|md5)[[:space:]]*[:=].*" "$mk" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | tr '
+' ' ')
+                if [ -n "$meta" ]; then
+                  echo "  - metadata: $meta" >> "$summary_file"
+                fi
+                echo "::notice file=${mk},line=1::Depends package built: $p"
+              else
+                echo "  - (no package mk found)" >> "$summary_file"
+                echo "::notice::$p — (no package mk found)"
+              fi
+
+              srcfile=$(find depends/sources depends/work/$p -type f -maxdepth 3 -name '*.tar*' -o -name '*.zip' -o -name '*.bz2' 2>/dev/null | head -n1 || true)
+              if [ -n "$srcfile" ]; then
+                sha=$(sha256sum "$srcfile" | awk '{print $1}' || true)
+                echo "  - artifact: $(basename "$srcfile") (sha256: $sha)" >> "$summary_file"
+              fi
+            done
+          fi
+
+      - name: CMake configure and build (Android native) (vkax-d, vkax-cli)
         shell: bash
         run: |
           set -euo pipefail
           ANDROID_API_LEVEL=34
           ANDROID_TOOLCHAIN_BIN="${GITHUB_WORKSPACE}/.android-sdk/ndk/${ANDROID_NDK_VERSION}/toolchains/llvm/prebuilt/linux-x86_64/bin"
           J=$(nproc 2>/dev/null || echo 2); [ "$J" -gt 8 ] && J=8
-          ANDROID_SDK="${ANDROID_SDK_ROOT}" ANDROID_NDK="${ANDROID_SDK_ROOT}/ndk/${ANDROID_NDK_VERSION}" 
-            make -C . -j"$J" V=1 HOST=aarch64-linux-android ANDROID_API_LEVEL=${ANDROID_API_LEVEL} 
-            ANDROID_TOOLCHAIN_BIN=${ANDROID_TOOLCHAIN_BIN} vkax-d vkax-cli || true
-          set -euo pipefail
-          J=$(nproc 2>/dev/null || echo 2); [ "$J" -gt 8 ] && J=8
-          ANDROID_SDK="${ANDROID_SDK_ROOT}" ANDROID_NDK="${ANDROID_SDK_ROOT}/ndk/${ANDROID_NDK_VERSION}" \
-            make -C . -j"$J" V=1 HOST=aarch64-linux-android ANDROID_API_LEVEL=${ANDROID_API_LEVEL} \
-            ANDROID_TOOLCHAIN_BIN=${ANDROID_TOOLCHAIN_BIN} vkax-d vkax-cli || true
+          export ANDROID_SDK="${ANDROID_SDK_ROOT}"
+          export ANDROID_NDK="${ANDROID_SDK_ROOT}/ndk/${ANDROID_NDK_VERSION}"
+          export ANDROID_TOOLCHAIN_BIN
+          # Build native Android targets (vkax-d, vkax-cli)
+          make -C . -j"$J" V=1 HOST=aarch64-linux-android ANDROID_API_LEVEL=${ANDROID_API_LEVEL} ANDROID_TOOLCHAIN_BIN=${ANDROID_TOOLCHAIN_BIN} vkax-d vkax-cli || true
 
       - name: Package Qt Android (attempt)
         shell: bash
@@ -116,6 +159,34 @@ jobs:
             fi
           else
             echo "androiddeployqt/qmake not available; skipping deterministic Qt packaging"
+          fi
+
+      - name: Append depends summary
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "### depends packages built (Android)" >> "$GITHUB_STEP_SUMMARY"
+          pkgs=$(find depends/work -maxdepth 3 -type f -name .stamp_built -print0 2>/dev/null | xargs -0 -n1 dirname 2>/dev/null | xargs -n1 basename | sed -E 's/-[0-9].*$//' | sort -u | tr '
+' ' ')
+          if [ -z "$pkgs" ]; then
+            echo "- _no .stamp_built files found; build may be cached or produced no targets_" >> "$GITHUB_STEP_SUMMARY"
+          else
+            for p in $pkgs; do
+              echo "- $p" >> "$GITHUB_STEP_SUMMARY"
+              mkfile=$(find depends/packages -type f -name "$p*.mk" -print -quit 2>/dev/null || true)
+              if [ -n "$mkfile" ]; then
+                echo "  - package file: $mkfile" >> "$GITHUB_STEP_SUMMARY"
+                url=$(grep -Eo 'https?://[^ \"\']+' "$mkfile" | head -n1 || true)
+                if [ -n "$url" ]; then
+                  echo "  - source URL: $url" >> "$GITHUB_STEP_SUMMARY"
+                  bn=$(basename "$url")
+                  if [ -f "depends/sources/$bn" ]; then
+                    sha=$(sha256sum "depends/sources/$bn" | awk '{print $1}')
+                    echo "  - local source sha256: $sha" >> "$GITHUB_STEP_SUMMARY"
+                  fi
+                fi
+              fi
+            done
           fi
 
       - name: Collect Android artifacts
@@ -201,6 +272,34 @@ jobs:
           J=$(nproc 2>/dev/null || echo 2); [ "$J" -gt 8 ] && J=8
           make -C . -j"$J" V=1 HOST=aarch64-linux-android ANDROID_API_LEVEL=${ANDROID_API_LEVEL} ANDROID_TOOLCHAIN_BIN=${ANDROID_TOOLCHAIN_BIN} vkax-d vkax-cli || true
 
+      - name: Append depends summary (legacy Android)
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "### depends packages built (Android legacy)" >> "$GITHUB_STEP_SUMMARY"
+          pkgs=$(find depends/work -maxdepth 3 -type f -name .stamp_built -print0 2>/dev/null | xargs -0 -n1 dirname 2>/dev/null | xargs -n1 basename | sed -E 's/-[0-9].*$//' | sort -u | tr '
+' ' ')
+          if [ -z "$pkgs" ]; then
+            echo "- _no .stamp_built files found; build may be cached or produced no targets_" >> "$GITHUB_STEP_SUMMARY"
+          else
+            for p in $pkgs; do
+              echo "- $p" >> "$GITHUB_STEP_SUMMARY"
+              mkfile=$(find depends/packages -type f -name "$p*.mk" -print -quit 2>/dev/null || true)
+              if [ -n "$mkfile" ]; then
+                echo "  - package file: $mkfile" >> "$GITHUB_STEP_SUMMARY"
+                url=$(grep -Eo 'https?://[^ \"\']+' "$mkfile" | head -n1 || true)
+                if [ -n "$url" ]; then
+                  echo "  - source URL: $url" >> "$GITHUB_STEP_SUMMARY"
+                  bn=$(basename "$url")
+                  if [ -f "depends/sources/$bn" ]; then
+                    sha=$(sha256sum "depends/sources/$bn" | awk '{print $1}')
+                    echo "  - local source sha256: $sha" >> "$GITHUB_STEP_SUMMARY"
+                  fi
+                fi
+              fi
+            done
+          fi
+
       - name: Collect Android legacy artifacts
         shell: bash
         run: |
@@ -255,6 +354,34 @@ jobs:
           export CMAKE_PREFIX_PATH="$(echo depends/x86_64-apple-darwin* 2>/dev/null || true)"
           cmake -S . -B build -G Ninja
           cmake --build build -j"$(sysctl -n hw.ncpu 2>/dev/null || echo 2)" || true
+
+      - name: Append depends summary (macOS)
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "### depends packages built (macOS)" >> "$GITHUB_STEP_SUMMARY"
+          pkgs=$(find depends/work -maxdepth 3 -type f -name .stamp_built -print0 2>/dev/null | xargs -0 -n1 dirname 2>/dev/null | xargs -n1 basename | sed -E 's/-[0-9].*$//' | sort -u | tr '
+' ' ')
+          if [ -z "$pkgs" ]; then
+            echo "- _no .stamp_built files found; build may be cached or produced no targets_" >> "$GITHUB_STEP_SUMMARY"
+          else
+            for p in $pkgs; do
+              echo "- $p" >> "$GITHUB_STEP_SUMMARY"
+              mkfile=$(find depends/packages -type f -name "$p*.mk" -print -quit 2>/dev/null || true)
+              if [ -n "$mkfile" ]; then
+                echo "  - package file: $mkfile" >> "$GITHUB_STEP_SUMMARY"
+                url=$(grep -Eo 'https?://[^ \"\']+' "$mkfile" | head -n1 || true)
+                if [ -n "$url" ]; then
+                  echo "  - source URL: $url" >> "$GITHUB_STEP_SUMMARY"
+                  bn=$(basename "$url")
+                  if [ -f "depends/sources/$bn" ]; then
+                    sha=$(sha256sum "depends/sources/$bn" | awk '{print $1}')
+                    echo "  - local source sha256: $sha" >> "$GITHUB_STEP_SUMMARY"
+                  fi
+                fi
+              fi
+            done
+          fi
 
       - name: Collect macOS binaries
         shell: bash
@@ -336,6 +463,34 @@ jobs:
           fi
           cmake -S . -B build -G Ninja
           cmake --build build -j"$(nproc || echo 2)" || true
+
+      - name: Append depends summary (linux)
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "### depends packages built (linux)" >> "$GITHUB_STEP_SUMMARY"
+          pkgs=$(find depends/work -maxdepth 3 -type f -name .stamp_built -print0 2>/dev/null | xargs -0 -n1 dirname 2>/dev/null | xargs -n1 basename | sed -E 's/-[0-9].*$//' | sort -u | tr '
+' ' ')
+          if [ -z "$pkgs" ]; then
+            echo "- _no .stamp_built files found; build may be cached or produced no targets_" >> "$GITHUB_STEP_SUMMARY"
+          else
+            for p in $pkgs; do
+              echo "- $p" >> "$GITHUB_STEP_SUMMARY"
+              mkfile=$(find depends/packages -type f -name "$p*.mk" -print -quit 2>/dev/null || true)
+              if [ -n "$mkfile" ]; then
+                echo "  - package file: $mkfile" >> "$GITHUB_STEP_SUMMARY"
+                url=$(grep -Eo 'https?://[^ \"\']+' "$mkfile" | head -n1 || true)
+                if [ -n "$url" ]; then
+                  echo "  - source URL: $url" >> "$GITHUB_STEP_SUMMARY"
+                  bn=$(basename "$url")
+                  if [ -f "depends/sources/$bn" ]; then
+                    sha=$(sha256sum "depends/sources/$bn" | awk '{print $1}')
+                    echo "  - local source sha256: $sha" >> "$GITHUB_STEP_SUMMARY"
+                  fi
+                fi
+              fi
+            done
+          fi
 
       - name: Collect Linux binaries
         shell: bash
@@ -435,6 +590,34 @@ jobs:
           export CMAKE_PREFIX_PATH="$(echo depends/x86_64-w64-mingw32* 2>/dev/null || true)"
           cmake -S . -B build-w64 -G Ninja || true
           cmake --build build-w64 -j"$(nproc || echo 2)" || true
+
+      - name: Append depends summary (windows-cross)
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "### depends packages built (windows-cross)" >> "$GITHUB_STEP_SUMMARY"
+          pkgs=$(find depends/work -maxdepth 3 -type f -name .stamp_built -print0 2>/dev/null | xargs -0 -n1 dirname 2>/dev/null | xargs -n1 basename | sed -E 's/-[0-9].*$//' | sort -u | tr '
+' ' ')
+          if [ -z "$pkgs" ]; then
+            echo "- _no .stamp_built files found; build may be cached or produced no targets_" >> "$GITHUB_STEP_SUMMARY"
+          else
+            for p in $pkgs; do
+              echo "- $p" >> "$GITHUB_STEP_SUMMARY"
+              mkfile=$(find depends/packages -type f -name "$p*.mk" -print -quit 2>/dev/null || true)
+              if [ -n "$mkfile" ]; then
+                echo "  - package file: $mkfile" >> "$GITHUB_STEP_SUMMARY"
+                url=$(grep -Eo 'https?://[^ \"\']+' "$mkfile" | head -n1 || true)
+                if [ -n "$url" ]; then
+                  echo "  - source URL: $url" >> "$GITHUB_STEP_SUMMARY"
+                  bn=$(basename "$url")
+                  if [ -f "depends/sources/$bn" ]; then
+                    sha=$(sha256sum "depends/sources/$bn" | awk '{print $1}')
+                    echo "  - local source sha256: $sha" >> "$GITHUB_STEP_SUMMARY"
+                  fi
+                fi
+              fi
+            done
+          fi
 
       - name: Collect Windows cross .exe
         shell: bash
