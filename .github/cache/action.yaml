@@ -1,63 +1,92 @@
-name: "Cache wrapper"
+# .github/cache/action.yaml
+name: "Cache wrapper (v2: restore/save)"
 
-description: "Thin wrapper around actions/cache@v4 to accept 'paths' input (newline-separated) and forward to 'path' expected by actions/cache. Adds diagnostics and guards when no paths are provided."
+description: >-
+  Wrapper around actions/cache restore/save that accepts newline-separated 'paths'.
+  Handles empty-path no-ops, prints diagnostics, and avoids deprecated inputs.
+  Use with `mode: restore` early in a job and `mode: save` near the end.
 
 inputs:
+  mode:
+    description: "Operation to perform: 'restore' or 'save'"
+    required: false
+    default: restore
   key:
-    description: 'Cache key'
+    description: 'Primary cache key'
     required: true
   paths:
-    description: 'Newline-separated paths to cache (maps to actions/cache path).'
+    description: 'Newline-separated paths to cache (for actions/cache path)'
     required: false
   restore-keys:
-    description: 'Restore keys (newline-separated)'
+    description: 'Restore keys (newline-separated) for restore mode'
     required: false
-  upload-chunk-size:
-    description: 'Optional upload chunk size'
-    required: false
+  # Pass-throughs
   enableCrossOsArchive:
-    description: 'Optional pass-through (boolean)'
-    required: false
-  fail-on-cache-miss:
-    description: 'Optional pass-through (boolean)'
+    description: 'Pass-through to actions/cache (bool)'
     required: false
   lookup-only:
-    description: 'Optional pass-through (boolean)'
+    description: 'Pass-through to actions/cache/restore (bool)'
     required: false
-  save-always:
-    description: 'Optional pass-through (boolean)'
+  fail-on-cache-miss:
+    description: 'Pass-through to actions/cache/restore (bool)'
     required: false
+  upload-chunk-size:
+    description: 'Pass-through to actions/cache/save (int)'
+    required: false
+  if-no-files-found:
+    description: "Save mode behavior if paths are missing: 'warn' | 'error' | 'ignore'"
+    required: false
+    default: warn
+
+outputs:
+  cache-hit:
+    description: 'Whether a cache hit occurred (restore mode only)'
+    value: ${{ steps.restore.outputs.cache-hit }}
+  cache-key:
+    description: 'Resolved cache key used or matched (restore mode only)'
+    value: ${{ steps.restore.outputs.cache-primary-key || steps.restore.outputs.cache-key }}
 
 runs:
   using: composite
   steps:
-    - name: Echo cache inputs
+    - name: Cache wrapper inputs
       shell: bash
       run: |
-        echo "Cache wrapper — key: ${{ inputs.key }}"
-        echo "Paths: '${{ inputs['paths'] }}'"
-        echo "Restore keys: '${{ inputs['restore-keys'] }}'"
-        echo "upload-chunk-size: '${{ inputs['upload-chunk-size'] }}'"
-        echo "enableCrossOsArchive: '${{ inputs['enableCrossOsArchive'] }}'"
-        echo "fail-on-cache-miss: '${{ inputs['fail-on-cache-miss'] }}'"
-        echo "lookup-only: '${{ inputs['lookup-only'] }}'"
-        echo "save-always: '${{ inputs['save-always'] }}'"
+        echo "mode=${{ inputs.mode }}"
+        echo "key=${{ inputs.key }}"
+        echo "paths<<EOF"; printf '%s\n' "${{ inputs.paths }}"; echo "EOF"
+        echo "restore-keys<<EOF"; printf '%s\n' "${{ inputs['restore-keys'] }}"; echo "EOF"
+        echo "enableCrossOsArchive='${{ inputs.enableCrossOsArchive }}'"
+        echo "lookup-only='${{ inputs.lookup-only }}'"
+        echo "fail-on-cache-miss='${{ inputs.fail-on-cache-miss }}'"
+        echo "upload-chunk-size='${{ inputs['upload-chunk-size'] }}'"
+        echo "if-no-files-found='${{ inputs['if-no-files-found'] }}'"
 
-    - name: Skip cache when no paths provided
-      if: ${{ inputs['paths'] == '' || inputs['paths'] == null }}
+    - name: Guard when no paths provided
+      if: ${{ inputs.paths == '' || inputs.paths == null }}
       shell: bash
       run: |
-        echo "No paths provided to cache — skipping actions/cache"
+        echo "::notice::No cache 'paths' provided. Skipping cache ${{ inputs.mode }}."
 
-    - name: Run actions/cache@v4
-      if: ${{ inputs['paths'] != '' && inputs['paths'] != null }}
-      uses: actions/cache@v4
+    - id: restore
+      name: Restore cache
+      if: ${{ inputs.paths != '' && inputs.paths != null && (inputs.mode == '' || inputs.mode == 'restore') }}
+      uses: actions/cache/restore@v4
       with:
         key: ${{ inputs.key }}
-        path: ${{ inputs['paths'] }}
+        path: ${{ inputs.paths }}
         restore-keys: ${{ inputs['restore-keys'] }}
-        upload-chunk-size: ${{ inputs['upload-chunk-size'] }}
-        enableCrossOsArchive: ${{ inputs['enableCrossOsArchive'] }}
-        fail-on-cache-miss: ${{ inputs['fail-on-cache-miss'] }}
+        enableCrossOsArchive: ${{ inputs.enableCrossOsArchive }}
         lookup-only: ${{ inputs['lookup-only'] }}
-        save-always: ${{ inputs['save-always'] }}
+        fail-on-cache-miss: ${{ inputs['fail-on-cache-miss'] }}
+
+    - name: Save cache
+      if: ${{ inputs.paths != '' && inputs.paths != null && inputs.mode == 'save' }}
+      uses: actions/cache/save@v4
+      with:
+        key: ${{ inputs.key }}
+        path: ${{ inputs.paths }}
+        enableCrossOsArchive: ${{ inputs.enableCrossOsArchive }}
+        upload-chunk-size: ${{ inputs['upload-chunk-size'] }}
+        if-no-files-found: ${{ inputs['if-no-files-found'] }}
+# .github/cache/action.yaml
