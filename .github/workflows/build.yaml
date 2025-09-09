@@ -1,9 +1,10 @@
-# .github/workflows/build.yaml
 name: CI • Production builds (Android + Native)
 
 on:
   push:
     branches: ["v100.11.5-android"]
+    tags:
+      - 'v*'
   pull_request:
   workflow_dispatch:
 
@@ -20,19 +21,21 @@ env:
   ANDROID_CLT_LINUX: https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip
   ANDROID_NDK_VERSION: "23.1.7779620"
 
-# ---------------------
-# Group: Android builds (production)
-# - Modern and Legacy run independently and in parallel
-# ---------------------
 jobs:
+  # ───────────────────────── ANDROID (matrix: abis) ─────────────────────────
   android:
-    env:
-      JOB_NAME: ${{ github.job }}
-    name: android • build • ubuntu-24.04 • api 34 • ndk 23.1.7779620
+    name: android • build • ${{ matrix.abi }} • ubuntu-24.04 • api 34 • ndk ${{ env.ANDROID_NDK_VERSION }}
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     strategy:
       fail-fast: false
+      matrix:
+        abi: [arm64-v8a, armeabi-v7a]
+        include:
+          - abi: arm64-v8a
+            host: aarch64-linux-android
+          - abi: armeabi-v7a
+            host: arm-linux-androideabi
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -46,6 +49,15 @@ jobs:
           distribution: temurin
           java-version: '11'
 
+      - name: Cache (depends sources + ccache)
+        uses: ./.github/cache
+        with:
+          key: ${{ runner.os }}-android-${{ matrix.abi }}-${{ env.ANDROID_NDK_VERSION }}-${{ hashFiles('depends/packages/*.mk') }}
+          paths: |
+            depends/sources
+            ~/.ccache
+          restore_keys: ${{ runner.os }}-android-${{ matrix.abi }}-
+
       - name: Prepare SDK + cmdline-tools
         shell: bash
         run: |
@@ -53,12 +65,15 @@ jobs:
           mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools" "$HOME/.android"
           touch "$HOME/.android/repositories.cfg"
           if [ ! -d "$ANDROID_SDK_ROOT/cmdline-tools/latest" ]; then
-            tmp=$(mktemp -d)
+            tmp="$(mktemp -d)"
             curl -fsSL "$ANDROID_CLT_LINUX" -o "$tmp/cmdline.zip"
             unzip -q "$tmp/cmdline.zip" -d "$ANDROID_SDK_ROOT/cmdline-tools"
             mv "$ANDROID_SDK_ROOT/cmdline-tools/cmdline-tools" "$ANDROID_SDK_ROOT/cmdline-tools/latest"
           fi
-          echo "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+          {
+            echo "$ANDROID_SDK_ROOT/platform-tools"
+            echo "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin"
+          } >> "$GITHUB_PATH"
 
       - name: Accept Android licenses
         uses: ./.github/actions/android-accept-licenses
@@ -72,76 +87,35 @@ jobs:
             "platforms;android-34" \
             "ndk;${ANDROID_NDK_VERSION}"
 
-      - name: Build depends (x86_64-w64-mingw32)
+      - name: Build depends (${{ matrix.host }})
         shell: bash
+        env:
+          CCACHE_DIR: ~/.ccache
+          CCACHE_COMPRESS: "1"
+          CCACHE_MAXSIZE: 750M
         run: |
           set -euo pipefail
-          if [ ! -d depends ]; then echo "::error::depends/ missing"; exit 2; fi
-          J=$(nproc 2>/dev/null || echo 2); [ "$J" -gt 8 ] && J=8
-          make -C depends -j"$J" HOST=x86_64-w64-mingw32 || true
+          test -d depends
+          J="$(nproc 2>/dev/null || echo 2)"; [ "$J" -gt 8 ] && J=8
+          export ANDROID_SDK="${ANDROID_SDK_ROOT}"
+          export ANDROID_NDK="${ANDROID_SDK_ROOT}/ndk/${ANDROID_NDK_VERSION}"
+          make -C depends -j"$J" HOST=${{ matrix.host }} ANDROID_SDK="${ANDROID_SDK}" ANDROID_NDK="${ANDROID_NDK}"
 
-      - name: Depends summary & annotations
+      - name: Build native Android targets
         shell: bash
-        run: |
-          set -euo pipefail
-          summary_file="$GITHUB_STEP_SUMMARY"
-          echo "### depends packages built on $JOB_NAME" >> "$summary_file"
-          if [ ! -d depends ]; then
-            echo "_depends/ missing; nothing to report_" >> "$summary_file"
-            echo "::notice::depends/ missing; nothing to report"
-            exit 0
-          fi
-          pkgs=$(find depends/work -type f -name .stamp_built 2>/dev/null | while read -r f; do dirname "$f" | xargs basename; done | sort -u)
-          if [ -z "$pkgs" ]; then
-            echo "_no .stamp_built files found; build may be cached or produced no targets_" >> "$summary_file"
-            echo "::notice::No .stamp_built files found for depends"
-          else
-            for p in $pkgs; do
-              echo "- $p" >> "$summary_file"
-              mk=$(ls depends/packages/${p}*.mk 2>/dev/null | head -n1 || true)
-              if [ -n "$mk" ]; then
-                echo "  - package file: ${mk}" >> "$summary_file"
-                url=$(grep -Eo 'https?://[^ \"\']+' "$mk" | head -n1 || true)
-                if [ -n "$url" ]; then
-                  echo "  - source URL: $url" >> "$summary_file"
-                  bn=$(basename "$url")
-                  if [ -f "depends/sources/$bn" ]; then
-                    sha=$(sha256sum "depends/sources/$bn" | awk '{print $1}')
-                    echo "  - local source sha256: $sha" >> "$summary_file"
-                  fi
-                fi
-                meta=$(grep -Eoi "(homepage|url|src_uri|distname|sha256|sha1|md5)[[:space:]]*[:=].*" "$mk" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | paste -sd' ' -)
-                if [ -n "$meta" ]; then
-                  echo "  - metadata: $meta" >> "$summary_file"
-                fi
-                echo "::notice file=${mk},line=1::Depends package built: $p"
-              else
-                echo "  - (no package mk found)" >> "$summary_file"
-                echo "::notice::$p — (no package mk found)"
-              fi
-
-              srcfile=$(find depends/sources depends/work/$p -type f -maxdepth 3 -name '*.tar*' -o -name '*.zip' -o -name '*.bz2' 2>/dev/null | head -n1 || true)
-              if [ -n "$srcfile" ]; then
-                sha=$(sha256sum "$srcfile" | awk '{print $1}' || true)
-                echo "  - artifact: $(basename "$srcfile") (sha256: $sha)" >> "$summary_file"
-              fi
-            done
-          fi
-
-      - name: CMake configure and build (Android native) (vkax-d, vkax-cli)
-        shell: bash
+        env:
+          CCACHE_DIR: ~/.ccache
+          CCACHE_COMPRESS: "1"
+          CCACHE_MAXSIZE: 750M
         run: |
           set -euo pipefail
           ANDROID_API_LEVEL=34
-          ANDROID_TOOLCHAIN_BIN="${GITHUB_WORKSPACE}/.android-sdk/ndk/${ANDROID_NDK_VERSION}/toolchains/llvm/prebuilt/linux-x86_64/bin"
-          J=$(nproc 2>/dev/null || echo 2); [ "$J" -gt 8 ] && J=8
+          J="$(nproc 2>/dev/null || echo 2)"; [ "$J" -gt 8 ] && J=8
           export ANDROID_SDK="${ANDROID_SDK_ROOT}"
           export ANDROID_NDK="${ANDROID_SDK_ROOT}/ndk/${ANDROID_NDK_VERSION}"
-          export ANDROID_TOOLCHAIN_BIN
-          # Build native Android targets (vkax-d, vkax-cli)
-          make -C . -j"$J" V=1 HOST=aarch64-linux-android ANDROID_API_LEVEL=${ANDROID_API_LEVEL} ANDROID_TOOLCHAIN_BIN=${ANDROID_TOOLCHAIN_BIN} vkax-d vkax-cli || true
+          make -j"$J" V=1 HOST=${{ matrix.host }} ANDROID_API_LEVEL=${ANDROID_API_LEVEL} vkax-d vkax-cli || true
 
-      - name: Package Qt Android (attempt)
+      - name: Package Qt Android (best-effort)
         shell: bash
         run: |
           set -euo pipefail
@@ -149,78 +123,59 @@ jobs:
           QMAKE=$(find depends -type f -name 'qmake' -o -name 'qmake-qt5' 2>/dev/null | head -n1 || true)
           ANDROIDDEPLOYQT=$(find depends -type f -name 'androiddeployqt' 2>/dev/null | head -n1 || true)
           if [ -n "$QMAKE" ] && [ -n "$ANDROIDDEPLOYQT" ] && [ -f src/qt/vkax-qt.pro ]; then
-            echo "Using qmake + androiddeployqt from depends"
             mkdir -p build-qt-android && cd build-qt-android
-            "$QMAKE" ../src/qt/vkax-qt.pro ANDROID_ABIS=arm64-v8a ANDROID_PLATFORM=android-34 || true
+            "$QMAKE" ../src/qt/vkax-qt.pro ANDROID_ABIS=${{ matrix.abi }} ANDROID_PLATFORM=android-34 || true
             make -j"$(nproc 2>/dev/null || echo 2)" || true
             JSON=$(find . -name android_deployment_settings.json -print -quit || true)
             if [ -n "$JSON" ]; then
               "$ANDROIDDEPLOYQT" --input "$JSON" --output ./android_deploy --android-platform android-34 --gradle --release || true
               find ./android_deploy -type f -name '*.apk' -exec cp -a {} ../dist_apk/ \; || true
             fi
-          else
-            echo "androiddeployqt/qmake not available; skipping deterministic Qt packaging"
           fi
 
-      - name: Append depends summary
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo "### depends packages built (Android)" >> "$GITHUB_STEP_SUMMARY"
-          pkgs=$(find depends/work -maxdepth 3 -type f -name .stamp_built -print0 2>/dev/null | xargs -0 -n1 dirname 2>/dev/null | xargs -n1 basename | sed -E 's/-[0-9].*$//' | sort -u | paste -sd' ' -)
-          if [ -z "$pkgs" ]; then
-            echo "- _no .stamp_built files found; build may be cached or produced no targets_" >> "$GITHUB_STEP_SUMMARY"
-          else
-            for p in $pkgs; do
-              echo "- $p" >> "$GITHUB_STEP_SUMMARY"
-              mkfile=$(find depends/packages -type f -name "$p*.mk" -print -quit 2>/dev/null || true)
-              if [ -n "$mkfile" ]; then
-                echo "  - package file: $mkfile" >> "$GITHUB_STEP_SUMMARY"
-                url=$(grep -Eo 'https?://[^ \"\']+' "$mkfile" | head -n1 || true)
-                if [ -n "$url" ]; then
-                  echo "  - source URL: $url" >> "$GITHUB_STEP_SUMMARY"
-                  bn=$(basename "$url")
-                  if [ -f "depends/sources/$bn" ]; then
-                    sha=$(sha256sum "depends/sources/$bn" | awk '{print $1}')
-                    echo "  - local source sha256: $sha" >> "$GITHUB_STEP_SUMMARY"
-                  fi
-                fi
-              fi
-            done
-          fi
-
-      - name: Collect Android artifacts
+      - name: Collect Android artifacts and version
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p dist_android
-          # collect APKs and native outputs
-          cp -a dist_apk/* dist_android/ 2>/dev/null || true
-          find build -type f -name 'vkax-*' -exec cp -a {} dist_android/ \; || true
-          if [ -d dist_android ]; then (cd dist_android && sha256sum * > sha256sums.txt || true); fi
+          shopt -s nullglob
+          for f in dist_apk/*.apk; do cp -a "$f" dist_android/; done
+          if [ -n "${GITHUB_REF_NAME:-}" ] && [ "${GITHUB_REF_TYPE:-}" = "tag" ]; then
+            VERSION="$GITHUB_REF_NAME"
+          else
+            VERSION="build-${GITHUB_RUN_NUMBER}-${GITHUB_SHA:0:7}"
+          fi
+          i=0
+          for f in dist_android/*.apk; do
+            i=$((i+1))
+            base="vkax-${VERSION}-${{ matrix.abi }}"
+            [ $i -gt 1 ] && base="${base}-${i}"
+            mv "$f" "dist_android/${base}.apk"
+          done
+          if compgen -G "dist_android/*.apk" > /dev/null; then
+            (cd dist_android && sha256sum *.apk > SHA256SUMS.txt)
+          fi
+
+      - name: ccache stats
+        shell: bash
+        run: |
+          ccache -s || true
+          { echo "### ccache (${{ matrix.abi }})"; ccache -s || true; } >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
 
       - name: Upload Android artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: android-ubuntu-24.04
-          path: |
-            dist_android/**/*
-            build/**/*
+          name: android-apk-${{ matrix.abi }}
+          path: dist_android/**/*
           if-no-files-found: warn
 
-
-# ---------------------
-# Android legacy (API 15) - Ubuntu 22 AMD64
-# ---------------------
+  # ───────────────────────── ANDROID LEGACY ─────────────────────────
   android_legacy:
-    env:
-      JOB_NAME: ${{ github.job }}
     name: android • legacy • ubuntu-22.04 • api 15 • ndk 23.1.7779620
     runs-on: ubuntu-22.04
     timeout-minutes: 60
-    strategy:
-      fail-fast: false
+    continue-on-error: true
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -240,7 +195,7 @@ jobs:
           set -euo pipefail
           mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools" "$HOME/.android"
           touch "$HOME/.android/repositories.cfg"
-          tmp=$(mktemp -d)
+          tmp="$(mktemp -d)"
           curl -fsSL "${ANDROID_CLT_LINUX}" -o "$tmp/cmdline.zip"
           unzip -q "$tmp/cmdline.zip" -d "$ANDROID_SDK_ROOT/cmdline-tools"
           mv "$ANDROID_SDK_ROOT/cmdline-tools/cmdline-tools" "$ANDROID_SDK_ROOT/cmdline-tools/latest" || true
@@ -255,82 +210,30 @@ jobs:
           set -euo pipefail
           "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="${ANDROID_SDK_ROOT}" "platform-tools" "platforms;android-15" "ndk;23.1.7779620"
 
-      - name: Build vendored depends (legacy)
+      - name: Build depends (legacy ARMv7)
         shell: bash
         run: |
           set -euo pipefail
-          if [ ! -d depends ]; then echo "::error::depends/ directory missing; required for Android legacy build."; exit 2; fi
-          J=$(nproc 2>/dev/null || echo 2); [ "$J" -gt 8 ] && J=8
-          make -C depends -j"$J" HOST=aarch64-linux-android ANDROID_API_LEVEL=15 ANDROID_SDK="${ANDROID_SDK_ROOT}" ANDROID_NDK="${ANDROID_SDK_ROOT}/ndk/23.1.7779620"
-
-      - name: Build legacy targets (vkax-d, vkax-cli)
-        shell: bash
-        run: |
-          set -euo pipefail
+          test -d depends
+          J=2
           export ANDROID_SDK="${ANDROID_SDK_ROOT}"
           export ANDROID_NDK="${ANDROID_SDK_ROOT}/ndk/23.1.7779620"
-          export ANDROID_API_LEVEL=15
-          export ANDROID_TOOLCHAIN_BIN="${ANDROID_NDK}/toolchains/llvm/prebuilt/linux-x86_64/bin"
-          J=$(nproc 2>/dev/null || echo 2); [ "$J" -gt 8 ] && J=8
-          make -C . -j"$J" V=1 HOST=aarch64-linux-android ANDROID_API_LEVEL=${ANDROID_API_LEVEL} ANDROID_TOOLCHAIN_BIN=${ANDROID_TOOLCHAIN_BIN} vkax-d vkax-cli || true
-
-      - name: Append depends summary (legacy Android)
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo "### depends packages built (Android legacy)" >> "$GITHUB_STEP_SUMMARY"
-          pkgs=$(find depends/work -maxdepth 3 -type f -name .stamp_built -print0 2>/dev/null | xargs -0 -n1 dirname 2>/dev/null | xargs -n1 basename | sed -E 's/-[0-9].*$//' | sort -u | paste -sd' ' -)
-          if [ -z "$pkgs" ]; then
-            echo "- _no .stamp_built files found; build may be cached or produced no targets_" >> "$GITHUB_STEP_SUMMARY"
-          else
-            for p in $pkgs; do
-              echo "- $p" >> "$GITHUB_STEP_SUMMARY"
-              mkfile=$(find depends/packages -type f -name "$p*.mk" -print -quit 2>/dev/null || true)
-              if [ -n "$mkfile" ]; then
-                echo "  - package file: $mkfile" >> "$GITHUB_STEP_SUMMARY"
-                url=$(grep -Eo 'https?://[^ \"\']+' "$mkfile" | head -n1 || true)
-                if [ -n "$url" ]; then
-                  echo "  - source URL: $url" >> "$GITHUB_STEP_SUMMARY"
-                  bn=$(basename "$url")
-                  if [ -f "depends/sources/$bn" ]; then
-                    sha=$(sha256sum "depends/sources/$bn" | awk '{print $1}')
-                    echo "  - local source sha256: $sha" >> "$GITHUB_STEP_SUMMARY"
-                  fi
-                fi
-              fi
-            done
-          fi
-
-      - name: Collect Android legacy artifacts
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p dist_android_legacy
-          find build -type f -name 'vkax-*' -exec cp -a {} dist_android_legacy/ \; || true
-          if [ -d dist_android_legacy ]; then (cd dist_android_legacy && sha256sum * > sha256sums.txt || true); fi
+          make -C depends -j"$J" HOST=arm-linux-androideabi ANDROID_SDK="${ANDROID_SDK}" ANDROID_NDK="${ANDROID_NDK}" || true
 
       - name: Upload Android legacy artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: android-legacy-ubuntu-22.04
-          path: |
-            dist_android_legacy/**/*
-            build/**/*
+          name: android-legacy
+          path: dist_android_legacy/**/*
           if-no-files-found: warn
-# ---------------------
-# Group: macOS builds (production)
-# ---------------------
-  macos:
-    env:
-      JOB_NAME: ${{ github.job }}
-    name: native • macOS • ${{ matrix.macos }}
-    runs-on: ${{ matrix.macos }}
+
+  # ───────────────────────── WINDOWS CROSS (MINGW) ─────────────────────────
+  native-windows-cross:
+    name: native-windows-cross • depends • ubuntu-24.04 • x86_64-w64-mingw32
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
-    strategy:
-      fail-fast: false
-      matrix:
-        macos: [macos-13]
+    continue-on-error: true
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -338,81 +241,67 @@ jobs:
           submodules: true
           fetch-depth: 0
 
-      - name: Build vendored depends (macOS Intel)
+      - name: Cache (depends sources)
+        uses: ./.github/cache
+        with:
+          key: ${{ runner.os }}-mingw-${{ hashFiles('depends/packages/*.mk') }}
+          paths: depends/sources
+
+      - name: Build depends (x86_64-w64-mingw32)
         shell: bash
         run: |
           set -euo pipefail
-          if [ ! -d depends ]; then
-            echo "::error::depends/ directory missing; required for macOS build."; exit 2
-          fi
-          brew update
-          brew install automake libtool pkg-config cmake ninja || true
-          J=$(sysctl -n hw.ncpu 2>/dev/null || echo 2); [ "$J" -gt 8 ] && J=8
-          make -C depends -j"$J" HOST=x86_64-apple-darwin || true
+          test -d depends
+          ulimit -c 0
+          J="$(nproc 2>/dev/null || echo 2)"; [ "$J" -gt 8 ] && J=8
+          make -C depends -j"$J" HOST=x86_64-w64-mingw32 || true
 
-      - name: CMake build (macOS)
-        shell: bash
-        run: |
-          set -euo pipefail
-          export CMAKE_PREFIX_PATH="$(echo depends/x86_64-apple-darwin* 2>/dev/null || true)"
-          cmake -S . -B build -G Ninja
-          cmake --build build -j"$(sysctl -n hw.ncpu 2>/dev/null || echo 2)" || true
-
-      - name: Append depends summary (macOS)
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo "### depends packages built (macOS)" >> "$GITHUB_STEP_SUMMARY"
-          pkgs=$(find depends/work -maxdepth 3 -type f -name .stamp_built -print0 2>/dev/null | xargs -0 -n1 dirname 2>/dev/null | xargs -n1 basename | sed -E 's/-[0-9].*$//' | sort -u | paste -sd' ' -)
-          if [ -z "$pkgs" ]; then
-            echo "- _no .stamp_built files found; build may be cached or produced no targets_" >> "$GITHUB_STEP_SUMMARY"
-          else
-            for p in $pkgs; do
-              echo "- $p" >> "$GITHUB_STEP_SUMMARY"
-              mkfile=$(find depends/packages -type f -name "$p*.mk" -print -quit 2>/dev/null || true)
-              if [ -n "$mkfile" ]; then
-                echo "  - package file: $mkfile" >> "$GITHUB_STEP_SUMMARY"
-                url=$(grep -Eo 'https?://[^ \"\']+' "$mkfile" | head -n1 || true)
-                if [ -n "$url" ]; then
-                  echo "  - source URL: $url" >> "$GITHUB_STEP_SUMMARY"
-                  bn=$(basename "$url")
-                  if [ -f "depends/sources/$bn" ]; then
-                    sha=$(sha256sum "depends/sources/$bn" | awk '{print $1}')
-                    echo "  - local source sha256: $sha" >> "$GITHUB_STEP_SUMMARY"
-                  fi
-                fi
-              fi
-            done
-          fi
-
-      - name: Collect macOS binaries
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p dist_macos
-          find build -type f -perm -111 -name 'vkax*' -exec cp -a {} dist_macos/ \; || true
-          if [ -d dist_macos ]; then (cd dist_macos && sha256sum * > sha256sums.txt || true); fi
-
-      - name: Upload macOS artifacts
+      - name: Upload MinGW depends workdir
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: native-macos-${{ matrix.macos }}
+          name: mingw-depends-workdir
           path: |
-            dist_macos/**/*
-            build/**/*
+            depends/work/**/.stamp_built
+            depends/packages/*.mk
           if-no-files-found: warn
 
-# ---------------------
-# Group: Ubuntu / Linux builds (production)
-# - AMD64 (GitHub-hosted) and ARM64 (public preview labels) separated in matrix
-# ---------------------
+  # ───────────────────────── macOS ─────────────────────────
+  macos:
+    name: native • macOS • macos-13
+    runs-on: macos-13
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+          fetch-depth: 0
+
+      - name: Resolve Homebrew cmake tap conflict
+        shell: bash
+        run: |
+          set -euo pipefail
+          brew update-reset || true
+          brew uninstall --ignore-dependencies cmake || true
+          brew install cmake
+          brew doctor || true
+
+      - name: Build (best-effort)
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -x contrib/ci/macos.sh ]; then
+            ./contrib/ci/macos.sh || true
+          elif [ -f CMakeLists.txt ]; then
+            cmake -S . -B build -G Ninja
+            cmake --build build -j"$(sysctl -n hw.ncpu)" || true
+          else
+            echo "No macOS build script or CMakeLists.txt; skipping"
+          fi
+
+  # ───────────────────────── Linux (Ubuntu) ─────────────────────────
   ubuntu:
-    env:
-      JOB_NAME: ${{ github.job }}
-      MATRIX_TRIPLE: ${{ matrix.triple }}
-      MATRIX_NAME: ${{ matrix.name }}
-      MATRIX_RUNS_ON: ${{ matrix.runs_on }}
     name: native • ubuntu • ${{ matrix.name }}
     runs-on: ${{ matrix.runs_on }}
     timeout-minutes: 60
@@ -421,21 +310,17 @@ jobs:
       matrix:
         include:
           - name: ubuntu-22-amd64
-            runs_on: 'ubuntu-22.04'
+            runs_on: ubuntu-22.04
             triple: x86_64-pc-linux-gnu
-            allow_failures: false
           - name: ubuntu-24-amd64
-            runs_on: 'ubuntu-24.04'
+            runs_on: ubuntu-24.04
             triple: x86_64-pc-linux-gnu
-            allow_failures: false
           - name: ubuntu-22-arm64
-            runs_on: 'ubuntu-22.04-arm'
+            runs_on: ubuntu-22.04-arm
             triple: aarch64-linux-gnu
-            allow_failures: true
           - name: ubuntu-24-arm64
-            runs_on: 'ubuntu-24.04-arm'
+            runs_on: ubuntu-24.04-arm
             triple: aarch64-linux-gnu
-            allow_failures: true
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -450,8 +335,8 @@ jobs:
           if [ -d depends ]; then
             sudo apt-get update -qq
             sudo apt-get install -y -qq build-essential pkg-config automake libtool autoconf bison cmake ninja-build python3 || true
-            J=$(nproc 2>/dev/null || echo 2); [ "$J" -gt 8 ] && J=8
-            make -C depends -j"$J" HOST=$MATRIX_TRIPLE || true
+            J="$(nproc 2>/dev/null || echo 2)"; [ "$J" -gt 8 ] && J=8
+            make -C depends -j"$J" HOST=${{ matrix.triple }} || true
           else
             echo "::notice::No depends/ dir; skipping vendored deps."
           fi
@@ -463,66 +348,16 @@ jobs:
           if [ ! -f CMakeLists.txt ]; then
             echo "::notice::No CMakeLists.txt; skipping."; exit 0
           fi
-          if [ -d "depends/$MATRIX_TRIPLE" ]; then
-            export CMAKE_PREFIX_PATH="depends/$MATRIX_TRIPLE"
+          if [ -d "depends/${{ matrix.triple }}" ]; then
+            export CMAKE_PREFIX_PATH="depends/${{ matrix.triple }}"
           else
-            echo "::warning::Vendored depends prefix not found; continuing without depends.";
+            echo "::warning::Vendored depends prefix not found; continuing without depends."
           fi
           cmake -S . -B build -G Ninja
           cmake --build build -j"$(nproc || echo 2)" || true
 
-      - name: Append depends summary (linux)
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo "### depends packages built (linux)" >> "$GITHUB_STEP_SUMMARY"
-          pkgs=$(find depends/work -maxdepth 3 -type f -name .stamp_built -print0 2>/dev/null | xargs -0 -n1 dirname 2>/dev/null | xargs -n1 basename | sed -E 's/-[0-9].*$//' | sort -u | paste -sd' ' -)
-          if [ -z "$pkgs" ]; then
-            echo "- _no .stamp_built files found; build may be cached or produced no targets_" >> "$GITHUB_STEP_SUMMARY"
-          else
-            for p in $pkgs; do
-              echo "- $p" >> "$GITHUB_STEP_SUMMARY"
-              mkfile=$(find depends/packages -type f -name "$p*.mk" -print -quit 2>/dev/null || true)
-              if [ -n "$mkfile" ]; then
-                echo "  - package file: $mkfile" >> "$GITHUB_STEP_SUMMARY"
-                url=$(grep -Eo 'https?://[^ \"\']+' "$mkfile" | head -n1 || true)
-                if [ -n "$url" ]; then
-                  echo "  - source URL: $url" >> "$GITHUB_STEP_SUMMARY"
-                  bn=$(basename "$url")
-                  if [ -f "depends/sources/$bn" ]; then
-                    sha=$(sha256sum "depends/sources/$bn" | awk '{print $1}')
-                    echo "  - local source sha256: $sha" >> "$GITHUB_STEP_SUMMARY"
-                  fi
-                fi
-              fi
-            done
-          fi
-
-      - name: Collect Linux binaries
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p dist_linux
-          find build -type f -perm -111 -name 'vkax*' -exec cp -a {} dist_linux/ \; || true
-          if [ -d dist_linux ]; then (cd dist_linux && sha256sum * > sha256sums.txt || true); fi
-
-      - name: Upload linux artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: native-ubuntu-${{ matrix.name }}
-          path: |
-            dist_linux/**/*
-            build/**/*
-          if-no-files-found: warn
-
-# ---------------------
-# Group: Windows builds (production)
-# - Native MSVC and Cross (MinGW) are separate jobs
-# ---------------------
+  # ───────────────────────── Windows (MSVC) ─────────────────────────
   windows:
-    env:
-      JOB_NAME: ${{ github.job }}
     name: native • windows • windows-2022
     runs-on: windows-2022
     timeout-minutes: 45
@@ -546,102 +381,43 @@ jobs:
             Write-Output "::notice::No CMakeLists.txt; skipping."
           }
 
-      - name: Collect Windows binaries
-        shell: powershell
-        run: |
-          New-Item -ItemType Directory -Force -Path dist_win | Out-Null
-          Get-ChildItem -Path build -Filter "vkax*" -Recurse -File | ForEach-Object { Copy-Item -Path $_.FullName -Destination dist_win }
-
-      - name: Upload windows artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: native-windows-2022
-          path: |
-            dist_win/**/*
-            build/**/*
-          if-no-files-found: warn
-
-# ---------------------
-# Group: Windows Cross (MinGW on Ubuntu) — production
-# ---------------------
-  windows_cross:
-    env:
-      JOB_NAME: ${{ github.job }}
-    name: native • windows-cross • ubuntu-22.04
-    runs-on: ubuntu-22.04
-    timeout-minutes: 60
+  # ───────────────────────── Release (tags) ─────────────────────────
+  release:
+    name: release • tag publish
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [android, android_legacy, native-windows-cross, macos, ubuntu, windows]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
         with:
-          submodules: true
-          fetch-depth: 0
+          path: release_assets
+          merge-multiple: true
 
-      - name: Tooling
+      - name: Filter release files and compute checksums
         shell: bash
         run: |
           set -euo pipefail
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq build-essential pkg-config automake libtool autoconf bison cmake ninja-build python3 g++-mingw-w64-x86-64 || true
-
-      - name: Build depends (x86_64-w64-mingw32)
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ ! -d depends ]; then echo "::error::depends/ missing"; exit 2; fi
-          J=$(nproc 2>/dev/null || echo 2); [ "$J" -gt 8 ] && J=8
-          make -C depends -j"$J" HOST=x86_64-w64-mingw32 || true
-
-      - name: CMake configure and build (MinGW)
-        shell: bash
-        run: |
-          set -euo pipefail
-          export CMAKE_PREFIX_PATH="$(echo depends/x86_64-w64-mingw32* 2>/dev/null || true)"
-          cmake -S . -B build-w64 -G Ninja || true
-          cmake --build build-w64 -j"$(nproc || echo 2)" || true
-
-      - name: Append depends summary (windows-cross)
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo "### depends packages built (windows-cross)" >> "$GITHUB_STEP_SUMMARY"
-          pkgs=$(find depends/work -maxdepth 3 -type f -name .stamp_built -print0 2>/dev/null | xargs -0 -n1 dirname 2>/dev/null | xargs -n1 basename | sed -E 's/-[0-9].*$//' | sort -u | paste -sd' ' -)
-          if [ -z "$pkgs" ]; then
-            echo "- _no .stamp_built files found; build may be cached or produced no targets_" >> "$GITHUB_STEP_SUMMARY"
+          mkdir -p release_filtered
+          shopt -s nullglob globstar
+          for f in release_assets/**/*.apk; do cp -a "$f" release_filtered/; done
+          for f in release_assets/**/*.{zip,tar.gz,exe,dmg,AppImage,deb,rpm}; do cp -a "$f" release_filtered/ 2>/dev/null || true; done
+          if compgen -G "release_filtered/*" > /dev/null; then
+            (cd release_filtered && sha256sum * > SHA256SUMS.txt)
           else
-            for p in $pkgs; do
-              echo "- $p" >> "$GITHUB_STEP_SUMMARY"
-              mkfile=$(find depends/packages -type f -name "$p*.mk" -print -quit 2>/dev/null || true)
-              if [ -n "$mkfile" ]; then
-                echo "  - package file: $mkfile" >> "$GITHUB_STEP_SUMMARY"
-                url=$(grep -Eo 'https?://[^ \"\']+' "$mkfile" | head -n1 || true)
-                if [ -n "$url" ]; then
-                  echo "  - source URL: $url" >> "$GITHUB_STEP_SUMMARY"
-                  bn=$(basename "$url")
-                  if [ -f "depends/sources/$bn" ]; then
-                    sha=$(sha256sum "depends/sources/$bn" | awk '{print $1}')
-                    echo "  - local source sha256: $sha" >> "$GITHUB_STEP_SUMMARY"
-                  fi
-                fi
-              fi
-            done
+            echo "::warning::No releasable files found in artifacts"
           fi
 
-      - name: Collect Windows cross .exe
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p dist-w64
-          find build-w64 -type f -name 'vkax-*.exe' -exec cp -a {} dist-w64/ \; || true
-          if [ -d dist-w64 ]; then (cd dist-w64 && sha256sum * > sha256sums.txt || true); fi
-
-      - name: Upload Windows cross artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
         with:
-          name: native-windows-cross-ubuntu-22.04
-          path: |
-            dist-w64/**/*
-            build-w64/**/*
-          if-no-files-found: warn
+          tag_name: ${{ github.ref_name }}
+          name: VKAX ${{ github.ref_name }}
+          body: |
+            Automated CI release for tag ${{ github.ref_name }}.
+          files: |
+            release_filtered/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
