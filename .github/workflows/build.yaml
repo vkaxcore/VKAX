@@ -95,7 +95,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ ! -d depends ]; then echo "::error::depends/ missing"; exit 2; fi
-          J=$(nproc 2>/dev/null || echo 2); [ "$J" -gt 4 ] && J=4
+          J=1
           export ANDROID_SDK="${ANDROID_SDK_ROOT}"
           export ANDROID_NDK="${ANDROID_SDK_ROOT}/ndk/${ANDROID_NDK_VERSION}"
           make -C depends -j"$J" HOST=${{ matrix.host }} ANDROID_SDK="${ANDROID_SDK}" ANDROID_NDK="${ANDROID_NDK}"
@@ -118,7 +118,7 @@ jobs:
           ANDROID_TOOLCHAIN_BIN: "${{ env.ANDROID_SDK_ROOT }}/ndk/${{ env.ANDROID_NDK_VERSION }}/toolchains/llvm/prebuilt/linux-x86_64/bin"
         run: |
           set -euo pipefail
-          J=$(nproc 2>/dev/null || echo 2); [ "$J" -gt 4 ] && J=4
+          J=1
           export ANDROID_SDK="${ANDROID_SDK_ROOT}"
           export ANDROID_NDK="${ANDROID_SDK_ROOT}/ndk/${ANDROID_NDK_VERSION}"
           export ANDROID_TOOLCHAIN_BIN
@@ -135,7 +135,7 @@ jobs:
             echo "Using qmake + androiddeployqt from depends"
             mkdir -p build-qt-android && cd build-qt-android
             "$QMAKE" ../src/qt/vkax-qt.pro ANDROID_ABIS=${{ matrix.abi }} ANDROID_PLATFORM=android-34
-            make -j"$(nproc 2>/dev/null || echo 2)"
+            make -j1
             JSON=$(find . -name android_deployment_settings.json -print -quit || true)
             if [ -n "$JSON" ]; then
               "$ANDROIDDEPLOYQT" --input "$JSON" --output ./android_deploy --android-platform android-34 --gradle --release || true
@@ -205,7 +205,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ ! -d depends ]; then echo "::error::depends/ directory missing; required for Android legacy build."; exit 2; fi
-          J=2
+          J=1
           export ANDROID_SDK="${ANDROID_SDK_ROOT}"
           export ANDROID_NDK="${ANDROID_SDK_ROOT}/ndk/23.1.7779620"
           make -C depends -j"$J" HOST=aarch64-linux-android ANDROID_SDK="${ANDROID_SDK}" ANDROID_NDK="${ANDROID_NDK}" || true
@@ -218,7 +218,7 @@ jobs:
           export ANDROID_NDK="${ANDROID_SDK_ROOT}/ndk/23.1.7779620"
           export ANDROID_API_LEVEL=15
           export ANDROID_TOOLCHAIN_BIN="${ANDROID_NDK}/toolchains/llvm/prebuilt/linux-x86_64/bin"
-          J=$(nproc 2>/dev/null || echo 2); [ "$J" -gt 4 ] && J=4
+          J=1
           make -C . -j"$J" V=1 HOST=aarch64-linux-android ANDROID_API_LEVEL=${ANDROID_API_LEVEL} ANDROID_TOOLCHAIN_BIN=${ANDROID_TOOLCHAIN_BIN} vkax-d vkax-cli || true
 
       - name: Collect Android legacy artifacts
@@ -313,7 +313,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ -d depends ]; then
-            J=$(nproc 2>/dev/null || echo 2); [ "$J" -gt 4 ] && J=4
+            J=1
             make -C depends -j"$J" HOST=${{ matrix.triple }} || true
           else
             echo "::notice::No depends/ dir; skipping vendored deps."
@@ -342,7 +342,7 @@ jobs:
             echo "::warning::Vendored depends prefix not found; continuing without depends."
           fi
           cmake -S . -B build -G Ninja
-          cmake --build build -j"$(nproc || echo 2)" || true
+          cmake --build build -j1 || true
 
       - name: Collect Linux binaries
         shell: bash
@@ -395,7 +395,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ ! -d depends ]; then echo "::error::depends/ missing"; exit 2; fi
-          J=$(nproc 2>/dev/null || echo 2); [ "$J" -gt 4 ] && J=4
+          J=1
           make -C depends -j"$J" HOST=x86_64-w64-mingw32
 
       - name: Check vendored depends prefix (mingw)
@@ -458,6 +458,7 @@ jobs:
           }
           $J = $env:NUMBER_OF_PROCESSORS
           if (-not $J) { $J = 2 }
+          if ($J -gt 1) { $J = 1 }  # clamp parallelism to 1 (single-threaded)  # clamp parallelism to avoid 'Too many open files' on Windows runners
           Write-Output "Running: make -C depends HOST=x86_64-pc-windows-msvc PREFIX=depends/x86_64-pc-windows-msvc -j$J"
           $proc = Start-Process -FilePath "make" -ArgumentList "-C","depends","HOST=x86_64-pc-windows-msvc","PREFIX=depends/x86_64-pc-windows-msvc","-j$J" -NoNewWindow -Wait -PassThru
           if ($proc.ExitCode -ne 0) {
@@ -580,7 +581,7 @@ jobs:
             $cmakeCmd = "cmake -S . -B build -G Ninja " + ($cmakeArgs -join ' ')
             Write-Output "Running: $cmakeCmd"
             Invoke-Expression $cmakeCmd
-            cmake --build build --config Release -- -j:2
+            cmake --build build --config Release -- -j:1
           } else {
             Write-Output "::notice::No CMakeLists.txt; skipping."
           }
@@ -662,7 +663,7 @@ jobs:
             HOST=x86_64-apple-darwin
           fi
           echo "Building depends for host: $HOST"
-          J=$(sysctl -n hw.ncpu 2>/dev/null || echo 2); [ "$J" -gt 4 ] && J=4
+          J=1
           make -C depends -j"$J" HOST="$HOST" || true
 
       - name: Check vendored depends prefix (macOS)
@@ -687,13 +688,13 @@ jobs:
           set -euo pipefail
           if [ -f CMakeLists.txt ]; then
             cmake -S . -B build-macos -G Ninja -DCMAKE_BUILD_TYPE=Release || true
-            cmake --build build-macos -j"$(sysctl -n hw.ncpu 2>/dev/null || echo 2)" || true
+            cmake --build build-macos -j1 || true
           else
             echo "No CMakeLists.txt; attempting autotools build"
             if [ -x ./autogen.sh ]; then
               ./autogen.sh || true
               ./configure --prefix="$(pwd)/depends/${HOST}" || true
-              make -j"$(sysctl -n hw.ncpu 2>/dev/null || echo 2)" || true
+              make -j1 || true
             else
               echo "No autogen.sh; nothing to build on macOS"
             fi
