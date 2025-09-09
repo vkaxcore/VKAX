@@ -1,5 +1,6 @@
 name: "cache wrapper"
 description: "Centralized caching for depends sources and ccache"
+
 inputs:
   key:
     description: "Primary cache key"
@@ -10,10 +11,11 @@ inputs:
     default: |
       depends/sources
       ~/.ccache
-  restore-keys:
+  restore_keys:
     description: "Restore keys prefix (optional)"
     required: false
-    default: ''
+    default: ""
+
 runs:
   using: "composite"
   steps:
@@ -25,16 +27,18 @@ runs:
         : "${CCACHE_DIR:=$HOME/.ccache}"
         : "${CCACHE_COMPRESS:=1}"
         : "${CCACHE_MAXSIZE:=750M}"
-        echo "CCACHE_DIR=$CCACHE_DIR" >> "$GITHUB_ENV"
-        echo "CCACHE_COMPRESS=$CCACHE_COMPRESS" >> "$GITHUB_ENV"
-        echo "CCACHE_MAXSIZE=$CCACHE_MAXSIZE" >> "$GITHUB_ENV"
+        {
+          echo "CCACHE_DIR=$CCACHE_DIR"
+          echo "CCACHE_COMPRESS=$CCACHE_COMPRESS"
+          echo "CCACHE_MAXSIZE=$CCACHE_MAXSIZE"
+        } >> "$GITHUB_ENV"
 
     - name: Cache
       id: c
       uses: actions/cache@v4
       with:
         key: ${{ inputs.key }}
-        restore-keys: ${{ inputs["restore-keys"] }}
+        restore-keys: ${{ inputs.restore_keys }}
         path: |
           ${{ inputs.paths }}
 
