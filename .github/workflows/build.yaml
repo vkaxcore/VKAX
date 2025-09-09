@@ -537,7 +537,7 @@ jobs:
             Write-Output "Generated $dashcfg"
           } else { Write-Output "$dashcfg exists; skipping" }
 
-      - name: Debug: show vcpkg, depends prefix, and generated headers
+      - name: "Debug: show vcpkg, depends prefix, and generated headers"
         shell: powershell
         run: |
           Write-Output "VCPKG_ROOT=$env:VCPKG_ROOT"
