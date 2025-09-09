@@ -655,7 +655,7 @@ jobs:
           J=$(sysctl -n hw.ncpu 2>/dev/null || echo 2); [ "$J" -gt 8 ] && J=8
           make -C depends -j"$J" HOST="$HOST" || true
 
-      - name: Check vendored depends prefix (macOS)
+      - name: "Check vendored depends prefix (macOS)"
         shell: bash
         run: |
           set -euo pipefail
