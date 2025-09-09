@@ -74,7 +74,6 @@ jobs:
             echo "$ANDROID_SDK_ROOT/platform-tools"
             echo "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin"
           } >> "$GITHUB_PATH"
-
       - name: Accept Android licenses
         uses: ./.github/actions/android-accept-licenses
 
@@ -115,7 +114,7 @@ jobs:
         shell: bash
         env:
           ANDROID_API_LEVEL: 34
-          ANDROID_TOOLCHAIN_BIN: "${{ github.workspace }}/.android-sdk/ndk/${ANDROID_NDK_VERSION}/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          ANDROID_TOOLCHAIN_BIN: "${{ env.ANDROID_SDK_ROOT }}/ndk/${{ env.ANDROID_NDK_VERSION }}/toolchains/llvm/prebuilt/linux-x86_64/bin"
         run: |
           set -euo pipefail
           J=$(nproc 2>/dev/null || echo 2); [ "$J" -gt 8 ] && J=8
@@ -191,7 +190,6 @@ jobs:
           unzip -q "$tmp/cmdline.zip" -d "$ANDROID_SDK_ROOT/cmdline-tools"
           mv "$ANDROID_SDK_ROOT/cmdline-tools/cmdline-tools" "$ANDROID_SDK_ROOT/cmdline-tools/latest" || true
           echo "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
-
       - name: Accept Android licenses
         uses: ./.github/actions/android-accept-licenses
 
@@ -259,11 +257,10 @@ jobs:
           echo "Android artifact summary - $(date)" > "$out"
           if compgen -G "android_assets/**" > /dev/null; then
             find android_assets -type f -maxdepth 3 -print >> "$out" || true
-            (cd android_assets && sha256sum * > android_summary/SHA256SUMS.txt) || true
+            (cd android_assets && sha256sum * > ../android_summary/SHA256SUMS.txt) || true
           else
             echo "No android artifacts found" >> "$out"
           fi
-
       - name: Upload android summary
         uses: actions/upload-artifact@v4
         with:
@@ -316,7 +313,7 @@ jobs:
           set -euo pipefail
           if [ -d depends ]; then
             J=$(nproc 2>/dev/null || echo 2); [ "$J" -gt 8 ] && J=8
-            make -C depends -j"$J" HOST=$MATRIX_TRIPLE || true
+            make -C depends -j"$J" HOST=${{ matrix.triple }} || true
           else
             echo "::notice::No depends/ dir; skipping vendored deps."
           fi
@@ -423,7 +420,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: native-windows-cross-ubuntu-22.04
+          name: native-windows-cross-ubuntu-24.04
           path: |
             dist-w64/**/*
           if-no-files-found: warn
@@ -507,7 +504,6 @@ jobs:
           $baseCandidates = @('src','src\version','src\qt','src\client','.')
           $base='.'
           foreach ($p in $baseCandidates) { if (Test-Path $p) { $base=$p; break } }
-
           $clientVersion = Join-Path $base 'clientversion.h'
           if (-Not (Test-Path $clientVersion)) {
             @'
@@ -521,7 +517,6 @@ jobs:
 '@ | Out-File -FilePath $clientVersion -Encoding ascii
             Write-Output "Generated $clientVersion"
           } else { Write-Output "$clientVersion exists; skipping" }
-
           $dashcfg = Join-Path $base 'dash-config.h'
           if (-Not (Test-Path $dashcfg)) {
             @'
@@ -547,7 +542,7 @@ jobs:
           Get-ChildItem .\depends -Directory -ErrorAction SilentlyContinue | Select-Object -First 40 | ForEach-Object { Write-Output $_.FullName }
           Write-Output "Looking for depends/x86_64-pc-windows-msvc*"
           Get-ChildItem .\depends -Directory -Filter "x86_64-pc-windows-msvc*" -ErrorAction SilentlyContinue | ForEach-Object { Write-Output $_.FullName }
-          Write-Output "Checking for generated headers:" 
+          Write-Output "Checking for generated headers:"
           Get-ChildItem -Path . -Filter clientversion.h -Recurse -ErrorAction SilentlyContinue | Select-Object -First 10
           if (Test-Path .\src\clientversion.h) { Get-Content .\src\clientversion.h | Select-Object -First 40 }
 
@@ -666,10 +661,8 @@ jobs:
           else
             HOST=x86_64-apple-darwin
           fi
-          deps_list=$(ls -d depends/${HOST}* 2>/dev/null | tr '
-' ' ')
-          if [ -n "$deps_list" ]; then
-            echo "Found depends prefix: $deps_list"
+          if ls depends/${HOST}* >/dev/null 2>&1; then
+            echo "Found depends prefix: $(ls -d depends/${HOST}* | tr '\n' ' ')"
           else
             echo "::error::Vendored depends prefix not found for macOS host $HOST (expected depends/${HOST}*)"
             exit 1
@@ -721,7 +714,6 @@ jobs:
           set -euo pipefail
           echo "Found depends packages:"; ls -1 depends/packages || true
           echo "Stamp count:"; find depends/work -type f -name .stamp_built 2>/dev/null | wc -l || true
-
       - name: Upload audit
         uses: actions/upload-artifact@v4
         with:
@@ -742,4 +734,4 @@ jobs:
       - name: Promote artifacts to release
         shell: bash
         run: |
-          echo "(release step placeholder)" 
+          echo "(release step placeholder)"
