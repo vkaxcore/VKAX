@@ -504,32 +504,36 @@ jobs:
           $baseCandidates = @('src','src\version','src\qt','src\client','.')
           $base='.'
           foreach ($p in $baseCandidates) { if (Test-Path $p) { $base=$p; break } }
+
           $clientVersion = Join-Path $base 'clientversion.h'
           if (-Not (Test-Path $clientVersion)) {
-            @'
-#ifndef CLIENTVERSION_H
-#define CLIENTVERSION_H
-#define CLIENT_VERSION_MAJOR 0
-#define CLIENT_VERSION_MINOR 0
-#define CLIENT_VERSION_REVISION 0
-#define CLIENT_VERSION_BUILD 0
-#endif
-'@ | Out-File -FilePath $clientVersion -Encoding ascii
+            $clientVersionContent = @(
+              '#ifndef CLIENTVERSION_H'
+              '#define CLIENTVERSION_H'
+              '#define CLIENT_VERSION_MAJOR 0'
+              '#define CLIENT_VERSION_MINOR 0'
+              '#define CLIENT_VERSION_REVISION 0'
+              '#define CLIENT_VERSION_BUILD 0'
+              '#endif'
+            ) -join "`r`n"
+            $clientVersionContent | Out-File -FilePath $clientVersion -Encoding ascii
             Write-Output "Generated $clientVersion"
           } else { Write-Output "$clientVersion exists; skipping" }
+
           $dashcfg = Join-Path $base 'dash-config.h'
           if (-Not (Test-Path $dashcfg)) {
-            @'
-#ifndef DASH_CONFIG_H
-#define DASH_CONFIG_H
-#define VERSION "0.0.0"
-#define CLIENT_VERSION_MAJOR 0
-#define CLIENT_VERSION_MINOR 0
-#define CLIENT_VERSION_REVISION 0
-#define CLIENT_VERSION_BUILD 0
-#define HAVE_BOOST 1
-#endif
-'@ | Out-File -FilePath $dashcfg -Encoding ascii
+            $dashcfgContent = @(
+              '#ifndef DASH_CONFIG_H'
+              '#define DASH_CONFIG_H'
+              '#define VERSION "0.0.0"'
+              '#define CLIENT_VERSION_MAJOR 0'
+              '#define CLIENT_VERSION_MINOR 0'
+              '#define CLIENT_VERSION_REVISION 0'
+              '#define CLIENT_VERSION_BUILD 0'
+              '#define HAVE_BOOST 1'
+              '#endif'
+            ) -join "`r`n"
+            $dashcfgContent | Out-File -FilePath $dashcfg -Encoding ascii
             Write-Output "Generated $dashcfg"
           } else { Write-Output "$dashcfg exists; skipping" }
 
