@@ -24,7 +24,7 @@ env:
 jobs:
   # ───────────────────────── ANDROID (matrix: abis) ─────────────────────────
   android:
-    name: android • build • ${{ matrix.abi }} • ubuntu-24.04 • api 34 • ndk ${{ env.ANDROID_NDK_VERSION }}
+    name: android • build • ${{ matrix.abi }} • ubuntu-24.04 • api 34 • ndk 23.1.7779620
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     strategy:
@@ -52,7 +52,7 @@ jobs:
       - name: Cache (depends sources + ccache)
         uses: ./.github/cache
         with:
-          key: ${{ runner.os }}-android-${{ matrix.abi }}-${{ env.ANDROID_NDK_VERSION }}-${{ hashFiles('depends/packages/*.mk') }}
+          key: ${{ runner.os }}-android-${{ matrix.abi }}-23.1.7779620-${{ hashFiles('depends/packages/*.mk') }}
           paths: |
             depends/sources
             ~/.ccache
@@ -399,6 +399,59 @@ jobs:
           } else {
             Write-Output "::notice::No CMakeLists.txt; skipping."
           }
+
+  # ───────────────────────── Depends audit (manual) ─────────────────────────
+  depends_audit:
+    name: depends • audit
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+          fetch-depth: 0
+
+      - name: Produce depends packages summary
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p ci_reports
+          out=ci_reports/depends_audit.txt
+          echo "Depends audit - $(date)" > "$out"
+          echo "" >> "$out"
+          if [ -d depends/packages ]; then
+            for mk in depends/packages/*.mk; do
+              [ -f "$mk" ] || continue
+              echo "---- $(basename "$mk")" >> "$out"
+              echo "path: $mk" >> "$out"
+              echo "" >> "$out"
+              echo "DEPENDS lines:" >> "$out"
+              grep -E '^DEPENDS' "$mk" -n || echo "(none)" >> "$out" || true
+              echo "" >> "$out"
+              echo "HOST / platform hints (android,aarch64,arm,mingw,windows,darwin,apple):" >> "$out"
+              grep -nE 'android|aarch64|arm|mingw|windows|darwin|apple|HOST|TARGET|CROSS' "$mk" || echo "(none)" >> "$out" || true
+              echo "" >> "$out"
+            done
+          else
+            echo "depends/packages not present" >> "$out"
+          fi
+
+          echo "Built .stamp_built packages (depends/work):" >> "$out"
+          if [ -d depends/work ]; then
+            find depends/work -type f -name .stamp_built -print0 | xargs -0 -n1 dirname | xargs -n1 basename | sort -u >> "$out" || true
+          else
+            echo "(depends/work not present)" >> "$out"
+          fi
+
+          tar -czf ci_reports.tar.gz ci_reports || true
+
+      - name: Upload depends audit report
+        uses: actions/upload-artifact@v4
+        with:
+          name: depends-audit
+          path: ci_reports.tar.gz
+          if-no-files-found: warn
 
   # ───────────────────────── Release (tags) ─────────────────────────
   release:
