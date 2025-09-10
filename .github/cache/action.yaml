@@ -2,7 +2,7 @@
 # Wrapper around actions/cache v4 that separates restore/save.
 # Accepts newline-separated `paths` and a `mode`: restore | save | auto (default restore).
 # Exposes restore step's `cache-hit` for consumers.
-name: "Cache wrapper (v3)"
+name: "Cache wrapper (v5)"
 
 description: >-
   Thin wrapper around actions/cache v4 restore/save. Supports a `mode` input
@@ -47,7 +47,7 @@ runs:
     - name: Echo cache inputs
       shell: bash
       run: |
-        echo "cache-wrapper v3"
+        echo "cache-wrapper v5"
         echo "mode='${{ inputs.mode }}'"
         echo "key='${{ inputs.key }}'"
         echo "paths='${{ inputs.paths }}'"
