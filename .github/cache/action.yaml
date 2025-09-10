@@ -1,7 +1,8 @@
 # .github/cache/action.yaml
-# Wrapper around actions/cache v4 that separates restore/save.
-# Accepts newline-separated `paths` and a `mode`: restore | save | auto (default restore).
-# Exposes restore step's `cache-hit` for consumers.
+# Wrapper around actions/cache v4 with explicit restore/save modes.
+# - Accepts newline-separated `paths`.
+# - `mode`: restore | save | auto (auto behaves like restore).
+# - Exposes `cache-hit` from the restore step.
 name: "Cache wrapper (v5)"
 
 description: >-
