@@ -1,6 +1,10 @@
 # .github/workflows/build.yaml
-# CI: Production builds for Android + Native (Linux, macOS, Windows). Scoped Android env per-job,
-# robust ulimit, strict depends behavior on Linux/macOS, split cache restore/save, and no top-level env.
+# CI: Production builds for Android + Native (Linux, macOS, Windows).
+# - Scoped Android env per-job
+# - Robust ulimit
+# - Strict depends behavior on Linux/macOS
+# - Split cache restore/save via local composite action
+# - No top-level env using runner.*
 name: "CI • Production builds (Android + Native)"
 
 on:
@@ -255,7 +259,7 @@ jobs:
           echo "ulimit -n now: $(ulimit -n) (hard: $hard)"
           export ANDROID_SDK="${ANDROID_SDK_ROOT}"
           export ANDROID_NDK="${ANDROID_SDK_ROOT}/ndk/${ANDROID_NDK_VERSION}"
-          make -C depends -j1 HOST=aarch64-linux-android ANDROID_SDK="${ANDROID_SDK}" ANDROID_NDK="${ANDROID_NDK}" || true
+          make -C depends -j1 HOST=aarch64-linux-android ANDROID_SDK="${ANDROID_SDK}" ANDROID_NDK="${ANDROID_NDK}"
 
       - name: Build legacy targets (vkax-d, vkax-cli)
         shell: bash
@@ -317,6 +321,12 @@ jobs:
         with:
           submodules: true
           fetch-depth: 0
+
+      - name: Set fallback download path
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "FALLBACK_DOWNLOAD_PATH=${RUNNER_TEMP:-/tmp}/depends-sources" >> "$GITHUB_ENV"
 
       - name: Cache depends + ccache • restore
         uses: ./.github/cache
@@ -633,7 +643,7 @@ jobs:
           set -euo pipefail
           echo "FALLBACK_DOWNLOAD_PATH=${RUNNER_TEMP:-/tmp}/depends-sources" >> "$GITHUB_ENV"
 
-      - name: Diagnostic: tree
+      - name: "Diagnostic: tree"
         shell: bash
         run: |
           set -euo pipefail
@@ -691,7 +701,14 @@ jobs:
           mkdir -p dist_macos
           find build-macos -type f -perm -111 -name 'vkax*' -exec cp -a {} dist_macos/ \; || true
           find src -type f -perm -111 -name 'vkax*' -exec cp -a {} dist_macos/ \; || true
-          if [ -d dist_macos ]; then (cd dist_macos && sha256sum * > sha256sums.txt || true); fi
+          if [ -d dist_macos ]; then (
+            cd dist_macos
+            if command -v sha256sum >/dev/null 2>&1; then
+              sha256sum * > sha256sums.txt || true
+            else
+              shasum -a 256 * > sha256sums.txt || true
+            fi
+          ); fi
 
       - name: Cache depends sources + ccache • save
         if: always()
