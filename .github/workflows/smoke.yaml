@@ -182,15 +182,22 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # Ensure depends directory exists
           [ -d depends ] || { echo "::error::depends/ directory missing; required for ${{ matrix.name }}."; exit 2; }
+          # Limit parallel jobs to max 4
           J=$( (command -v nproc >/dev/null && nproc) || (sysctl -n hw.ncpu) || echo 2 ); [ "$J" -gt 4 ] && J=4
           make -C depends -j"$J" HOST='${{ matrix.host }}'
+          # mark pass file
           echo ok > .smoke_depends_pass
+          # Write summary of built packages
           {
-            echo "### depends packages built on ${{ matrix.name }}";
-            pkgs=$(find depends/work -type f -name .stamp_built 2>/dev/null | while read -r f; do d=$(dirname "$f"); bn=$(basename "$d"); echo "$bn"; done | sed -E 's/-[0-9].*$//' | sort -u || true);
-            if [ -z "$pkgs" ]; then echo "_no .stamp_built files found_"; else printf '%s
-' "$pkgs" | sed 's/^/- /'; fi
+            echo "### depends packages built on ${{ matrix.name }}"
+            pkgs=$(find depends/work -type f -name .stamp_built 2>/dev/null | while read -r f; do d=$(dirname "$f"); bn=$(basename "$d"); echo "$bn"; done | sed -E 's/-[0-9].*$//' | sort -u || true)
+            if [ -z "$pkgs" ]; then
+              echo "_no .stamp_built files found_"
+            else
+              printf '%s\n' "$pkgs" | sed 's/^/- /'
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload artifacts
