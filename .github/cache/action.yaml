@@ -1,91 +1,67 @@
-# .github/cache/action.yaml
-
-```yaml
-# Wrapper around actions/cache v4 with explicit restore/save modes.
-# - Accepts newline-separated `paths`.
-# - `mode`: restore | save | auto (auto behaves like restore).
-# - Exposes `cache-hit` from the restore step.
-name: "Cache wrapper (v5)"
-
-description: >-
-  Thin wrapper around actions/cache v4 restore/save. Supports a `mode` input
-  (restore | save | auto) and forwards newline-separated `paths` to the
-  underlying action. Adds diagnostics and skips when no paths are provided.
+name: cache-wrapper
+description: Split restore/save wrapper for actions/cache@v4 with normalized inputs.
 
 inputs:
   mode:
-    description: "restore | save | auto (default restore). When auto, behaves like restore."
+    description: "'restore' | 'save' | 'auto' (default restore)"
     required: false
     default: restore
   key:
-    description: "Primary cache key. Required for both restore and save."
+    description: Primary cache key
     required: true
   paths:
-    description: "Newline-separated paths to cache."
+    description: Newline-separated paths to cache
+    required: true
+  restore_keys:
+    description: Newline-separated fallback restore keys
     required: false
-  restore-keys:
-    description: "Restore keys (newline-separated). Used only for restore mode."
+    default: ""
+  upload_chunk_size:
+    description: Upload chunk size (save)
     required: false
-  upload-chunk-size:
-    description: "Upload chunk size in bytes for save mode (optional)."
+    default: ""
+  fail_on_cache_miss:
+    description: Fail when miss (restore)
     required: false
-  enableCrossOsArchive:
-    description: "Pass-through to actions/cache (optional)."
+    default: ""
+  lookup_only:
+    description: Lookup-only (restore)
     required: false
-  fail-on-cache-miss:
-    description: "Pass-through to restore (boolean)."
-    required: false
-  lookup-only:
-    description: "Pass-through to restore (boolean)."
-    required: false
+    default: ""
 
 outputs:
   cache-hit:
-    description: "Whether the restore step hit the cache. Empty when not restoring."
+    description: Cache hit from restore
     value: ${{ steps.restore.outputs.cache-hit }}
 
 runs:
   using: composite
   steps:
-    - name: Echo cache inputs
+    - name: Normalize mode
+      id: norm
       shell: bash
       run: |
-        echo "cache-wrapper v5"
-        echo "mode='${{ inputs.mode }}'"
-        echo "key='${{ inputs.key }}'"
-        echo "paths='${{ inputs.paths }}'"
-        echo "restore-keys='${{ inputs['restore-keys'] }}'"
-        echo "upload-chunk-size='${{ inputs['upload-chunk-size'] }}'"
-        echo "enableCrossOsArchive='${{ inputs['enableCrossOsArchive'] }}'"
-        echo "fail-on-cache-miss='${{ inputs['fail-on-cache-miss'] }}'"
-        echo "lookup-only='${{ inputs['lookup-only'] }}'"
+        set -euo pipefail
+        mode='${{ inputs.mode }}'
+        if [ -z "$mode" ] || [ "$mode" = "auto" ]; then mode=restore; fi
+        echo "mode=$mode" >> "$GITHUB_OUTPUT"
 
-    - name: Guard when no paths provided
-      if: ${{ inputs.paths == '' || inputs.paths == null }}
-      shell: bash
-      run: |
-        echo "No 'paths' provided to cache wrapper — skipping restore/save"
-
-    # Restore path when mode is restore or auto (default)
-    - id: restore
-      name: Restore cache (actions/cache/restore@v4)
-      if: ${{ (inputs.paths != '' && inputs.paths != null) && (inputs.mode == 'restore' || inputs.mode == '' || inputs.mode == 'auto') }}
+    - name: Restore cache
+      id: restore
+      if: ${{ steps.norm.outputs.mode == 'restore' && inputs.paths != '' }}
       uses: actions/cache/restore@v4
       with:
         key: ${{ inputs.key }}
         path: ${{ inputs.paths }}
-        restore-keys: ${{ inputs['restore-keys'] }}
-        enableCrossOsArchive: ${{ inputs['enableCrossOsArchive'] }}
-        fail-on-cache-miss: ${{ inputs['fail-on-cache-miss'] }}
-        lookup-only: ${{ inputs['lookup-only'] }}
+        # hyphenated keys must be passed only to actions/cache
+        restore-keys: ${{ inputs.restore_keys }}
+        lookup-only: ${{ inputs.lookup_only }}
+        fail-on-cache-miss: ${{ inputs.fail_on_cache_miss }}
 
-    # Save path when mode is save
-    - name: Save cache (actions/cache/save@v4)
-      if: ${{ (inputs.paths != '' && inputs.paths != null) && (inputs.mode == 'save') }}
+    - name: Save cache
+      if: ${{ steps.norm.outputs.mode == 'save' && inputs.paths != '' }}
       uses: actions/cache/save@v4
       with:
         key: ${{ inputs.key }}
         path: ${{ inputs.paths }}
-        upload-chunk-size: ${{ inputs['upload-chunk-size'] }}
-        enableCrossOsArchive: ${{ inputs['enableCrossOsArchive'] }}
-```
+        upload-chunk-size: ${{ inputs.upload_chunk_size }}
