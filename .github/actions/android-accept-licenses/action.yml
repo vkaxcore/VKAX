@@ -1,6 +1,8 @@
 # .github/actions/android-accept-licenses/action.yml
 name: Android Accept Licenses (hash-seeded)
 description: Seeds Android SDK/NDK license files using known hashes to avoid interactive acceptance.
+inputs: {}
+outputs: {}
 author: VKAX
 branding:
   icon: check-circle
