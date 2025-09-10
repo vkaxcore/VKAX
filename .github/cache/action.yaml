@@ -1,14 +1,13 @@
 # .github/cache/action.yaml
-# Cache wrapper v4 — separates restore/save to avoid deprecations,
-# accepts newline-separated `paths`, and exposes `cache-hit` & matched key.
-# Intended to be a small, documented adapter around actions/cache v4.
-name: "Cache wrapper (v4)"
+# Wrapper around actions/cache v4 that separates restore/save.
+# Accepts newline-separated `paths` and a `mode`: restore | save | auto (default restore).
+# Exposes restore step's `cache-hit` for consumers.
+name: "Cache wrapper (v3)"
 
 description: >-
   Thin wrapper around actions/cache v4 restore/save. Supports a `mode` input
   (restore | save | auto) and forwards newline-separated `paths` to the
   underlying action. Adds diagnostics and skips when no paths are provided.
-  Exposes `cache-hit` and `matched-key` from restore.
 
 inputs:
   mode:
@@ -39,11 +38,8 @@ inputs:
 
 outputs:
   cache-hit:
-    description: "Whether the restore step hit the cache (true/false). Empty when not restoring."
+    description: "Whether the restore step hit the cache. Empty when not restoring."
     value: ${{ steps.restore.outputs.cache-hit }}
-  matched-key:
-    description: "The matched cache key used for restoration. Empty when not restoring."
-    value: ${{ steps.restore.outputs.cache-matched-key }}
 
 runs:
   using: composite
@@ -51,7 +47,7 @@ runs:
     - name: Echo cache inputs
       shell: bash
       run: |
-        echo "cache-wrapper v4"
+        echo "cache-wrapper v3"
         echo "mode='${{ inputs.mode }}'"
         echo "key='${{ inputs.key }}'"
         echo "paths='${{ inputs.paths }}'"
