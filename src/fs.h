@@ -11,11 +11,20 @@
 #include <ext/stdio_filebuf.h>
 #endif
 
+// Prefer the C++17 filesystem library when available. Fallback to Boost
+// filesystem for older toolchains. Define the fs namespace alias accordingly.
+#if __has_include(<filesystem>)
+#include <filesystem>
+// Use the standard filesystem implementation
+namespace fs = std::filesystem;
+#else
 #include <boost/filesystem.hpp>
 #include <boost/filesystem/fstream.hpp>
+// Use Boost filesystem as a fallback
+namespace fs = boost::filesystem;
+#endif
 
 /** Filesystem operations and types */
-namespace fs = boost::filesystem;
 
 /** Bridge operations to C stdio */
 namespace fsbridge {
