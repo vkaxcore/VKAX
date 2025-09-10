@@ -96,10 +96,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="${ANDROID_SDK_ROOT}" \
-            "platform-tools" \
-            "platforms;android-34" \
-            "ndk;${ANDROID_NDK_VERSION}"
+          SDKMANAGER="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          if [ -x "$SDKMANAGER" ]; then
+            "$SDKMANAGER" --sdk_root="${ANDROID_SDK_ROOT}" \
+              "platform-tools" \
+              "platforms;android-34" \
+              "ndk;${ANDROID_NDK_VERSION}"
+          else
+            echo "::warning::sdkmanager not found at $SDKMANAGER; skipping Android package install"
+          fi
 
       - name: Build depends (${{ matrix.host }})
         shell: bash
@@ -122,6 +127,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # ensure we are in repository root before checking depends
+          cd "${GITHUB_WORKSPACE:-.}"
           if ls depends/${{ matrix.host }}* >/dev/null 2>&1; then
             echo "Found depends prefix for ${{ matrix.host }}"
           else
@@ -245,7 +252,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="${ANDROID_SDK_ROOT}" "platform-tools" "platforms;android-15" "ndk;${ANDROID_NDK_VERSION}"
+          SDKMANAGER="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          if [ -x "$SDKMANAGER" ]; then
+            "$SDKMANAGER" --sdk_root="${ANDROID_SDK_ROOT}" \
+              "platform-tools" \
+              "platforms;android-15" \
+              "ndk;${ANDROID_NDK_VERSION}"
+          else
+            echo "::warning::sdkmanager not found at $SDKMANAGER; skipping Android legacy package install"
+          fi
 
       - name: Build vendored depends (legacy)
         shell: bash
@@ -360,6 +375,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # Ensure we are in repository root when probing depends
+          cd "${GITHUB_WORKSPACE:-.}"
           if ls depends/${{ matrix.triple }}* >/dev/null 2>&1; then
             echo "Vendored depends prefix found for ${{ matrix.triple }}"
           else
@@ -451,6 +468,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          cd "${GITHUB_WORKSPACE:-.}"
           if ls depends/x86_64-w64-mingw32* >/dev/null 2>&1; then
             echo "Found mingw depends prefix"
           else
@@ -668,6 +686,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          cd "${GITHUB_WORKSPACE:-.}"
           ARCH=$(uname -m)
           if [ "$ARCH" = "arm64" ]; then HOST=aarch64-apple-darwin; else HOST=x86_64-apple-darwin; fi
           if ls depends/${HOST}* >/dev/null 2>&1; then
