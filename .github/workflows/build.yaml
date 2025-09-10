@@ -1,10 +1,9 @@
 # .github/workflows/build.yaml
 # CI: Production builds for Android + Native (Linux, macOS, Windows).
-# - Strict depends behavior on Linux/macOS (fatal when missing)
-# - Split cache restore/save (no deprecated save-always)
-# - Fallback-aware depends downloads via SOURCES_PATH → $FALLBACK_DOWNLOAD_PATH
-# - Higher ulimit where possible to avoid EMFILE during packaging
-# - Removed: android_summary, release (tag-only)
+# - Split cache restore/save steps (no deprecated save-always)
+# - Strict depends prefix requirement on Ubuntu/macOS (fatal)
+# - MSVC: keep vendored-deps as warnings with vcpkg fallback
+# - Removed android summary and tag-only release jobs
 name: "CI • Production builds (Android + Native)"
 
 on:
@@ -42,7 +41,6 @@ jobs:
       ANDROID_HOME: ${{ github.workspace }}/.android-sdk
       ANDROID_CLT_LINUX: https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip
       ANDROID_NDK_VERSION: "23.1.7779620"
-      FALLBACK_DOWNLOAD_PATH: ${{ runner.temp }}/depends-sources
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -96,17 +94,6 @@ jobs:
             "platforms;android-34" \
             "ndk;${ANDROID_NDK_VERSION}"
 
-      - name: Prepare depends sources paths (fallback aware)
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p depends/sources "$FALLBACK_DOWNLOAD_PATH"
-          # Seed fallback from cache if fallback is empty
-          if [ -z "$(ls -A "$FALLBACK_DOWNLOAD_PATH" 2>/dev/null || true)" ] && [ -n "$(ls -A depends/sources 2>/dev/null || true)" ]; then
-            echo "Seeding fallback from depends/sources"
-            rsync -a --ignore-existing depends/sources/ "$FALLBACK_DOWNLOAD_PATH"/ 2>/dev/null || cp -a depends/sources/* "$FALLBACK_DOWNLOAD_PATH"/ 2>/dev/null || true
-          fi
-
       - name: Build depends (${{ matrix.host }})
         shell: bash
         env:
@@ -115,14 +102,14 @@ jobs:
         run: |
           set -euo pipefail
           if [ ! -d depends ]; then echo "::error::depends/ missing"; exit 2; fi
-          # Raise soft file-descriptor limit to mitigate EMFILE during packaging operations
+          # raise soft file-descriptor limit to mitigate EMFILE during packaging operations
           hard=$(ulimit -H -n || echo 4096)
           soft_target=65535; [ "$hard" -lt 65535 ] && soft_target=$hard
           ulimit -n "$soft_target" || true
           echo "ulimit -n now: $(ulimit -n) (hard: $hard)"
           export ANDROID_SDK="${ANDROID_SDK_ROOT}"
           export ANDROID_NDK="${ANDROID_SDK_ROOT}/ndk/${ANDROID_NDK_VERSION}"
-          make -C depends -j1 HOST=${{ matrix.host }} ANDROID_SDK="${ANDROID_SDK}" ANDROID_NDK="${ANDROID_NDK}" SOURCES_PATH="${FALLBACK_DOWNLOAD_PATH}"
+          make -C depends -j1 HOST=${{ matrix.host }} ANDROID_SDK="${ANDROID_SDK}" ANDROID_NDK="${ANDROID_NDK}"
 
       - name: Check vendored depends prefix (Android)
         shell: bash
@@ -176,17 +163,6 @@ jobs:
           find build -type f -name 'vkax-*' -exec cp -a {} dist_android/ \; || true
           if [ -d dist_android ]; then (cd dist_android && sha256sum * > sha256sums.txt || true); fi
 
-      - name: Sync fallback sources back to cache path
-        if: always()
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p depends/sources
-          if [ -d "$FALLBACK_DOWNLOAD_PATH" ]; then
-            echo "Syncing fallback sources back to depends/sources for caching"
-            rsync -a "$FALLBACK_DOWNLOAD_PATH"/ depends/sources/ 2>/dev/null || cp -a "$FALLBACK_DOWNLOAD_PATH"/* depends/sources/ 2>/dev/null || true
-          fi
-
       - name: Cache (depends sources + ccache) • save
         if: always()
         uses: ./.github/cache
@@ -215,7 +191,6 @@ jobs:
       ANDROID_HOME: ${{ github.workspace }}/.android-sdk
       ANDROID_CLT_LINUX: https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip
       ANDROID_NDK_VERSION: "23.1.7779620"
-      FALLBACK_DOWNLOAD_PATH: ${{ runner.temp }}/depends-sources
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -259,16 +234,6 @@ jobs:
           set -euo pipefail
           "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="${ANDROID_SDK_ROOT}" "platform-tools" "platforms;android-15" "ndk;${ANDROID_NDK_VERSION}"
 
-      - name: Prepare depends sources paths (fallback aware)
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p depends/sources "$FALLBACK_DOWNLOAD_PATH"
-          if [ -z "$(ls -A "$FALLBACK_DOWNLOAD_PATH" 2>/dev/null || true)" ] && [ -n "$(ls -A depends/sources 2>/dev/null || true)" ]; then
-            echo "Seeding fallback from depends/sources"
-            rsync -a --ignore-existing depends/sources/ "$FALLBACK_DOWNLOAD_PATH"/ 2>/dev/null || cp -a depends/sources/* "$FALLBACK_DOWNLOAD_PATH"/ 2>/dev/null || true
-          fi
-
       - name: Build vendored depends (legacy)
         shell: bash
         run: |
@@ -280,7 +245,7 @@ jobs:
           echo "ulimit -n now: $(ulimit -n) (hard: $hard)"
           export ANDROID_SDK="${ANDROID_SDK_ROOT}"
           export ANDROID_NDK="${ANDROID_SDK_ROOT}/ndk/${ANDROID_NDK_VERSION}"
-          make -C depends -j1 HOST=aarch64-linux-android ANDROID_SDK="${ANDROID_SDK}" ANDROID_NDK="${ANDROID_NDK}" SOURCES_PATH="${FALLBACK_DOWNLOAD_PATH}"
+          make -C depends -j1 HOST=aarch64-linux-android ANDROID_SDK="${ANDROID_SDK}" ANDROID_NDK="${ANDROID_NDK}"
 
       - name: Build legacy targets (vkax-d, vkax-cli)
         shell: bash
@@ -299,16 +264,6 @@ jobs:
           mkdir -p dist_android_legacy
           find build -type f -name 'vkax-*' -exec cp -a {} dist_android_legacy/ \; || true
           if [ -d dist_android_legacy ]; then (cd dist_android_legacy && sha256sum * > sha256sums.txt || true); fi
-
-      - name: Sync fallback sources back to cache path
-        if: always()
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p depends/sources
-          if [ -d "$FALLBACK_DOWNLOAD_PATH" ]; then
-            rsync -a "$FALLBACK_DOWNLOAD_PATH"/ depends/sources/ 2>/dev/null || cp -a "$FALLBACK_DOWNLOAD_PATH"/* depends/sources/ 2>/dev/null || true
-          fi
 
       - name: Cache (depends sources + ccache) • save
         if: always()
@@ -346,8 +301,6 @@ jobs:
           - name: ubuntu-24-amd64
             runs_on: ubuntu-24.04
             triple: x86_64-pc-linux-gnu
-    env:
-      FALLBACK_DOWNLOAD_PATH: ${{ runner.temp }}/depends-sources
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -369,17 +322,7 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update -qq
-          sudo apt-get install -y -qq build-essential pkg-config automake libtool autoconf bison cmake ninja-build python3 rsync
-
-      - name: Prepare depends sources paths (fallback aware)
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p depends/sources "$FALLBACK_DOWNLOAD_PATH"
-          if [ -z "$(ls -A "$FALLBACK_DOWNLOAD_PATH" 2>/dev/null || true)" ] && [ -n "$(ls -A depends/sources 2>/dev/null || true)" ]; then
-            echo "Seeding fallback from depends/sources"
-            rsync -a --ignore-existing depends/sources/ "$FALLBACK_DOWNLOAD_PATH"/ 2>/dev/null || cp -a depends/sources/* "$FALLBACK_DOWNLOAD_PATH"/ 2>/dev/null || true
-          fi
+          sudo apt-get install -y -qq build-essential pkg-config automake libtool autoconf bison cmake ninja-build python3
 
       - name: Build vendored depends (Linux)
         shell: bash
@@ -391,7 +334,7 @@ jobs:
           soft_target=65535; [ "$hard" -lt 65535 ] && soft_target=$hard
           ulimit -n "$soft_target" || true
           echo "ulimit -n now: $(ulimit -n) (hard: $hard)"
-          make -C depends -j1 HOST=${{ matrix.triple }} SOURCES_PATH="${FALLBACK_DOWNLOAD_PATH}"
+          make -C depends -j1 HOST=${{ matrix.triple }}
 
       - name: Check vendored depends prefix (Linux)
         shell: bash
@@ -424,16 +367,6 @@ jobs:
           find build -type f -perm -111 -name 'vkax*' -exec cp -a {} dist_linux/ \; || true
           if [ -d dist_linux ]; then (cd dist_linux && sha256sum * > sha256sums.txt || true); fi
 
-      - name: Sync fallback sources back to cache path
-        if: always()
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p depends/sources
-          if [ -d "$FALLBACK_DOWNLOAD_PATH" ]; then
-            rsync -a "$FALLBACK_DOWNLOAD_PATH"/ depends/sources/ 2>/dev/null || cp -a "$FALLBACK_DOWNLOAD_PATH"/* depends/sources/ 2>/dev/null || true
-          fi
-
       - name: Cache depends + ccache • save
         if: always()
         uses: ./.github/cache
@@ -461,8 +394,6 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     continue-on-error: true
-    env:
-      FALLBACK_DOWNLOAD_PATH: ${{ runner.temp }}/depends-sources
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -483,17 +414,7 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update -qq
-          sudo apt-get install -y -qq build-essential pkg-config automake libtool autoconf bison cmake ninja-build python3 g++-mingw-w64-x86-64 rsync
-
-      - name: Prepare depends sources paths (fallback aware)
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p depends/sources "$FALLBACK_DOWNLOAD_PATH"
-          if [ -z "$(ls -A "$FALLBACK_DOWNLOAD_PATH" 2>/dev/null || true)" ] && [ -n "$(ls -A depends/sources 2>/dev/null || true)" ]; then
-            echo "Seeding fallback from depends/sources"
-            rsync -a --ignore-existing depends/sources/ "$FALLBACK_DOWNLOAD_PATH"/ 2>/dev/null || cp -a depends/sources/* "$FALLBACK_DOWNLOAD_PATH"/ 2>/dev/null || true
-          fi
+          sudo apt-get install -y -qq build-essential pkg-config automake libtool autoconf bison cmake ninja-build python3 g++-mingw-w64-x86-64
 
       - name: Build depends (x86_64-w64-mingw32)
         shell: bash
@@ -504,7 +425,7 @@ jobs:
           soft_target=65535; [ "$hard" -lt 65535 ] && soft_target=$hard
           ulimit -n "$soft_target" || true
           echo "ulimit -n now: $(ulimit -n) (hard: $hard)"
-          make -C depends -j1 HOST=x86_64-w64-mingw32 SOURCES_PATH="${FALLBACK_DOWNLOAD_PATH}"
+          make -C depends -j1 HOST=x86_64-w64-mingw32
 
       - name: Check vendored depends prefix (mingw)
         shell: bash
@@ -523,16 +444,6 @@ jobs:
           mkdir -p dist-w64
           find build-w64 -type f -name 'vkax-*.exe' -exec cp -a {} dist-w64/ \; || true
           if [ -d dist-w64 ]; then (cd dist-w64 && sha256sum * > sha256s.txt || true); fi
-
-      - name: Sync fallback sources back to cache path
-        if: always()
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p depends/sources
-          if [ -d "$FALLBACK_DOWNLOAD_PATH" ]; then
-            rsync -a "$FALLBACK_DOWNLOAD_PATH"/ depends/sources/ 2>/dev/null || cp -a "$FALLBACK_DOWNLOAD_PATH"/* depends/sources/ 2>/dev/null || true
-          fi
 
       - name: Cache (depends sources) • save
         if: always()
@@ -574,16 +485,26 @@ jobs:
         run: |
           Set-StrictMode -Version Latest
           Write-Output "Checking for depends/ and make..."
-          if (-Not (Test-Path ".\depends")) { Write-Output "::warning::depends/ not present; skipping depends build"; exit 0 }
+          if (-Not (Test-Path ".\depends")) {
+            Write-Output "::warning::depends/ not present; skipping depends build"
+            exit 0
+          }
           $make = Get-Command make -ErrorAction SilentlyContinue
-          if ($null -eq $make) { Write-Output "::warning::make not found on PATH; cannot build depends on Windows runner"; exit 0 }
+          if ($null -eq $make) {
+            Write-Output "::warning::make not found on PATH; cannot build depends on Windows runner"
+            exit 0
+          }
           $J = $env:NUMBER_OF_PROCESSORS; if (-not $J) { $J = 1 }; if ($J -gt 1) { $J = 1 }
           Write-Output "Running: make -C depends HOST=x86_64-pc-windows-msvc PREFIX=depends/x86_64-pc-windows-msvc -j$J"
           $proc = Start-Process -FilePath "make" -ArgumentList "-C","depends","HOST=x86_64-pc-windows-msvc","PREFIX=depends/x86_64-pc-windows-msvc","-j$J" -NoNewWindow -Wait -PassThru
           if ($proc.ExitCode -ne 0) { Write-Output "::warning::make returned exit code $($proc.ExitCode)" }
           $prefix = Get-ChildItem -Path .\depends -Directory -Filter "x86_64-pc-windows-msvc*" -ErrorAction SilentlyContinue | Select-Object -First 1
-          if ($null -ne $prefix) { Write-Output "Found depends prefix: $($prefix.FullName)"; "DEPENDS_WINDOWS_PREFIX=$($prefix.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding ascii -Append }
-          else { Write-Output "::warning::No depends prefix found at depends/x86_64-pc-windows-msvc*" }
+          if ($null -ne $prefix) {
+            Write-Output "Found depends prefix: $($prefix.FullName)"
+            "DEPENDS_WINDOWS_PREFIX=$($prefix.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding ascii -Append
+          } else {
+            Write-Output "::warning::No depends prefix found at depends/x86_64-pc-windows-msvc*"
+          }
 
       - name: Bootstrap vcpkg and install Boost
         shell: powershell
@@ -605,7 +526,9 @@ jobs:
           $vpath = 'C:\\vcpkg\\installed\\x64-windows\\include\\boost'
           $hasVcpkgBoost = Test-Path $vpath
           if ($hasVcpkgBoost) { Write-Output "Found vcpkg boost at $vpath" }
-          if (-not $hasDepends -and -not $hasVcpkgBoost) { Write-Output "::warning::No MSVC depends prefix found and vcpkg boost not present. Will attempt CMake anyway." }
+          if (-not $hasDepends -and -not $hasVcpkgBoost) {
+            Write-Output "::warning::No MSVC depends prefix found and vcpkg boost not present. Will attempt CMake anyway."
+          }
 
       - name: Generate robust fallback headers (CI)
         shell: powershell
@@ -678,8 +601,6 @@ jobs:
       fail-fast: false
       matrix:
         macos: [macos-13]
-    env:
-      FALLBACK_DOWNLOAD_PATH: ${{ runner.temp }}/depends-sources
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -696,7 +617,7 @@ jobs:
           if brew list --formula cmake >/dev/null 2>&1; then
             echo "cmake already installed; skipping install to avoid tap conflicts"
           else
-            brew install automake libtool pkg-config cmake ninja libnatpmp rsync || true
+            brew install automake libtool pkg-config cmake ninja libnatpmp || true
           fi
 
       - name: Cache depends sources + ccache • restore
@@ -708,22 +629,12 @@ jobs:
             depends/sources
             ~/.ccache
 
-      - name: "Diagnostic: tree"
+      - name: Diagnostic: tree
         shell: bash
         run: |
           set -euo pipefail
           echo "CMakeLists.txt present: " $( [ -f CMakeLists.txt ] && echo yes || echo no )
           echo "Top-level files:"; ls -la | sed -n '1,120p' || true
-
-      - name: Prepare depends sources paths (fallback aware)
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p depends/sources "$FALLBACK_DOWNLOAD_PATH"
-          if [ -z "$(ls -A "$FALLBACK_DOWNLOAD_PATH" 2>/dev/null || true)" ] && [ -n "$(ls -A depends/sources 2>/dev/null || true)" ]; then
-            echo "Seeding fallback from depends/sources"
-            rsync -a --ignore-existing depends/sources/ "$FALLBACK_DOWNLOAD_PATH"/ 2>/dev/null || cp -a depends/sources/* "$FALLBACK_DOWNLOAD_PATH"/ 2>/dev/null || true
-          fi
 
       - name: Build vendored depends (macOS host)
         shell: bash
@@ -737,7 +648,7 @@ jobs:
           soft_target=65535; [ "$hard" -lt 65535 ] && soft_target=$hard
           ulimit -n "$soft_target" || true
           echo "ulimit -n now: $(ulimit -n) (hard: $hard)"
-          make -C depends -j1 HOST="$HOST" SOURCES_PATH="${FALLBACK_DOWNLOAD_PATH}"
+          make -C depends -j1 HOST="$HOST"
 
       - name: Check vendored depends prefix (macOS)
         shell: bash
@@ -777,16 +688,6 @@ jobs:
           find build-macos -type f -perm -111 -name 'vkax*' -exec cp -a {} dist_macos/ \; || true
           find src -type f -perm -111 -name 'vkax*' -exec cp -a {} dist_macos/ \; || true
           if [ -d dist_macos ]; then (cd dist_macos && sha256sum * > sha256sums.txt || true); fi
-
-      - name: Sync fallback sources back to cache path
-        if: always()
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p depends/sources
-          if [ -d "$FALLBACK_DOWNLOAD_PATH" ]; then
-            rsync -a "$FALLBACK_DOWNLOAD_PATH"/ depends/sources/ 2>/dev/null || cp -a "$FALLBACK_DOWNLOAD_PATH"/* depends/sources/ 2>/dev/null || true
-          fi
 
       - name: Cache depends sources + ccache • save
         if: always()
