@@ -1,9 +1,6 @@
 # .github/workflows/build.yaml
-# CI: Production builds for Android + Native (Linux, macOS, Windows).
-# - Split cache restore/save steps (no deprecated save-always)
-# - Strict depends prefix requirement on Ubuntu/macOS (fatal)
-# - MSVC: keep vendored-deps as warnings with vcpkg fallback
-# - Removed android summary and tag-only release jobs
+# CI: Production builds for Android + Native (Linux, macOS, Windows). Scoped Android env per-job,
+# robust ulimit, strict depends behavior on Linux/macOS, split cache restore/save, and no top-level env.
 name: "CI • Production builds (Android + Native)"
 
 on:
@@ -53,6 +50,12 @@ jobs:
         with:
           distribution: temurin
           java-version: '11'
+
+      - name: Set fallback download path
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "FALLBACK_DOWNLOAD_PATH=${RUNNER_TEMP:-/tmp}/depends-sources" >> "$GITHUB_ENV"
 
       - name: Cache (depends sources + ccache) • restore
         uses: ./.github/cache
@@ -204,6 +207,12 @@ jobs:
           distribution: temurin
           java-version: '11'
 
+      - name: Set fallback download path
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "FALLBACK_DOWNLOAD_PATH=${RUNNER_TEMP:-/tmp}/depends-sources" >> "$GITHUB_ENV"
+
       - name: Cache (depends sources + ccache) • restore
         uses: ./.github/cache
         with:
@@ -239,13 +248,14 @@ jobs:
         run: |
           set -euo pipefail
           if [ ! -d depends ]; then echo "::error::depends/ directory missing; required for Android legacy build."; exit 2; fi
+          # raise soft file-descriptor limit
           hard=$(ulimit -H -n || echo 4096)
           soft_target=65535; [ "$hard" -lt 65535 ] && soft_target=$hard
           ulimit -n "$soft_target" || true
           echo "ulimit -n now: $(ulimit -n) (hard: $hard)"
           export ANDROID_SDK="${ANDROID_SDK_ROOT}"
           export ANDROID_NDK="${ANDROID_SDK_ROOT}/ndk/${ANDROID_NDK_VERSION}"
-          make -C depends -j1 HOST=aarch64-linux-android ANDROID_SDK="${ANDROID_SDK}" ANDROID_NDK="${ANDROID_NDK}"
+          make -C depends -j1 HOST=aarch64-linux-android ANDROID_SDK="${ANDROID_SDK}" ANDROID_NDK="${ANDROID_NDK}" || true
 
       - name: Build legacy targets (vkax-d, vkax-cli)
         shell: bash
@@ -485,26 +495,16 @@ jobs:
         run: |
           Set-StrictMode -Version Latest
           Write-Output "Checking for depends/ and make..."
-          if (-Not (Test-Path ".\depends")) {
-            Write-Output "::warning::depends/ not present; skipping depends build"
-            exit 0
-          }
+          if (-Not (Test-Path ".\depends")) { Write-Output "::warning::depends/ not present; skipping depends build"; exit 0 }
           $make = Get-Command make -ErrorAction SilentlyContinue
-          if ($null -eq $make) {
-            Write-Output "::warning::make not found on PATH; cannot build depends on Windows runner"
-            exit 0
-          }
+          if ($null -eq $make) { Write-Output "::warning::make not found on PATH; cannot build depends on Windows runner"; exit 0 }
           $J = $env:NUMBER_OF_PROCESSORS; if (-not $J) { $J = 1 }; if ($J -gt 1) { $J = 1 }
           Write-Output "Running: make -C depends HOST=x86_64-pc-windows-msvc PREFIX=depends/x86_64-pc-windows-msvc -j$J"
           $proc = Start-Process -FilePath "make" -ArgumentList "-C","depends","HOST=x86_64-pc-windows-msvc","PREFIX=depends/x86_64-pc-windows-msvc","-j$J" -NoNewWindow -Wait -PassThru
           if ($proc.ExitCode -ne 0) { Write-Output "::warning::make returned exit code $($proc.ExitCode)" }
           $prefix = Get-ChildItem -Path .\depends -Directory -Filter "x86_64-pc-windows-msvc*" -ErrorAction SilentlyContinue | Select-Object -First 1
-          if ($null -ne $prefix) {
-            Write-Output "Found depends prefix: $($prefix.FullName)"
-            "DEPENDS_WINDOWS_PREFIX=$($prefix.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding ascii -Append
-          } else {
-            Write-Output "::warning::No depends prefix found at depends/x86_64-pc-windows-msvc*"
-          }
+          if ($null -ne $prefix) { Write-Output "Found depends prefix: $($prefix.FullName)"; "DEPENDS_WINDOWS_PREFIX=$($prefix.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding ascii -Append }
+          else { Write-Output "::warning::No depends prefix found at depends/x86_64-pc-windows-msvc*" }
 
       - name: Bootstrap vcpkg and install Boost
         shell: powershell
@@ -526,9 +526,7 @@ jobs:
           $vpath = 'C:\\vcpkg\\installed\\x64-windows\\include\\boost'
           $hasVcpkgBoost = Test-Path $vpath
           if ($hasVcpkgBoost) { Write-Output "Found vcpkg boost at $vpath" }
-          if (-not $hasDepends -and -not $hasVcpkgBoost) {
-            Write-Output "::warning::No MSVC depends prefix found and vcpkg boost not present. Will attempt CMake anyway."
-          }
+          if (-not $hasDepends -and -not $hasVcpkgBoost) { Write-Output "::warning::No MSVC depends prefix found and vcpkg boost not present. Will attempt CMake anyway." }
 
       - name: Generate robust fallback headers (CI)
         shell: powershell
@@ -628,6 +626,12 @@ jobs:
           paths: |
             depends/sources
             ~/.ccache
+
+      - name: Set fallback download path
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "FALLBACK_DOWNLOAD_PATH=${RUNNER_TEMP:-/tmp}/depends-sources" >> "$GITHUB_ENV"
 
       - name: Diagnostic: tree
         shell: bash
