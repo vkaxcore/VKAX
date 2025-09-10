@@ -52,11 +52,11 @@ runs:
         echo "mode='${{ inputs.mode }}'"
         echo "key='${{ inputs.key }}'"
         echo "paths='${{ inputs.paths }}'"
-        echo "restore-keys='${{ inputs['restore-keys'] }}'"
-        echo "upload-chunk-size='${{ inputs['upload-chunk-size'] }}'"
-        echo "enableCrossOsArchive='${{ inputs['enableCrossOsArchive'] }}'"
-        echo "fail-on-cache-miss='${{ inputs['fail-on-cache-miss'] }}'"
-        echo "lookup-only='${{ inputs['lookup-only'] }}'"
+        echo "restore-keys='${{ inputs[\"restore-keys\"] }}'"
+        echo "upload-chunk-size='${{ inputs[\"upload-chunk-size\"] }}'"
+        echo "enableCrossOsArchive='${{ inputs[\"enableCrossOsArchive\"] }}'"
+        echo "fail-on-cache-miss='${{ inputs[\"fail-on-cache-miss\"] }}'"
+        echo "lookup-only='${{ inputs[\"lookup-only\"] }}'"
 
     - name: Guard when no paths provided
       if: ${{ inputs.paths == '' || inputs.paths == null }}
