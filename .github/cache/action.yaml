@@ -1,4 +1,6 @@
 # .github/cache/action.yaml
+
+```yaml
 # Wrapper around actions/cache v4 with explicit restore/save modes.
 # - Accepts newline-separated `paths`.
 # - `mode`: restore | save | auto (auto behaves like restore).
@@ -52,11 +54,11 @@ runs:
         echo "mode='${{ inputs.mode }}'"
         echo "key='${{ inputs.key }}'"
         echo "paths='${{ inputs.paths }}'"
-        echo "restore-keys='${{ inputs[\"restore-keys\"] }}'"
-        echo "upload-chunk-size='${{ inputs[\"upload-chunk-size\"] }}'"
-        echo "enableCrossOsArchive='${{ inputs[\"enableCrossOsArchive\"] }}'"
-        echo "fail-on-cache-miss='${{ inputs[\"fail-on-cache-miss\"] }}'"
-        echo "lookup-only='${{ inputs[\"lookup-only\"] }}'"
+        echo "restore-keys='${{ inputs['restore-keys'] }}'"
+        echo "upload-chunk-size='${{ inputs['upload-chunk-size'] }}'"
+        echo "enableCrossOsArchive='${{ inputs['enableCrossOsArchive'] }}'"
+        echo "fail-on-cache-miss='${{ inputs['fail-on-cache-miss'] }}'"
+        echo "lookup-only='${{ inputs['lookup-only'] }}'"
 
     - name: Guard when no paths provided
       if: ${{ inputs.paths == '' || inputs.paths == null }}
@@ -86,3 +88,4 @@ runs:
         path: ${{ inputs.paths }}
         upload-chunk-size: ${{ inputs['upload-chunk-size'] }}
         enableCrossOsArchive: ${{ inputs['enableCrossOsArchive'] }}
+```
