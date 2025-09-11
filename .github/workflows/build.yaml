@@ -1,7 +1,9 @@
-name: "CI • Build VKAX (no cache)"
+# .github/workflows/build.yaml
+name: "CI • Build VKAX"
+
 on:
   push:
-    branches: ["v100.11.5-android"]
+    branches: ["main", "release/**", "v*", "v**"]
   pull_request:
   workflow_dispatch:
 
@@ -12,129 +14,255 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  CCACHE_DIR: ${{ runner.temp }}/.ccache
+  CCACHE_MAXSIZE: 500M
+
 jobs:
-  ubuntu:
-    name: linux • ${{ matrix.name }}
-    runs-on: ${{ matrix.runs_on }}
-    timeout-minutes: 60
+  linux:
+    name: linux • ${{ matrix.os }} • depends
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 75
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { name: "ubuntu-22-amd64", runs_on: "ubuntu-22.04", triple: "x86_64-pc-linux-gnu" }
-          - { name: "ubuntu-24-amd64", runs_on: "ubuntu-24.04", triple: "x86_64-pc-linux-gnu" }
+          - { os: "ubuntu-24.04", host: "x86_64-pc-linux-gnu" }
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           submodules: recursive
-      - name: System deps
+
+      - name: Install toolchain
         shell: bash
         run: |
-          set -euo pipefail
           sudo apt-get update -qq
-          sudo apt-get install -y -qq build-essential pkg-config automake libtool autoconf bison cmake ninja-build python3
+          sudo apt-get install -y --no-install-recommends \
+            autoconf automake libtool pkg-config make cmake \
+            gcc g++ bison python3 curl patch file xz-utils \
+            ccache
+
+      - name: Restore cache • depends (sources+built)
+        uses: actions/cache@v4
+        with:
+          path: |
+            depends/sources
+            depends/built
+          key: ${{ runner.os }}-depends-${{ matrix.host }}-${{ hashFiles('depends/**', 'configure.ac', 'src/config/*') }}
+          restore-keys: |
+            ${{ runner.os }}-depends-${{ matrix.host }}-
+
+      - name: Restore cache • ccache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: ${{ runner.os }}-ccache-${{ matrix.host }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-ccache-${{ matrix.host }}-
+
       - name: Build depends
         shell: bash
         run: |
           set -euo pipefail
           cd "${GITHUB_WORKSPACE:-.}"
-          if [ ! -d depends ]; then echo "::error::depends/ dir missing"; exit 2; fi
-          hard=$(ulimit -H -n || echo 4096); soft=65535; [ "$hard" -lt 65535 ] && soft=$hard; ulimit -n "$soft" || true
-          make -C depends -j1 HOST=${{ matrix.triple }}
-      - name: Configure + make (autotools)
+          make -C depends -j2 HOST=${{ matrix.host }}
+
+      - name: Configure
+        shell: bash
+        env:
+          HOST: ${{ matrix.host }}
+        run: |
+          set -euo pipefail
+          export PATH="/usr/lib/ccache:$PATH"
+          ./autogen.sh
+          export CONFIG_SITE="$PWD/depends/${HOST}/share/config.site"
+          ./configure --prefix="$PWD/depends/${HOST}" --disable-tests --disable-bench
+
+      - name: Build
         shell: bash
         run: |
           set -euo pipefail
-          ./autogen.sh || true
-          CONFIG_SITE="$PWD/depends/${{ matrix.triple }}/share/config.site"             ./configure --disable-tests --disable-bench --without-gui
-          make -j1 V=1 || true
+          export PATH="/usr/lib/ccache:$PATH"
+          make -j$(nproc)
+
       - name: Package
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p dist_linux
-          find . -type f -maxdepth 2 -name 'vkax*' -executable -exec cp -a {} dist_linux/ \; || true
-          if [ -d dist_linux ]; then (cd dist_linux && sha256sum * > sha256sums.txt || true); fi
+          mkdir -p dist/linux
+          for f in src/vkaxd src/vkax-cli src/vkax-tx src/qt/vkax-qt; do
+            [ -f "$f" ] && install -m0755 "$f" dist/linux/
+          done
+          (cd dist/linux && sha256sum * > SHA256SUMS || true)
+
       - uses: actions/upload-artifact@v4
-        if: always()
         with:
-          name: native-ubuntu-${{ matrix.name }}
-          path: dist_linux/**/*
-          if-no-files-found: warn
+          name: linux-amd64
+          path: dist/linux/**
+          if-no-files-found: error
+
+  windows-cross-mingw:
+    name: windows • cross (mingw on ubuntu)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { host: "x86_64-w64-mingw32" }
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Install toolchain
+        shell: bash
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            autoconf automake libtool pkg-config make cmake \
+            gcc g++ mingw-w64 g++-mingw-w64-x86-64 nsis \
+            bison python3 curl patch zip unzip ccache
+
+      - name: Restore cache • depends (sources+built)
+        uses: actions/cache@v4
+        with:
+          path: |
+            depends/sources
+            depends/built
+          key: ${{ runner.os }}-depends-${{ matrix.host }}-${{ hashFiles('depends/**', 'configure.ac', 'src/config/*') }}
+          restore-keys: |
+            ${{ runner.os }}-depends-${{ matrix.host }}-
+
+      - name: Restore cache • ccache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: ${{ runner.os }}-ccache-${{ matrix.host }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-ccache-${{ matrix.host }}-
+
+      - name: Build depends (mingw)
+        shell: bash
+        run: |
+          set -euo pipefail
+          make -C depends -j2 HOST=${{ matrix.host }}
+
+      - name: Configure (mingw)
+        shell: bash
+        env:
+          HOST: ${{ matrix.host }}
+        run: |
+          set -euo pipefail
+          export PATH="/usr/lib/ccache:$PATH"
+          ./autogen.sh
+          export CONFIG_SITE="$PWD/depends/${HOST}/share/config.site"
+          ./configure --prefix="$PWD/depends/${HOST}" --host=${HOST} --disable-tests --disable-bench
+
+      - name: Build (mingw)
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PATH="/usr/lib/ccache:$PATH"
+          make -j$(nproc)
+
+      - name: Package (mingw)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist/windows
+          for f in src/vkaxd.exe src/vkax-cli.exe src/vkax-tx.exe src/qt/vkax-qt.exe; do
+            [ -f "$f" ] && install -m0755 "$f" dist/windows/
+          done
+          (cd dist/windows && sha256sum * > SHA256SUMS || true)
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-amd64-mingw
+          path: dist/windows/**
+          if-no-files-found: error
 
   macos:
-    name: macos • 13
-    runs-on: macos-13
-    timeout-minutes: 60
+    name: macos • ${{ matrix.runner }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: "macos-13", host: "x86_64-apple-darwin" }
+          - { runner: "macos-14", host: "arm64-apple-darwin" }
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           submodules: recursive
+
+      - name: Install toolchain
+        shell: bash
+        run: |
+          brew update
+          brew install autoconf automake libtool pkg-config ccache
+
+      - name: Restore cache • depends (sources+built)
+        uses: actions/cache@v4
+        with:
+          path: |
+            depends/sources
+            depends/built
+          key: ${{ runner.os }}-depends-${{ matrix.host }}-${{ hashFiles('depends/**', 'configure.ac', 'src/config/*') }}
+          restore-keys: |
+            ${{ runner.os }}-depends-${{ matrix.host }}-
+
+      - name: Restore cache • ccache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: ${{ runner.os }}-ccache-${{ matrix.host }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-ccache-${{ matrix.host }}-
+
       - name: Build depends
         shell: bash
         run: |
           set -euo pipefail
-          cd "${GITHUB_WORKSPACE:-.}"
-          if [ ! -d depends ]; then echo "::error::depends/ dir missing"; exit 2; fi
-          export MACOSX_DEPLOYMENT_TARGET=11.0
-          hard=$(ulimit -H -n || echo 256); soft=65535; [ "$hard" -lt 65535 ] && soft=$hard; ulimit -n "$soft" || true
-          make -C depends -j1 HOST=x86_64-apple-darwin
-      - name: Configure + make (autotools)
-        shell: bash
-        run: |
-          set -euo pipefail
-          export MACOSX_DEPLOYMENT_TARGET=11.0
-          ./autogen.sh || true
-          CONFIG_SITE="$PWD/depends/x86_64-apple-darwin/share/config.site"             ./configure --host=x86_64-apple-darwin --disable-tests --disable-bench --without-gui
-          make -j1 V=1 || true
-      - name: Package
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p dist_macos
-          find . -type f -maxdepth 2 -name 'vkax*' -perm +111 -exec cp -a {} dist_macos/ \; || true
-          (cd dist_macos && shasum -a 256 * > sha256sums.txt || true) || true
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: native-macos-13
-          path: dist_macos/**/*
-          if-no-files-found: warn
+          make -C depends -j2 HOST=${{ matrix.host }}
 
-  windows:
-    name: windows • 2022
-    runs-on: windows-2022
-    timeout-minutes: 90
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          submodules: recursive
-      - name: MSVC dev cmd
-        uses: ilammy/msvc-dev-cmd@v1
-      - name: CMake configure & build (best effort)
-        shell: powershell
+      - name: Configure
+        shell: bash
+        env:
+          HOST: ${{ matrix.host }}
         run: |
-          Set-StrictMode -Version Latest
-          if (Test-Path .\CMakeLists.txt) {
-            cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
-            cmake --build build --config Release -- -j1
-          } else {
-            Write-Output "::notice::No CMakeLists.txt; attempting nothing on Windows"
-          }
+          set -euo pipefail
+          export PATH="/usr/local/opt/ccache/libexec:$PATH"
+          ./autogen.sh
+          export CONFIG_SITE="$PWD/depends/${HOST}/share/config.site"
+          ./configure --prefix="$PWD/depends/${HOST}" --disable-tests --disable-bench
+
+      - name: Build
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PATH="/usr/local/opt/ccache/libexec:$PATH"
+          make -j$(sysctl -n hw.ncpu)
+
       - name: Package
-        shell: powershell
+        shell: bash
         run: |
-          New-Item -ItemType Directory -Force -Path dist_win | Out-Null
-          Get-ChildItem -Path build -Recurse -File -Include vkax* | ForEach-Object { Copy-Item $_.FullName dist_win -Force }
+          set -euo pipefail
+          mkdir -p dist/macos
+          for f in src/vkaxd src/vkax-cli src/vkax-tx src/qt/vkax-qt; do
+            [ -f "$f" ] && install -m0755 "$f" dist/macos/
+          done
+          (cd dist/macos && shasum -a 256 * > SHA256SUMS || true)
+
       - uses: actions/upload-artifact@v4
-        if: always()
         with:
-          name: native-windows-2022
-          path: dist_win/**/*
-          if-no-files-found: warn
+          name: macos-${{ matrix.host }}
+          path: dist/macos/**
+          if-no-files-found: error
 
   android:
     name: android • ${{ matrix.abi }}
@@ -149,14 +277,24 @@ jobs:
     env:
       ANDROID_SDK_ROOT: ${{ github.workspace }}/.android-sdk
       ANDROID_HOME: ${{ github.workspace }}/.android-sdk
-      ANDROID_NDK_VERSION: "23.1.7779620"
-      ANDROID_API_LEVEL: "34"
+      ANDROID_NDK_VERSION: "26.1.10909125"   # r26b
+      ANDROID_API_LEVEL: "26"
       ANDROID_CLT_LINUX: https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           submodules: recursive
+
+      - name: Install host tools
+        shell: bash
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            unzip zip curl file ca-certificates \
+            autoconf automake libtool pkg-config make cmake \
+            clang lld python3 ccache
+
       - name: Prepare SDK tools (guarded)
         shell: bash
         run: |
@@ -164,55 +302,138 @@ jobs:
           mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools" "$HOME/.android"
           touch "$HOME/.android/repositories.cfg"
           if [ ! -d "$ANDROID_SDK_ROOT/cmdline-tools/latest" ]; then
-            tmp=$(mktemp -d)
+            tmp="$(mktemp -d)"
             curl -fsSL "$ANDROID_CLT_LINUX" -o "$tmp/cmdline.zip"
             unzip -q "$tmp/cmdline.zip" -d "$ANDROID_SDK_ROOT/cmdline-tools"
             mv "$ANDROID_SDK_ROOT/cmdline-tools/cmdline-tools" "$ANDROID_SDK_ROOT/cmdline-tools/latest" || true
           fi
-          echo "$ANDROID_SDK_ROOT/platform-tools" >> "$GITHUB_PATH"
-          echo "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
-      - name: Accept licenses
-        shell: bash
-        run: |
-          set -euo pipefail
-          yes | sdkmanager --licenses >/dev/null 2>&1 || true
-      - name: Install Android packages (guarded)
+
+      - name: Accept licenses (seed)
+        uses: ./.github/actions/android-accept-licenses
+
+      - name: Install SDK components (guarded)
         shell: bash
         run: |
           set -euo pipefail
           if [ -x "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" ]; then
-            "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="${ANDROID_SDK_ROOT}"               "platform-tools" "platforms;android-${ANDROID_API_LEVEL}" "ndk;${ANDROID_NDK_VERSION}" || true
-          else
-            echo "::warning::sdkmanager not present; skipping explicit installs"
+            "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="${ANDROID_SDK_ROOT}" \
+              "platform-tools" \
+              "platforms;android-${ANDROID_API_LEVEL}" \
+              "build-tools;34.0.0" \
+              "ndk;${ANDROID_NDK_VERSION}"
           fi
+
+      - name: Restore cache • depends (sources+built)
+        uses: actions/cache@v4
+        with:
+          path: |
+            depends/sources
+            depends/built
+          key: android-depends-${{ matrix.host }}-${{ env.ANDROID_NDK_VERSION }}-${{ hashFiles('depends/**', 'configure.ac', 'src/config/*') }}
+          restore-keys: |
+            android-depends-${{ matrix.host }}-
+
+      - name: Restore cache • ccache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: android-ccache-${{ matrix.host }}-${{ github.sha }}
+          restore-keys: |
+            android-ccache-${{ matrix.host }}-
+
       - name: Build depends (Android)
         shell: bash
+        env:
+          ANDROID_SDK: ${{ env.ANDROID_SDK_ROOT }}
+          ANDROID_NDK: ${{ env.ANDROID_SDK_ROOT }}/ndk/${{ env.ANDROID_NDK_VERSION }}
         run: |
           set -euo pipefail
-          cd "${GITHUB_WORKSPACE:-.}"
-          if [ ! -d depends ]; then echo "::error::depends/ dir missing"; exit 2; fi
-          hard=$(ulimit -H -n || echo 4096); soft=65535; [ "$hard" -lt 65535 ] && soft=$hard; ulimit -n "$soft" || true
-          export ANDROID_SDK="$ANDROID_SDK_ROOT"
-          export ANDROID_NDK="$ANDROID_SDK_ROOT/ndk/${ANDROID_NDK_VERSION}"
-          make -C depends -j1 HOST=${{ matrix.host }} ANDROID_SDK="$ANDROID_SDK" ANDROID_NDK="$ANDROID_NDK"
-      - name: Build native targets (best effort)
+          make -C depends -j1 HOST=${{ matrix.host }} ANDROID_SDK="${ANDROID_SDK}" ANDROID_NDK="${ANDROID_NDK}"
+
+      - name: Configure (Android)
+        shell: bash
+        env:
+          HOST: ${{ matrix.host }}
+          ANDROID_SDK: ${{ env.ANDROID_SDK_ROOT }}
+          ANDROID_NDK: ${{ env.ANDROID_SDK_ROOT }}/ndk/${{ env.ANDROID_NDK_VERSION }}
+        run: |
+          set -euo pipefail
+          export PATH="/usr/lib/ccache:$PATH"
+          ./autogen.sh
+          export CONFIG_SITE="$PWD/depends/${HOST}/share/config.site"
+          export CC="ccache clang"
+          export CXX="ccache clang++"
+          ./configure --host="${HOST}" --prefix="$PWD/depends/${HOST}" --disable-tests --disable-bench
+
+      - name: Build (Android)
+        shell: bash
+        env:
+          HOST: ${{ matrix.host }}
+          ANDROID_NDK: ${{ env.ANDROID_SDK_ROOT }}/ndk/${{ env.ANDROID_NDK_VERSION }}
+        run: |
+          set -euo pipefail
+          export PATH="$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH"
+          make -j2
+
+      - name: Package (Android)
         shell: bash
         run: |
           set -euo pipefail
-          export ANDROID_SDK="${ANDROID_SDK_ROOT}"
-          export ANDROID_NDK="${ANDROID_SDK_ROOT}/ndk/${ANDROID_NDK_VERSION}"
-          export ANDROID_TOOLCHAIN_BIN="${ANDROID_NDK}/toolchains/llvm/prebuilt/linux-x86_64/bin"
-          make -C . -j1 V=1 HOST=${{ matrix.host }} ANDROID_API_LEVEL=${ANDROID_API_LEVEL} ANDROID_TOOLCHAIN_BIN=${ANDROID_TOOLCHAIN_BIN} vkax-d vkax-cli || true
-      - name: Package
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p dist_android
-          find build -type f -name 'vkax-*' -exec cp -a {} dist_android/ \; || true
-          if [ -d dist_android ]; then (cd dist_android && sha256sum * > sha256sums.txt || true); fi
+          mkdir -p dist/android-${{ matrix.abi }}
+          # Copy anything that successfully built
+          for f in build/*/vkax* src/vkax*; do
+            [ -f "$f" ] && cp -a "$f" dist/android-${{ matrix.abi }}/
+          done
+          (cd dist/android-${{ matrix.abi }} && sha256sum * > SHA256SUMS || true)
+
       - uses: actions/upload-artifact@v4
-        if: always()
         with:
           name: android-${{ matrix.abi }}
-          path: dist_android/**/*
+          path: dist/android-${{ matrix.abi }}/**
           if-no-files-found: warn
+
+  windows-msvc-experimental:
+    name: windows • msvc (experimental)
+    runs-on: windows-2022
+    timeout-minutes: 30
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+      - name: MSVC dev env
+        uses: ilammy/msvc-dev-cmd@v1
+      - name: Note
+        shell: pwsh
+        run: |
+          Write-Host "MSVC native build is not supported in this repository (CMakeLists.txt is a dummy)."
+          Write-Host "This job is provided as a placeholder and will be skipped."
+
+  # Optional NetBSD cross • placeholder
+  netbsd-experimental:
+    name: netbsd (experimental)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    continue-on-error: true
+    steps:
+      - run: echo "NetBSD build not enabled; no official runner image."
+
+  # Tag-only release publishing template (disabled by default)
+  # release:
+  #   if: startsWith(github.ref, 'refs/tags/')
+  #   needs: [linux, windows-cross-mingw, macos, android]
+  #   runs-on: ubuntu-24.04
+  #   steps:
+  #     - uses: actions/download-artifact@v4
+  #       with: { path: release/ }
+  #     - name: Collate checksums
+  #       run: |
+  #         set -euo pipefail
+  #         find release -name SHA256SUMS -print -exec cat {} \; > release/SHA256SUMS.ALL
+  #     - name: Create GitHub Release
+  #       env:
+  #         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  #       run: |
+  #         gh release create "${GITHUB_REF_NAME}" --notes "VKAX ${GITHUB_REF_NAME}" --verify-tag
+  #         gh release upload "${GITHUB_REF_NAME}" $(find release -type f) --clobber
