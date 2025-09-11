@@ -137,6 +137,8 @@ jobs:
     name: windows • ${{ matrix.name }} • depends
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 150
+    env:
+      HOST: ${{ matrix.host }}
     strategy:
       fail-fast: false
       matrix:
