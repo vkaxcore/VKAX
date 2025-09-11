@@ -2,7 +2,7 @@ name: Build VKAX
 
 on:
   push:
-    branches: [ main, master, v100.11.5-android, release/* ]
+    branches: [ main, master, release/* ]
   pull_request:
   workflow_dispatch:
 
@@ -62,10 +62,11 @@ jobs:
           esac
           sudo apt-get install -y --no-install-recommends $PKGS
 
-      - name: Cache ccache
-        uses: actions/cache@v4
+      - name: Cache ccache (restore)
+        uses: ./.github/cache
         with:
-          path: ${{ env.CCACHE_DIR }}
+          mode: restore
+          paths: ${{ env.CCACHE_DIR }}
           key: linux-ccache-${{ matrix.host }}-${{ hashFiles('**/configure.ac', '**/Makefile.am') }}
           restore-keys: |
             linux-ccache-${{ matrix.host }}-
@@ -123,6 +124,38 @@ jobs:
           done
           (cd dist/${HOST} && sha256sum * > SHA256SUMS || true)
 
+      - name: Cache ccache (save)
+        if: always()
+        uses: ./.github/cache
+        with:
+          mode: save
+          paths: ${{ env.CCACHE_DIR }}
+          key: linux-ccache-${{ matrix.host }}-${{ hashFiles('**/configure.ac', '**/Makefile.am') }}
+
+      - name: Cache ccache (save)
+        if: always()
+        uses: ./.github/cache
+        with:
+          mode: save
+          paths: ${{ env.CCACHE_DIR }}
+          key: windows-ccache-${{ matrix.name }}-${{ hashFiles('**/configure.ac', '**/Makefile.am') }}
+
+      - name: Cache ccache (save)
+        if: always()
+        uses: ./.github/cache
+        with:
+          mode: save
+          paths: ${{ env.CCACHE_DIR }}
+          key: mac-ccache-${{ matrix.host }}-${{ hashFiles('**/configure.ac', '**/Makefile.am') }}
+
+      - name: Cache ccache (save)
+        if: always()
+        uses: ./.github/cache
+        with:
+          mode: save
+          paths: ${{ env.CCACHE_DIR }}
+          key: android-ccache-${{ matrix.abi }}-${{ hashFiles('**/configure.ac', '**/Makefile.am') }}
+
       - name: Upload logs
         if: always()
         uses: actions/upload-artifact@v4
@@ -163,7 +196,6 @@ jobs:
         shell: bash
         run: git submodule update --init --recursive --depth 1 || git submodule update --init --recursive
 
-      # CROSS (Ubuntu runner)
       - name: Install toolchain (cross)
         if: ${{ matrix.flavor == 'cross' }}
         shell: bash
@@ -197,7 +229,6 @@ jobs:
             sudo update-alternatives --set i686-w64-mingw32-gcc /usr/bin/i686-w64-mingw32-gcc-posix || true
           fi
 
-      # MSYS2 (Windows runner)
       - name: Setup MSYS2
         if: ${{ matrix.flavor == 'msys2' }}
         uses: msys2/setup-msys2@v2
@@ -223,10 +254,11 @@ jobs:
         shell: bash
         run: echo "CCACHE_DIR=$RUNNER_TEMP/.ccache" >> "$GITHUB_ENV"
 
-      - name: Cache ccache
-        uses: actions/cache@v4
+      - name: Cache ccache (restore)
+        uses: ./.github/cache
         with:
-          path: ${{ env.CCACHE_DIR }}
+          mode: restore
+          paths: ${{ env.CCACHE_DIR }}
           key: windows-ccache-${{ matrix.name }}-${{ hashFiles('**/configure.ac', '**/Makefile.am') }}
           restore-keys: |
             windows-ccache-${{ matrix.name }}-
@@ -298,6 +330,7 @@ jobs:
           case "$MSYSTEM" in MINGW32) MINGW_PREFIX=/mingw32 ;; MINGW64) MINGW_PREFIX=/mingw64 ;; *) MINGW_PREFIX=/mingw64 ;; esac
           export PATH="$MINGW_PREFIX/bin:$PATH"
           make -C depends -j1 HOST=${HOST} NO_QT=1 V=1 CC="ccache gcc" CXX="ccache g++" 2>&1 | tee -a depends.build.log
+
       - name: Configure (msys2)
         if: ${{ matrix.flavor == 'msys2' }}
         shell: msys2 {0}
@@ -310,7 +343,6 @@ jobs:
           ./autogen.sh
           export CONFIG_SITE="$PWD/depends/${HOST}/share/config.site"
           PREFIX="$PWD/depends/${HOST}"
-          # Prefer depends' headers and libs explicitly for BDB on MSYS2 (i686 needs this)
           export BDB_PREFIX="$PWD/depends/${HOST}"
           export CPPFLAGS="-I$BDB_PREFIX/include $CPPFLAGS"
           export LDFLAGS="-L$BDB_PREFIX/lib $LDFLAGS"
@@ -408,8 +440,6 @@ jobs:
         shell: bash
         run: |
           brew update
-          brew tap-pin homebrew/core || true
-          brew tap-pin homebrew/cask || true
           export HOMEBREW_NO_INSTALL_CLEANUP=1
           export HOMEBREW_NO_ANALYTICS=1
           brew install autoconf automake libtool pkg-config ccache libnatpmp
@@ -419,10 +449,11 @@ jobs:
         run: |
           unset ANDROID_SDK ANDROID_HOME ANDROID_NDK ANDROID_NDK_HOME || true
 
-      - name: Cache ccache
-        uses: actions/cache@v4
+      - name: Cache ccache (restore)
+        uses: ./.github/cache
         with:
-          path: ${{ env.CCACHE_DIR }}
+          mode: restore
+          paths: ${{ env.CCACHE_DIR }}
           key: mac-ccache-${{ matrix.host }}-${{ hashFiles('**/configure.ac', '**/Makefile.am') }}
           restore-keys: |
             mac-ccache-${{ matrix.host }}-
@@ -505,9 +536,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - { abi: arm64-v8a, host: aarch64-linux-android }
-          - { abi: armeabi-v7a, host: arm-linux-androideabi }
+      include:
+        - { abi: arm64-v8a, host: aarch64-linux-android }
+        - { abi: armeabi-v7a, host: arm-linux-androideabi }
     steps:
       - uses: actions/checkout@v4
 
@@ -579,10 +610,11 @@ jobs:
           echo "$ANDROID_SDK_ROOT/platform-tools" >> "$GITHUB_PATH"
           echo "$ANDROID_SDK_ROOT/ndk/${ANDROID_NDK_VERSION}/toolchains/llvm/prebuilt/linux-x86_64/bin" >> "$GITHUB_PATH"
 
-      - name: Cache ccache
-        uses: actions/cache@v4
+      - name: Cache ccache (restore)
+        uses: ./.github/cache
         with:
-          path: ${{ env.CCACHE_DIR }}
+          mode: restore
+          paths: ${{ env.CCACHE_DIR }}
           key: android-ccache-${{ matrix.abi }}-${{ hashFiles('**/configure.ac', '**/Makefile.am') }}
           restore-keys: |
             android-ccache-${{ matrix.abi }}-
@@ -605,11 +637,9 @@ jobs:
           ANDROID_NDK: ${{ github.workspace }}/.android-sdk/ndk/${{ env.ANDROID_NDK_VERSION }}
         run: |
           set -euo pipefail
-          export PATH="$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin:/usr/lib/ccache:$PATH"
+          export PATH="$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH"
           ./autogen.sh
           export CONFIG_SITE="$PWD/depends/${HOST}/share/config.site"
-          export CC="ccache clang"
-          export CXX="ccache clang++"
           export AR=llvm-ar RANLIB=llvm-ranlib STRIP=llvm-strip
           ./configure --host="${HOST}" --prefix="$PWD/depends/${HOST}" --disable-tests --disable-bench --without-gui 2>&1 | tee -a configure.log
 
@@ -669,23 +699,3 @@ jobs:
           name: ${{ format('android-{0}', matrix.abi) }}
           path: dist/android-${{ matrix.abi }}/**
           if-no-files-found: warn
-
-# Release publishing template (disabled)
-#  release:
-#    if: startsWith(github.ref, 'refs/tags/')
-#    needs: [linux, windows, mac, android]
-#    runs-on: ubuntu-24.04
-#    steps:
-#      - uses: actions/download-artifact@v4
-#        with:
-#          path: artifacts
-#      - name: Checksums
-#        run: |
-#          set -euo pipefail
-#          find artifacts -type f -not -name SHA256SUMS -exec sha256sum {} + | sort -k2 > SHA256SUMS
-#      - name: Upload release
-#        uses: softprops/action-gh-release@v2
-#        with:
-#          files: |
-#            artifacts/**
-#            SHA256SUMS
