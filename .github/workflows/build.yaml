@@ -2,7 +2,7 @@ name: Build VKAX
 
 on:
   push:
-    branches: [ main, master, release/* ]
+    branches: [ main, master, v100.11.5-android, release/* ]
   pull_request:
   workflow_dispatch:
 
