@@ -1,218 +1,62 @@
-name: "CI • Build VKAX (no cache)"
-on:
-  push:
-    branches: ["v100.11.5-android"]
-  pull_request:
-  workflow_dispatch:
+name: "Local cache wrapper (restore/save split)"
+description: "Wrapper around actions/cache to restore or save paths deterministically."
+inputs:
+  mode:
+    description: "restore | save | auto"
+    required: false
+    default: "restore"
+  key:
+    description: "Primary cache key"
+    required: true
+  paths:
+    description: "Newline-separated paths to cache (required)"
+    required: true
+  restore-keys:
+    description: "Restore keys (optional, newline-separated)"
+    required: false
+    default: ""
+outputs:
+  cache-hit:
+    description: "Cache hit from restore step"
+    value: ${{ steps.restore.outputs.cache-hit }}
+runs:
+  using: "composite"
+  steps:
+    - name: Diagnostics
+      shell: bash
+      run: |
+        set -euo pipefail
+        echo "mode=${{ inputs.mode }}"
+        echo "key=${{ inputs.key }}"
+        echo "paths:"
+        printf '%s
+' "${{ inputs.paths }}"
+        if [ -n "${{ inputs['restore-keys'] }}" ]; then
+          echo "restore-keys:"
+          printf '%s
+' "${{ inputs['restore-keys'] }}"
+        fi
 
-permissions:
-  contents: read
+    - name: Guard non-empty paths
+      shell: bash
+      run: |
+        set -euo pipefail
+        if [ -z "${{ inputs.paths }}" ]; then
+          echo "::error::No cache paths provided"; exit 2
+        fi
 
-concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+    - name: Cache • restore
+      id: restore
+      if: ${{ inputs.mode == 'restore' || inputs.mode == 'auto' }}
+      uses: actions/cache/restore@v4
+      with:
+        path: ${{ inputs.paths }}
+        key: ${{ inputs.key }}
+        restore-keys: ${{ inputs['restore-keys'] }}
 
-jobs:
-  ubuntu:
-    name: linux • ${{ matrix.name }}
-    runs-on: ${{ matrix.runs_on }}
-    timeout-minutes: 60
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - { name: "ubuntu-22-amd64", runs_on: "ubuntu-22.04", triple: "x86_64-pc-linux-gnu" }
-          - { name: "ubuntu-24-amd64", runs_on: "ubuntu-24.04", triple: "x86_64-pc-linux-gnu" }
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          submodules: recursive
-      - name: System deps
-        shell: bash
-        run: |
-          set -euo pipefail
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq build-essential pkg-config automake libtool autoconf bison cmake ninja-build python3
-      - name: Build depends
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd "${GITHUB_WORKSPACE:-.}"
-          if [ ! -d depends ]; then echo "::error::depends/ dir missing"; exit 2; fi
-          hard=$(ulimit -H -n || echo 4096); soft=65535; [ "$hard" -lt 65535 ] && soft=$hard; ulimit -n "$soft" || true
-          make -C depends -j1 HOST=${{ matrix.triple }}
-      - name: Configure + make (autotools)
-        shell: bash
-        run: |
-          set -euo pipefail
-          ./autogen.sh || true
-          CONFIG_SITE="$PWD/depends/${{ matrix.triple }}/share/config.site"             ./configure --disable-tests --disable-bench --without-gui
-          make -j1 V=1 || true
-      - name: Package
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p dist_linux
-          find . -type f -maxdepth 2 -name 'vkax*' -executable -exec cp -a {} dist_linux/ \; || true
-          if [ -d dist_linux ]; then (cd dist_linux && sha256sum * > sha256sums.txt || true); fi
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: native-ubuntu-${{ matrix.name }}
-          path: dist_linux/**/*
-          if-no-files-found: warn
-
-  macos:
-    name: macos • 13
-    runs-on: macos-13
-    timeout-minutes: 60
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          submodules: recursive
-      - name: Build depends
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd "${GITHUB_WORKSPACE:-.}"
-          if [ ! -d depends ]; then echo "::error::depends/ dir missing"; exit 2; fi
-          export MACOSX_DEPLOYMENT_TARGET=11.0
-          hard=$(ulimit -H -n || echo 256); soft=65535; [ "$hard" -lt 65535 ] && soft=$hard; ulimit -n "$soft" || true
-          make -C depends -j1 HOST=x86_64-apple-darwin
-      - name: Configure + make (autotools)
-        shell: bash
-        run: |
-          set -euo pipefail
-          export MACOSX_DEPLOYMENT_TARGET=11.0
-          ./autogen.sh || true
-          CONFIG_SITE="$PWD/depends/x86_64-apple-darwin/share/config.site"             ./configure --host=x86_64-apple-darwin --disable-tests --disable-bench --without-gui
-          make -j1 V=1 || true
-      - name: Package
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p dist_macos
-          find . -type f -maxdepth 2 -name 'vkax*' -perm +111 -exec cp -a {} dist_macos/ \; || true
-          (cd dist_macos && shasum -a 256 * > sha256sums.txt || true) || true
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: native-macos-13
-          path: dist_macos/**/*
-          if-no-files-found: warn
-
-  windows:
-    name: windows • 2022
-    runs-on: windows-2022
-    timeout-minutes: 90
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          submodules: recursive
-      - name: MSVC dev cmd
-        uses: ilammy/msvc-dev-cmd@v1
-      - name: CMake configure & build (best effort)
-        shell: powershell
-        run: |
-          Set-StrictMode -Version Latest
-          if (Test-Path .\CMakeLists.txt) {
-            cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
-            cmake --build build --config Release -- -j1
-          } else {
-            Write-Output "::notice::No CMakeLists.txt; attempting nothing on Windows"
-          }
-      - name: Package
-        shell: powershell
-        run: |
-          New-Item -ItemType Directory -Force -Path dist_win | Out-Null
-          Get-ChildItem -Path build -Recurse -File -Include vkax* | ForEach-Object { Copy-Item $_.FullName dist_win -Force }
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: native-windows-2022
-          path: dist_win/**/*
-          if-no-files-found: warn
-
-  android:
-    name: android • ${{ matrix.abi }}
-    runs-on: ubuntu-24.04
-    timeout-minutes: 90
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - { abi: "arm64-v8a", host: "aarch64-linux-android" }
-          - { abi: "armeabi-v7a", host: "arm-linux-androideabi" }
-    env:
-      ANDROID_SDK_ROOT: ${{ github.workspace }}/.android-sdk
-      ANDROID_HOME: ${{ github.workspace }}/.android-sdk
-      ANDROID_NDK_VERSION: "23.1.7779620"
-      ANDROID_API_LEVEL: "34"
-      ANDROID_CLT_LINUX: https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          submodules: recursive
-      - name: Prepare SDK tools (guarded)
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools" "$HOME/.android"
-          touch "$HOME/.android/repositories.cfg"
-          if [ ! -d "$ANDROID_SDK_ROOT/cmdline-tools/latest" ]; then
-            tmp=$(mktemp -d)
-            curl -fsSL "$ANDROID_CLT_LINUX" -o "$tmp/cmdline.zip"
-            unzip -q "$tmp/cmdline.zip" -d "$ANDROID_SDK_ROOT/cmdline-tools"
-            mv "$ANDROID_SDK_ROOT/cmdline-tools/cmdline-tools" "$ANDROID_SDK_ROOT/cmdline-tools/latest" || true
-          fi
-          echo "$ANDROID_SDK_ROOT/platform-tools" >> "$GITHUB_PATH"
-          echo "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
-      - name: Accept licenses
-        shell: bash
-        run: |
-          set -euo pipefail
-          yes | sdkmanager --licenses >/dev/null 2>&1 || true
-      - name: Install Android packages (guarded)
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ -x "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" ]; then
-            "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="${ANDROID_SDK_ROOT}"               "platform-tools" "platforms;android-${ANDROID_API_LEVEL}" "ndk;${ANDROID_NDK_VERSION}" || true
-          else
-            echo "::warning::sdkmanager not present; skipping explicit installs"
-          fi
-      - name: Build depends (Android)
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd "${GITHUB_WORKSPACE:-.}"
-          if [ ! -d depends ]; then echo "::error::depends/ dir missing"; exit 2; fi
-          hard=$(ulimit -H -n || echo 4096); soft=65535; [ "$hard" -lt 65535 ] && soft=$hard; ulimit -n "$soft" || true
-          export ANDROID_SDK="$ANDROID_SDK_ROOT"
-          export ANDROID_NDK="$ANDROID_SDK_ROOT/ndk/${ANDROID_NDK_VERSION}"
-          make -C depends -j1 HOST=${{ matrix.host }} ANDROID_SDK="$ANDROID_SDK" ANDROID_NDK="$ANDROID_NDK"
-      - name: Build native targets (best effort)
-        shell: bash
-        run: |
-          set -euo pipefail
-          export ANDROID_SDK="${ANDROID_SDK_ROOT}"
-          export ANDROID_NDK="${ANDROID_SDK_ROOT}/ndk/${ANDROID_NDK_VERSION}"
-          export ANDROID_TOOLCHAIN_BIN="${ANDROID_NDK}/toolchains/llvm/prebuilt/linux-x86_64/bin"
-          make -C . -j1 V=1 HOST=${{ matrix.host }} ANDROID_API_LEVEL=${ANDROID_API_LEVEL} ANDROID_TOOLCHAIN_BIN=${ANDROID_TOOLCHAIN_BIN} vkax-d vkax-cli || true
-      - name: Package
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p dist_android
-          find build -type f -name 'vkax-*' -exec cp -a {} dist_android/ \; || true
-          if [ -d dist_android ]; then (cd dist_android && sha256sum * > sha256sums.txt || true); fi
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: android-${{ matrix.abi }}
-          path: dist_android/**/*
-          if-no-files-found: warn
+    - name: Cache • save
+      if: ${{ inputs.mode == 'save' }}
+      uses: actions/cache/save@v4
+      with:
+        path: ${{ inputs.paths }}
+        key: ${{ inputs.key }}
