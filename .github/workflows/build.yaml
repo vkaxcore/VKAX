@@ -32,6 +32,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Init submodules
+        shell: bash
+        run: git submodule update --init --recursive --depth 1 || git submodule update --init --recursive
+
+
       - name: Init ccache dir
         shell: bash
         run: echo "CCACHE_DIR=$RUNNER_TEMP/.ccache" >> "$GITHUB_ENV"
@@ -154,6 +159,11 @@ jobs:
     continue-on-error: ${{ matrix.experimental == true }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Init submodules
+        shell: bash
+        run: git submodule update --init --recursive --depth 1 || git submodule update --init --recursive
+
 
       # CROSS (Ubuntu runner)
       - name: Install toolchain (cross)
@@ -381,6 +391,11 @@ jobs:
           - { host: "arm64-apple-darwin", runner: "macos-14" }
     steps:
       - uses: actions/checkout@v4
+
+      - name: Init submodules
+        shell: bash
+        run: git submodule update --init --recursive --depth 1 || git submodule update --init --recursive
+
 
       - name: Init ccache dir
         shell: bash
