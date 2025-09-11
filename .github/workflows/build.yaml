@@ -17,38 +17,27 @@ env:
   CCACHE_MAXSIZE: 500M
 
 jobs:
-  build-matrix:
-    name: all • ${{ matrix.name }} • depends
-    runs-on: ${{ matrix.runner }}
-    timeout-minutes: 150
-    continue-on-error: ${{ matrix.experimental == true }}
+  linux:
+    name: linux • ${{ matrix.host }} • depends
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { name: "linux • x86_64-pc-linux-gnu", runner: "ubuntu-24.04", family: "linux", host: "x86_64-pc-linux-gnu" }
-          - { name: "linux • aarch64-linux-gnu", runner: "ubuntu-24.04", family: "linux", host: "aarch64-linux-gnu", apt_extra: "g++-aarch64-linux-gnu" }
-          - { name: "linux • arm-linux-gnueabihf", runner: "ubuntu-24.04", family: "linux", host: "arm-linux-gnueabihf", apt_extra: "g++-arm-linux-gnueabihf" }
-          - { name: "windows • mingw cross", runner: "ubuntu-24.04", family: "windows-cross", host: "x86_64-w64-mingw32" }
-          - { name: "windows • msys2 mingw", runner: "windows-2022", family: "windows-msys2", host: "x86_64-w64-mingw32" }
-          - { name: "macOS • x86_64-apple-darwin", runner: "macos-13", family: "macos", host: "x86_64-apple-darwin" }
-          - { name: "macOS • arm64-apple-darwin", runner: "macos-14", family: "macos", host: "arm64-apple-darwin" }
-          - { name: "android • arm64-v8a", runner: "ubuntu-24.04", family: "android", host: "aarch64-linux-android", abi: "arm64-v8a" }
-          - { name: "android • armeabi-v7a", runner: "ubuntu-24.04", family: "android", host: "arm-linux-androideabi", abi: "armeabi-v7a" }
-          - { name: "freebsd • experimental", runner: "ubuntu-24.04", family: "freebsd-x", host: "x86_64-unknown-freebsd", experimental: true }
-          - { name: "openbsd • experimental", runner: "ubuntu-24.04", family: "openbsd-x", host: "x86_64-unknown-openbsd", experimental: true }
+          - { host: "x86_64-pc-linux-gnu" }
+          - { host: "aarch64-linux-gnu", apt_extra: "g++-aarch64-linux-gnu" }
+          - { host: "arm-linux-gnueabihf", apt_extra: "g++-arm-linux-gnueabihf" }
+          - { host: "i686-pc-linux-gnu", apt_extra: "gcc-multilib g++-multilib", experimental: true }
+          - { host: "x86_64-unknown-netbsd", experimental: true }
+    continue-on-error: ${{ matrix.experimental == true }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           submodules: recursive
 
-      - name: Init ccache dir
-        shell: bash
-        run: echo "CCACHE_DIR=$RUNNER_TEMP/.ccache" >> "$GITHUB_ENV"
-
-      - name: Linux deps
-        if: ${{ matrix.family == 'linux' || matrix.family == 'windows-cross' || matrix.family == 'android' }}
+      - name: Install toolchain
         shell: bash
         env:
           APT_EXTRA: ${{ matrix.apt_extra }}
@@ -58,66 +47,32 @@ jobs:
             autoconf automake libtool pkg-config make cmake \
             gcc g++ bison python3 curl patch file xz-utils \
             ccache ${APT_EXTRA:-}
-          if [ "${{ matrix.family }}" = "windows-cross" ]; then
-            sudo apt-get install -y --no-install-recommends mingw-w64 g++-mingw-w64-x86-64 nsis zip unzip
-          fi
 
-      - name: macOS deps
-        if: ${{ matrix.family == 'macos' }}
+      - name: Init ccache dir
         shell: bash
-        run: |
-          brew update
-          brew tap-pin homebrew/core || true
-          brew tap-pin homebrew/cask || true
-          export HOMEBREW_NO_INSTALL_CLEANUP=1
-          export HOMEBREW_NO_ANALYTICS=1
-          brew install autoconf automake libtool pkg-config ccache
+        run: echo "CCACHE_DIR=$RUNNER_TEMP/.ccache" >> "$GITHUB_ENV"
 
-      - name: MSYS2 setup
-        if: ${{ matrix.family == 'windows-msys2' }}
-        uses: msys2/setup-msys2@v2
+      - name: Restore cache • depends
+        uses: actions/cache@v4
         with:
-          msystem: MINGW64
-          update: true
-          install: >-
-            base-devel git make autoconf automake libtool pkgconf cmake
-            bison patch zip unzip mingw-w64-x86_64-toolchain mingw-w64-x86_64-ccache
+          path: |
+            depends/sources
+            depends/built
+          key: ${{ runner.os }}-depends-linux-${{ matrix.host }}-${{ hashFiles('depends/**', 'configure.ac', 'src/config/*') }}
+          restore-keys: |
+            ${{ runner.os }}-depends-linux-${{ matrix.host }}-
 
-      - name: Android SDK/NDK
-        if: ${{ matrix.family == 'android' }}
-        shell: bash
-        env:
-          ANDROID_SDK_ROOT: ${{ github.workspace }}/.android-sdk
-          ANDROID_HOME: ${{ github.workspace }}/.android-sdk
-          ANDROID_NDK_VERSION: "26.1.10909125"
-          ANDROID_API_LEVEL: "26"
-          ANDROID_CLT_LINUX: https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip
-        run: |
-          set -euo pipefail
-          mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools" "$HOME/.android"
-          touch "$HOME/.android/repositories.cfg"
-          if [ ! -d "$ANDROID_SDK_ROOT/cmdline-tools/latest" ]; then
-            tmp="$(mktemp -d)"
-            curl -fsSL "$ANDROID_CLT_LINUX" -o "$tmp/cmdline.zip"
-            unzip -q "$tmp/cmdline.zip" -d "$ANDROID_SDK_ROOT/cmdline-tools"
-            mv "$ANDROID_SDK_ROOT/cmdline-tools/cmdline-tools" "$ANDROID_SDK_ROOT/cmdline-tools/latest" || true
-          fi
-          yes | "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="${ANDROID_SDK_ROOT}" --licenses > /dev/null || true
-          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="${ANDROID_SDK_ROOT}" \
-            "platform-tools" "platforms;android-${ANDROID_API_LEVEL}" "build-tools;34.0.0" "ndk;${ANDROID_NDK_VERSION}"
+      - name: Restore cache • ccache
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/.ccache
+          key: ${{ runner.os }}-ccache-linux-${{ matrix.host }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-ccache-linux-${{ matrix.host }}-
 
       - name: Build depends
-        if: ${{ matrix.family != 'freebsd-x' && matrix.family != 'openbsd-x' && matrix.family != 'windows-msys2' }}
+        if: ${{ matrix.host != 'x86_64-unknown-netbsd' }}
         shell: bash
-        env:
-          HOST: ${{ matrix.host }}
-        run: |
-          set -euo pipefail
-          make -C depends -j2 HOST=${HOST}
-
-      - name: Build depends (MSYS2)
-        if: ${{ matrix.family == 'windows-msys2' }}
-        shell: msys2 {0}
         env:
           HOST: ${{ matrix.host }}
         run: |
@@ -125,51 +80,19 @@ jobs:
           make -C depends -j2 HOST=${HOST}
 
       - name: Configure
-        if: ${{ matrix.family == 'linux' || matrix.family == 'windows-cross' || matrix.family == 'macos' }}
+        if: ${{ matrix.host != 'x86_64-unknown-netbsd' }}
         shell: bash
         env:
           HOST: ${{ matrix.host }}
         run: |
           set -euo pipefail
-          if [ "${{ matrix.family }}" = "macos" ]; then
-            export PATH="/usr/local/opt/ccache/libexec:$PATH"
-          else
-            export PATH="/usr/lib/ccache:$PATH"
-          fi
+          export PATH="/usr/lib/ccache:$PATH"
           ./autogen.sh
           export CONFIG_SITE="$PWD/depends/${HOST}/share/config.site"
-          ./configure --host="${HOST}" --prefix="$PWD/depends/${HOST}" --disable-tests --disable-bench
-
-      - name: Configure (MSYS2)
-        if: ${{ matrix.family == 'windows-msys2' }}
-        shell: msys2 {0}
-        env:
-          HOST: ${{ matrix.host }}
-        run: |
-          set -euo pipefail
-          export PATH="/mingw64/bin:$PATH"
-          ./autogen.sh
-          export CONFIG_SITE="$PWD/depends/${HOST}/share/config.site"
-          ./configure --host=${HOST} --prefix="$PWD/depends/${HOST}" --disable-tests --disable-bench
-
-      - name: Configure (Android)
-        if: ${{ matrix.family == 'android' }}
-        shell: bash
-        env:
-          HOST: ${{ matrix.host }}
-          ANDROID_SDK_ROOT: ${{ github.workspace }}/.android-sdk
-          ANDROID_NDK_VERSION: "26.1.10909125"
-        run: |
-          set -euo pipefail
-          ANDROID_NDK="$ANDROID_SDK_ROOT/ndk/${ANDROID_NDK_VERSION}"
-          export PATH="$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin:/usr/lib/ccache:$PATH"
-          ./autogen.sh
-          export CONFIG_SITE="$PWD/depends/${HOST}/share/config.site"
-          export CC="ccache clang"; export CXX="ccache clang++"
           ./configure --host="${HOST}" --prefix="$PWD/depends/${HOST}" --disable-tests --disable-bench
 
       - name: Build
-        if: ${{ matrix.family == 'linux' || matrix.family == 'windows-cross' }}
+        if: ${{ matrix.host != 'x86_64-unknown-netbsd' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -177,39 +100,9 @@ jobs:
           ccache -M "${CCACHE_MAXSIZE}"
           make -j$(nproc)
 
-      - name: Build (macOS)
-        if: ${{ matrix.family == 'macos' }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          export PATH="/usr/local/opt/ccache/libexec:$PATH"
-          ccache -M "${CCACHE_MAXSIZE}"
-          make -j$(sysctl -n hw.ncpu)
-
-      - name: Build (MSYS2)
-        if: ${{ matrix.family == 'windows-msys2' }}
-        shell: msys2 {0}
-        run: |
-          set -euo pipefail
-          export PATH="/mingw64/bin:$PATH"
-          ccache -M "${CCACHE_MAXSIZE}"
-          make -j$(nproc)
-
-      - name: Build (Android)
-        if: ${{ matrix.family == 'android' }}
-        shell: bash
-        env:
-          ANDROID_SDK_ROOT: ${{ github.workspace }}/.android-sdk
-          ANDROID_NDK_VERSION: "26.1.10909125"
-        run: |
-          set -euo pipefail
-          export PATH="$ANDROID_SDK_ROOT/ndk/${ANDROID_NDK_VERSION}/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH"
-          ccache -M "${CCACHE_MAXSIZE}"
-          make -j2
-
       - name: Install (stage)
-        if: ${{ matrix.family != 'freebsd-x' && matrix.family != 'openbsd-x' }}
-        shell: ${{ matrix.family == 'windows-msys2' && 'msys2 {0}' || 'bash' }}
+        if: ${{ matrix.host != 'x86_64-unknown-netbsd' }}
+        shell: bash
         env:
           HOST: ${{ matrix.host }}
         run: |
@@ -217,7 +110,7 @@ jobs:
           make install DESTDIR="$PWD/stage/${HOST}" || true
 
       - name: Package
-        if: ${{ matrix.family == 'linux' || matrix.family == 'windows-cross' || matrix.family == 'macos' }}
+        if: ${{ matrix.host != 'x86_64-unknown-netbsd' }}
         shell: bash
         env:
           HOST: ${{ matrix.host }}
@@ -233,64 +126,34 @@ jobs:
           done
           (cd dist/${HOST} && sha256sum * > SHA256SUMS || true)
 
-      - name: Package (MSYS2)
-        if: ${{ matrix.family == 'windows-msys2' }}
-        shell: msys2 {0}
-        env:
-          HOST: ${{ matrix.host }}
-        run: |
-          set -euo pipefail
-          mkdir -p dist/${HOST}
-          export SOURCE_DATE_EPOCH="$(git log -1 --format=%ct || date +%s)"
-          for f in src/vkaxd.exe src/vkax-cli.exe src/vkax-tx.exe src/qt/vkax-qt.exe; do
-            if [ -f "$f" ]; then
-              x86_64-w64-mingw32-strip -s "$f" || true
-              install -m0755 "$f" dist/${HOST}/
-            fi
-          done
-          (cd dist/${HOST} && sha256sum * > SHA256SUMS || true)
+      - uses: actions/upload-artifact@v4
+        if: ${{ matrix.host != 'x86_64-unknown-netbsd' }}
+        with:
+          name: linux-${{ matrix.host }}
+          path: dist/${{ matrix.host }}/**
+          if-no-files-found: error
 
-      - name: Package (Android)
-        if: ${{ matrix.family == 'android' }}
-        shell: bash
-        env:
-          ABI: ${{ matrix.abi }}
-          HOST: ${{ matrix.host }}
-        run: |
-          set -euo pipefail
-          mkdir -p dist/android-${ABI}
-          export SOURCE_DATE_EPOCH="$(git log -1 --format=%ct || date +%s)"
-          for f in build/*/vkax* src/vkax*; do
-            if [ -f "$f" ]; then
-              "$ANDROID_SDK_ROOT/ndk/${ANDROID_NDK_VERSION}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip" -s "$f" || true
-              cp -a "$f" dist/android-${ABI}/
-            fi
-          done
-          (cd dist/android-${ABI} && sha256sum * > SHA256SUMS || true)
-
-      - name: Experimental placeholder (FreeBSD/OpenBSD)
-        if: ${{ matrix.family == 'freebsd-x' || matrix.family == 'openbsd-x' }}
-        run: |
-          echo "No supported cross toolchain for ${HOST} in depends CI. Use native builders per docs."
-
-  linux:
-    name: linux • ${{ matrix.host }} • depends
-    runs-on: ubuntu-24.04
-    timeout-minutes: 90
+  windows:
+    name: windows • ${{ matrix.name }} • depends
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 150
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { host: "x86_64-pc-linux-gnu" }
-          - { host: "aarch64-linux-gnu", apt_extra: "g++-aarch64-linux-gnu" }
-          - { host: "arm-linux-gnueabihf", apt_extra: "g++-arm-linux-gnueabihf" }
+          - { name: "mingw cross x86_64", runner: "ubuntu-24.04", flavor: "cross", host: "x86_64-w64-mingw32" }
+          - { name: "mingw cross i686 (experimental)", runner: "ubuntu-24.04", flavor: "cross", host: "i686-w64-mingw32", apt_extra: "g++-mingw-w64-i686", experimental: true }
+          - { name: "msys2 mingw x86_64", runner: "windows-2022", flavor: "msys2", host: "x86_64-w64-mingw32", msystem: "MINGW64" }
+    continue-on-error: ${{ matrix.experimental == true }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           submodules: recursive
 
-      - name: Install toolchain
+      # CROSS (Ubuntu) branch
+      - name: Install toolchain (cross)
+        if: ${{ matrix.flavor == 'cross' }}
         shell: bash
         env:
           APT_EXTRA: ${{ matrix.apt_extra }}
@@ -298,32 +161,35 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends \
             autoconf automake libtool pkg-config make cmake \
-            gcc g++ bison python3 curl patch file xz-utils \
-            ccache ${APT_EXTRA:-}
+            gcc g++ mingw-w64 nsis bison python3 curl patch zip unzip ccache ${APT_EXTRA:-}
 
-      - name: Init ccache dir
+      - name: Init ccache dir (cross)
+        if: ${{ matrix.flavor == 'cross' }}
         shell: bash
         run: echo "CCACHE_DIR=$RUNNER_TEMP/.ccache" >> "$GITHUB_ENV"
 
-      - name: Restore cache • depends (sources+built)
+      - name: Restore cache • depends (cross)
+        if: ${{ matrix.flavor == 'cross' }}
         uses: actions/cache@v4
         with:
           path: |
             depends/sources
             depends/built
-          key: ${{ runner.os }}-depends-${{ matrix.host }}-${{ hashFiles('depends/**', 'configure.ac', 'src/config/*') }}
+          key: ${{ runner.os }}-depends-windows-cross-${{ matrix.host }}-${{ hashFiles('depends/**', 'configure.ac', 'src/config/*') }}
           restore-keys: |
-            ${{ runner.os }}-depends-${{ matrix.host }}-
+            ${{ runner.os }}-depends-windows-cross-${{ matrix.host }}-
 
-      - name: Restore cache • ccache
+      - name: Restore cache • ccache (cross)
+        if: ${{ matrix.flavor == 'cross' }}
         uses: actions/cache@v4
         with:
           path: ${{ runner.temp }}/.ccache
-          key: ${{ runner.os }}-ccache-${{ matrix.host }}-${{ github.sha }}
+          key: ${{ runner.os }}-ccache-windows-cross-${{ matrix.host }}-${{ github.sha }}
           restore-keys: |
-            ${{ runner.os }}-ccache-${{ matrix.host }}-
+            ${{ runner.os }}-ccache-windows-cross-${{ matrix.host }}-
 
-      - name: Build depends
+      - name: Build depends (cross)
+        if: ${{ matrix.flavor == 'cross' }}
         shell: bash
         env:
           HOST: ${{ matrix.host }}
@@ -331,106 +197,8 @@ jobs:
           set -euo pipefail
           make -C depends -j2 HOST=${HOST}
 
-      - name: Configure
-        shell: bash
-        env:
-          HOST: ${{ matrix.host }}
-        run: |
-          set -euo pipefail
-          export PATH="/usr/lib/ccache:$PATH"
-          ./autogen.sh
-          export CONFIG_SITE="$PWD/depends/${HOST}/share/config.site"
-          ./configure --host="${HOST}" --prefix="$PWD/depends/${HOST}" --disable-tests --disable-bench
-
-      - name: Build
-        shell: bash
-        run: |
-          set -euo pipefail
-          export PATH="/usr/lib/ccache:$PATH"
-          ccache -M "${CCACHE_MAXSIZE}"
-          make -j$(nproc)
-
-      - name: Install (stage)
-        shell: bash
-        env:
-          HOST: ${{ matrix.host }}
-        run: |
-          set -euo pipefail
-          make install DESTDIR="$PWD/stage/${HOST}" || true
-
-      - name: Package
-        shell: bash
-        env:
-          HOST: ${{ matrix.host }}
-        run: |
-          set -euo pipefail
-          mkdir -p dist/linux-${HOST}
-          for f in src/vkaxd src/vkax-cli src/vkax-tx src/qt/vkax-qt; do
-            [ -f "$f" ] && install -m0755 "$f" dist/linux-${HOST}/
-          done
-          (cd dist/linux-${HOST} && sha256sum * > SHA256SUMS || true)
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: linux-${{ matrix.host }}
-          path: dist/linux-${{ matrix.host }}/**
-          if-no-files-found: error
-
-  windows-cross-mingw:
-    name: windows • cross (mingw on ubuntu) • depends
-    runs-on: ubuntu-24.04
-    timeout-minutes: 120
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - { host: "x86_64-w64-mingw32" }
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          submodules: recursive
-
-      - name: Install toolchain
-        shell: bash
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends \
-            autoconf automake libtool pkg-config make cmake \
-            gcc g++ mingw-w64 g++-mingw-w64-x86-64 nsis \
-            bison python3 curl patch zip unzip ccache
-
-      - name: Init ccache dir
-        shell: bash
-        run: echo "CCACHE_DIR=$RUNNER_TEMP/.ccache" >> "$GITHUB_ENV"
-
-      - name: Restore cache • depends (sources+built)
-        uses: actions/cache@v4
-        with:
-          path: |
-            depends/sources
-            depends/built
-          key: ${{ runner.os }}-depends-${{ matrix.host }}-${{ hashFiles('depends/**', 'configure.ac', 'src/config/*') }}
-          restore-keys: |
-            ${{ runner.os }}-depends-${{ matrix.host }}-
-
-      - name: Restore cache • ccache
-        uses: actions/cache@v4
-        with:
-          path: ${{ runner.temp }}/.ccache
-          key: ${{ runner.os }}-ccache-${{ matrix.host }}-${{ github.sha }}
-          restore-keys: |
-            ${{ runner.os }}-ccache-${{ matrix.host }}-
-
-      - name: Build depends (mingw)
-        shell: bash
-        env:
-          HOST: ${{ matrix.host }}
-        run: |
-          set -euo pipefail
-          make -C depends -j2 HOST=${HOST}
-
-      - name: Configure (mingw)
+      - name: Configure (cross)
+        if: ${{ matrix.flavor == 'cross' }}
         shell: bash
         env:
           HOST: ${{ matrix.host }}
@@ -441,7 +209,8 @@ jobs:
           export CONFIG_SITE="$PWD/depends/${HOST}/share/config.site"
           ./configure --prefix="$PWD/depends/${HOST}" --host=${HOST} --disable-tests --disable-bench
 
-      - name: Build (mingw)
+      - name: Build (cross)
+        if: ${{ matrix.flavor == 'cross' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -449,7 +218,8 @@ jobs:
           ccache -M "${CCACHE_MAXSIZE}"
           make -j$(nproc)
 
-      - name: Install (stage)
+      - name: Install (stage) (cross)
+        if: ${{ matrix.flavor == 'cross' }}
         shell: bash
         env:
           HOST: ${{ matrix.host }}
@@ -457,28 +227,147 @@ jobs:
           set -euo pipefail
           make install DESTDIR="$PWD/stage/${HOST}" || true
 
-      - name: Package (mingw)
+      - name: Package (cross)
+        if: ${{ matrix.flavor == 'cross' }}
         shell: bash
         env:
           HOST: ${{ matrix.host }}
         run: |
           set -euo pipefail
-          mkdir -p dist/windows-${HOST}
+          mkdir -p dist/${HOST}
+          export SOURCE_DATE_EPOCH="$(git log -1 --format=%ct || date +%s)"
+          STRIP="${HOST}-strip"
           for f in src/vkaxd.exe src/vkax-cli.exe src/vkax-tx.exe src/qt/vkax-qt.exe; do
-            [ -f "$f" ] && install -m0755 "$f" dist/windows-${HOST}/
+            if [ -f "$f" ]; then
+              $STRIP -s "$f" || true
+              install -m0755 "$f" dist/${HOST}/
+            fi
           done
-          (cd dist/windows-${HOST} && sha256sum * > SHA256SUMS || true)
+          (cd dist/${HOST} && sha256sum * > SHA256SUMS || true)
 
       - uses: actions/upload-artifact@v4
+        if: ${{ matrix.flavor == 'cross' }}
         with:
           name: windows-${{ matrix.host }}-cross
-          path: dist/windows-${{ matrix.host }}/**
+          path: dist/${{ matrix.host }}/**
           if-no-files-found: error
 
-  macos:
-    name: macos • ${{ matrix.host }} • depends
+      # MSYS2 (Windows) branch
+      - name: Setup MSYS2
+        if: ${{ matrix.flavor == 'msys2' }}
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: ${{ matrix.msystem }}
+          update: true
+          install: >-
+            base-devel
+            git
+            make
+            autoconf
+            automake
+            libtool
+            pkgconf
+            cmake
+            bison
+            patch
+            zip
+            unzip
+            mingw-w64-x86_64-toolchain
+            mingw-w64-x86_64-ccache
+
+      - name: Init ccache dir (msys2)
+        if: ${{ matrix.flavor == 'msys2' }}
+        shell: bash
+        run: echo "CCACHE_DIR=$RUNNER_TEMP/.ccache" >> "$GITHUB_ENV"
+
+      - name: Restore cache • depends (msys2)
+        if: ${{ matrix.flavor == 'msys2' }}
+        uses: actions/cache@v4
+        with:
+          path: |
+            depends/sources
+            depends/built
+          key: windows-msys2-depends-${{ matrix.host }}-${{ hashFiles('depends/**', 'configure.ac', 'src/config/*') }}
+          restore-keys: |
+            windows-msys2-depends-${{ matrix.host }}-
+
+      - name: Restore cache • ccache (msys2)
+        if: ${{ matrix.flavor == 'msys2' }}
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/.ccache
+          key: windows-msys2-ccache-${{ matrix.host }}-${{ github.sha }}
+          restore-keys: |
+            windows-msys2-ccache-${{ matrix.host }}-
+
+      - name: Build depends (msys2)
+        if: ${{ matrix.flavor == 'msys2' }}
+        shell: msys2 {0}
+        env:
+          HOST: ${{ matrix.host }}
+        run: |
+          set -euo pipefail
+          make -C depends -j2 HOST=${HOST}
+
+      - name: Configure (msys2)
+        if: ${{ matrix.flavor == 'msys2' }}
+        shell: msys2 {0}
+        env:
+          HOST: ${{ matrix.host }}
+        run: |
+          set -euo pipefail
+          export PATH="/mingw64/bin:$PATH"
+          ./autogen.sh
+          export CONFIG_SITE="$PWD/depends/${HOST}/share/config.site"
+          ./configure --host=${HOST} --prefix="$PWD/depends/${HOST}" --disable-tests --disable-bench
+
+      - name: Build (msys2)
+        if: ${{ matrix.flavor == 'msys2' }}
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          export PATH="/mingw64/bin:$PATH"
+          ccache -M "${CCACHE_MAXSIZE}"
+          make -j$(nproc)
+
+      - name: Install (stage) (msys2)
+        if: ${{ matrix.flavor == 'msys2' }}
+        shell: msys2 {0}
+        env:
+          HOST: ${{ matrix.host }}
+        run: |
+          set -euo pipefail
+          make install DESTDIR="$PWD/stage/${HOST}" || true
+
+      - name: Package (msys2)
+        if: ${{ matrix.flavor == 'msys2' }}
+        shell: msys2 {0}
+        env:
+          HOST: ${{ matrix.host }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist/${HOST}
+          export SOURCE_DATE_EPOCH="$(git log -1 --format=%ct || date +%s)"
+          STRIP="${HOST}-strip"
+          for f in src/vkaxd.exe src/vkax-cli.exe src/vkax-tx.exe src/qt/vkax-qt.exe; do
+            if [ -f "$f" ]; then
+              $STRIP -s "$f" || true
+              install -m0755 "$f" dist/${HOST}/
+            fi
+          done
+          (cd dist/${HOST} && sha256sum * > SHA256SUMS || true)
+
+      - uses: actions/upload-artifact@v4
+        if: ${{ matrix.flavor == 'msys2' }}
+        with:
+          name: windows-${{ matrix.host }}-msys2
+          path: dist/${{ matrix.host }}/**
+          if-no-files-found: error
+
+  mac:
+    name: mac • ${{ matrix.host }} • depends
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 90
+    timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:
@@ -505,23 +394,23 @@ jobs:
         shell: bash
         run: echo "CCACHE_DIR=$RUNNER_TEMP/.ccache" >> "$GITHUB_ENV"
 
-      - name: Restore cache • depends (sources+built)
+      - name: Restore cache • depends
         uses: actions/cache@v4
         with:
           path: |
             depends/sources
             depends/built
-          key: ${{ runner.os }}-depends-${{ matrix.host }}-${{ hashFiles('depends/**', 'configure.ac', 'src/config/*') }}
+          key: ${{ runner.os }}-depends-mac-${{ matrix.host }}-${{ hashFiles('depends/**', 'configure.ac', 'src/config/*') }}
           restore-keys: |
-            ${{ runner.os }}-depends-${{ matrix.host }}-
+            ${{ runner.os }}-depends-mac-${{ matrix.host }}-
 
       - name: Restore cache • ccache
         uses: actions/cache@v4
         with:
           path: ${{ runner.temp }}/.ccache
-          key: ${{ runner.os }}-ccache-${{ matrix.host }}-${{ github.sha }}
+          key: ${{ runner.os }}-ccache-mac-${{ matrix.host }}-${{ github.sha }}
           restore-keys: |
-            ${{ runner.os }}-ccache-${{ matrix.host }}-
+            ${{ runner.os }}-ccache-mac-${{ matrix.host }}-
 
       - name: Build depends
         shell: bash
@@ -564,22 +453,26 @@ jobs:
           HOST: ${{ matrix.host }}
         run: |
           set -euo pipefail
-          mkdir -p dist/macos-${HOST}
+          mkdir -p dist/${HOST}
+          export SOURCE_DATE_EPOCH="$(git log -1 --format=%ct || date +%s)"
           for f in src/vkaxd src/vkax-cli src/vkax-tx src/qt/vkax-qt; do
-            [ -f "$f" ] && install -m0755 "$f" dist/macos-${HOST}/
+            if [ -x "$f" ]; then
+              strip -S "$f" || true
+              install -m0755 "$f" dist/${HOST}/
+            fi
           done
-          (cd dist/macos-${HOST} && shasum -a 256 * > SHA256SUMS || true)
+          (cd dist/${HOST} && shasum -a 256 * > SHA256SUMS || true)
 
       - uses: actions/upload-artifact@v4
         with:
-          name: macos-${{ matrix.host }}
-          path: dist/macos-${{ matrix.host }}/**
+          name: mac-${{ matrix.host }}
+          path: dist/${{ matrix.host }}/**
           if-no-files-found: error
 
   android:
     name: android • ${{ matrix.abi }} • depends
     runs-on: ubuntu-24.04
-    timeout-minutes: 120
+    timeout-minutes: 150
     strategy:
       fail-fast: false
       matrix:
@@ -644,7 +537,7 @@ jobs:
               "ndk;${ANDROID_NDK_VERSION}"
           fi
 
-      - name: Restore cache • depends (sources+built)
+      - name: Restore cache • depends
         uses: actions/cache@v4
         with:
           path: |
@@ -710,11 +603,18 @@ jobs:
         shell: bash
         env:
           ABI: ${{ matrix.abi }}
+          ANDROID_SDK_ROOT: ${{ github.workspace }}/.android-sdk
+          ANDROID_NDK_VERSION: "26.1.10909125"
         run: |
           set -euo pipefail
           mkdir -p dist/android-${ABI}
+          export SOURCE_DATE_EPOCH="$(git log -1 --format=%ct || date +%s)"
+          export PATH="$ANDROID_SDK_ROOT/ndk/${ANDROID_NDK_VERSION}/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH"
           for f in build/*/vkax* src/vkax*; do
-            [ -f "$f" ] && cp -a "$f" dist/android-${ABI}/
+            if [ -f "$f" ]; then
+              llvm-strip -s "$f" || true
+              cp -a "$f" dist/android-${ABI}/
+            fi
           done
           (cd dist/android-${ABI} && sha256sum * > SHA256SUMS || true)
 
@@ -723,142 +623,3 @@ jobs:
           name: android-${{ matrix.abi }}
           path: dist/android-${{ matrix.abi }}/**
           if-no-files-found: warn
-
-  windows-msvc-experimental:
-    name: windows • msvc (no-op; depends required)
-    runs-on: windows-2022
-    timeout-minutes: 10
-    continue-on-error: true
-    steps:
-      - run: |
-          echo "MSVC job is disabled because VKAX requires depends-based builds. Use MinGW (cross) or MSYS2 job."
-
-  netbsd-experimental:
-    name: netbsd (experimental)
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    continue-on-error: true
-    steps:
-      - run: echo "NetBSD build not enabled; no official runner image.""
-
-  # release:
-  #   if: startsWith(github.ref, 'refs/tags/')
-  #   needs: [linux, windows-cross-mingw, macos, android, windows-mingw-msys2]
-  #   runs-on: ubuntu-24.04
-  #   steps:
-  #     - uses: actions/download-artifact@v4
-  #       with: { path: release/ }
-  #     - name: Collate checksums
-  #       run: |
-  #         set -euo pipefail
-  #         find release -name SHA256SUMS -print -exec cat {} \; > release/SHA256SUMS.ALL
-  #     - name: Create GitHub Release
-  #       env:
-  #         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-  #       run: |
-  #         gh release create "${GITHUB_REF_NAME}" --notes "VKAX ${GITHUB_REF_NAME}" --verify-tag
-  #         gh release upload "${GITHUB_REF_NAME}" $(find release -type f) --clobber
-
-  windows-mingw-msys2:
-    name: windows • msys2 mingw • depends
-    runs-on: windows-2022
-    timeout-minutes: 150
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          submodules: recursive
-
-      - name: Setup MSYS2
-        uses: msys2/setup-msys2@v2
-        with:
-          msystem: MINGW64
-          update: true
-          install: >-
-            base-devel
-            git
-            make
-            autoconf
-            automake
-            libtool
-            pkgconf
-            cmake
-            bison
-            patch
-            zip
-            unzip
-            mingw-w64-x86_64-toolchain
-            mingw-w64-x86_64-ccache
-
-      - name: Init ccache dir
-        shell: bash
-        run: echo "CCACHE_DIR=$RUNNER_TEMP/.ccache" >> "$GITHUB_ENV"
-
-      - name: Restore cache • depends (sources+built)
-        uses: actions/cache@v4
-        with:
-          path: |
-            depends/sources
-            depends/built
-          key: windows-msys2-depends-x86_64-w64-mingw32-${{ hashFiles('depends/**', 'configure.ac', 'src/config/*') }}
-          restore-keys: |
-            windows-msys2-depends-x86_64-w64-mingw32-
-
-      - name: Restore cache • ccache
-        uses: actions/cache@v4
-        with:
-          path: ${{ runner.temp }}/.ccache
-          key: windows-msys2-ccache-${{ github.sha }}
-          restore-keys: |
-            windows-msys2-ccache-
-
-      - name: Build depends (msys2)
-        shell: msys2 {0}
-        env:
-          HOST: x86_64-w64-mingw32
-        run: |
-          set -euo pipefail
-          make -C depends -j2 HOST=${HOST}
-
-      - name: Configure (msys2)
-        shell: msys2 {0}
-        env:
-          HOST: x86_64-w64-mingw32
-        run: |
-          set -euo pipefail
-          export PATH="/mingw64/bin:$PATH"
-          ./autogen.sh
-          export CONFIG_SITE="$PWD/depends/${HOST}/share/config.site"
-          ./configure --host=${HOST} --prefix="$PWD/depends/${HOST}" --disable-tests --disable-bench
-
-      - name: Build (msys2)
-        shell: msys2 {0}
-        run: |
-          set -euo pipefail
-          export PATH="/mingw64/bin:$PATH"
-          ccache -M "${CCACHE_MAXSIZE}"
-          make -j$(nproc)
-
-      - name: Install (stage)
-        shell: msys2 {0}
-        env:
-          HOST: x86_64-w64-mingw32
-        run: |
-          set -euo pipefail
-          make install DESTDIR="$PWD/stage/${HOST}" || true
-
-      - name: Package (msys2)
-        shell: msys2 {0}
-        run: |
-          set -euo pipefail
-          mkdir -p dist/windows-x86_64-w64-mingw32
-          for f in src/vkaxd.exe src/vkax-cli.exe src/vkax-tx.exe src/qt/vkax-qt.exe; do
-            [ -f "$f" ] && install -m0755 "$f" dist/windows-x86_64-w64-mingw32/
-          done
-          (cd dist/windows-x86_64-w64-mingw32 && sha256sum * > SHA256SUMS || true)
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: windows-x86_64-w64-mingw32-msys2
-          path: dist/windows-x86_64-w64-mingw32/**
-          if-no-files-found: error
