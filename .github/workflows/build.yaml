@@ -14,7 +14,6 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  CCACHE_DIR: ${{ github.workspace }}/.ccache
   CCACHE_MAXSIZE: 500M
 
 jobs:
@@ -55,7 +54,7 @@ jobs:
       - name: Restore cache • ccache
         uses: actions/cache@v4
         with:
-          path: ${{ env.CCACHE_DIR }}
+          path: ${{ runner.temp }}/.ccache
           key: ${{ runner.os }}-ccache-${{ matrix.host }}-${{ github.sha }}
           restore-keys: |
             ${{ runner.os }}-ccache-${{ matrix.host }}-
@@ -83,6 +82,7 @@ jobs:
         run: |
           set -euo pipefail
           export PATH="/usr/lib/ccache:$PATH"
+          ccache -M "${CCACHE_MAXSIZE}"
           make -j$(nproc)
 
       - name: Package
@@ -138,7 +138,7 @@ jobs:
       - name: Restore cache • ccache
         uses: actions/cache@v4
         with:
-          path: ${{ env.CCACHE_DIR }}
+          path: ${{ runner.temp }}/.ccache
           key: ${{ runner.os }}-ccache-${{ matrix.host }}-${{ github.sha }}
           restore-keys: |
             ${{ runner.os }}-ccache-${{ matrix.host }}-
@@ -165,6 +165,7 @@ jobs:
         run: |
           set -euo pipefail
           export PATH="/usr/lib/ccache:$PATH"
+          ccache -M "${CCACHE_MAXSIZE}"
           make -j$(nproc)
 
       - name: Package (mingw)
@@ -218,7 +219,7 @@ jobs:
       - name: Restore cache • ccache
         uses: actions/cache@v4
         with:
-          path: ${{ env.CCACHE_DIR }}
+          path: ${{ runner.temp }}/.ccache
           key: ${{ runner.os }}-ccache-${{ matrix.host }}-${{ github.sha }}
           restore-keys: |
             ${{ runner.os }}-ccache-${{ matrix.host }}-
@@ -245,6 +246,7 @@ jobs:
         run: |
           set -euo pipefail
           export PATH="/usr/local/opt/ccache/libexec:$PATH"
+          ccache -M "${CCACHE_MAXSIZE}"
           make -j$(sysctl -n hw.ncpu)
 
       - name: Package
@@ -276,7 +278,7 @@ jobs:
     env:
       ANDROID_SDK_ROOT: ${{ github.workspace }}/.android-sdk
       ANDROID_HOME: ${{ github.workspace }}/.android-sdk
-      ANDROID_NDK_VERSION: "26.1.10909125"   # r26b
+      ANDROID_NDK_VERSION: "26.1.10909125"
       ANDROID_API_LEVEL: "26"
       ANDROID_CLT_LINUX: https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip
     steps:
@@ -293,12 +295,6 @@ jobs:
             unzip zip curl file ca-certificates \
             autoconf automake libtool pkg-config make cmake \
             clang lld python3 ccache
-
-      - name: Setup Java (for sdkmanager)
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
 
       - name: Prepare SDK tools (guarded)
         shell: bash
@@ -318,7 +314,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ -x "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" ]; then
-            yes | "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null 2>&1 || true
+            yes | "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="${ANDROID_SDK_ROOT}" --licenses > /dev/null || true
           fi
 
       - name: Install SDK components (guarded)
@@ -346,7 +342,7 @@ jobs:
       - name: Restore cache • ccache
         uses: actions/cache@v4
         with:
-          path: ${{ env.CCACHE_DIR }}
+          path: ${{ runner.temp }}/.ccache
           key: android-ccache-${{ matrix.host }}-${{ github.sha }}
           restore-keys: |
             android-ccache-${{ matrix.host }}-
@@ -383,6 +379,7 @@ jobs:
         run: |
           set -euo pipefail
           export PATH="$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH"
+          ccache -M "${CCACHE_MAXSIZE}"
           make -j2
 
       - name: Package (Android)
@@ -416,7 +413,7 @@ jobs:
       - name: Note
         shell: pwsh
         run: |
-          Write-Host "MSVC native build is not supported in this repository (CMakeLists.txt is a placeholder)."
+          Write-Host "MSVC native build is not supported in this repository (CMakeLists.txt is a dummy)."
           Write-Host "This job is provided as a placeholder and will be skipped."
 
   netbsd-experimental:
@@ -427,7 +424,6 @@ jobs:
     steps:
       - run: echo "NetBSD build not enabled; no official runner image."
 
-  # Tag-only release publishing template (disabled by default)
   # release:
   #   if: startsWith(github.ref, 'refs/tags/')
   #   needs: [linux, windows-cross-mingw, macos, android]
