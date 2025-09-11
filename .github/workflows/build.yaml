@@ -11,7 +11,6 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  CCACHE_DIR: ${{ runner.temp }}/.ccache
   CCACHE_MAXSIZE: 500M
   ANDROID_NDK_VERSION: "26.1.10909125"
 
@@ -32,6 +31,10 @@ jobs:
     continue-on-error: ${{ matrix.experimental == true }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Init ccache dir
+        shell: bash
+        run: echo "CCACHE_DIR=$RUNNER_TEMP/.ccache" >> "$GITHUB_ENV"
 
       - name: Add swap
         shell: bash
@@ -55,7 +58,7 @@ jobs:
           esac
           sudo apt-get install -y --no-install-recommends $PKGS
 
-      - name: Init caches
+      - name: Cache ccache
         uses: actions/cache@v4
         with:
           path: ${{ env.CCACHE_DIR }}
@@ -175,11 +178,16 @@ jobs:
           swapon --show
 
       - name: Select POSIX threads (cross)
-        if: ${{ matrix.flavor == 'cross' && matrix.host == 'x86_64-w64-mingw32' }}
+        if: ${{ matrix.flavor == 'cross' }}
         shell: bash
         run: |
-          sudo update-alternatives --set x86_64-w64-mingw32-g++ /usr/bin/x86_64-w64-mingw32-g++-posix || true
-          sudo update-alternatives --set x86_64-w64-mingw32-gcc /usr/bin/x86_64-w64-mingw32-gcc-posix || true
+          if [[ "${{ matrix.host }}" == "x86_64-w64-mingw32" ]]; then
+            sudo update-alternatives --set x86_64-w64-mingw32-g++ /usr/bin/x86_64-w64-mingw32-g++-posix || true
+            sudo update-alternatives --set x86_64-w64-mingw32-gcc /usr/bin/x86_64-w64-mingw32-gcc-posix || true
+          else
+            sudo update-alternatives --set i686-w64-mingw32-g++ /usr/bin/i686-w64-mingw32-g++-posix || true
+            sudo update-alternatives --set i686-w64-mingw32-gcc /usr/bin/i686-w64-mingw32-gcc-posix || true
+          fi
 
       # MSYS2 (Windows runner)
       - name: Setup MSYS2
@@ -374,6 +382,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Init ccache dir
+        shell: bash
+        run: echo "CCACHE_DIR=$RUNNER_TEMP/.ccache" >> "$GITHUB_ENV"
+
       - name: Install toolchain
         shell: bash
         run: |
@@ -389,6 +401,14 @@ jobs:
         run: |
           unset ANDROID_SDK ANDROID_HOME ANDROID_NDK ANDROID_NDK_HOME || true
 
+      - name: Cache ccache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: mac-ccache-${{ matrix.host }}-${{ hashFiles('**/configure.ac', '**/Makefile.am') }}
+          restore-keys: |
+            mac-ccache-${{ matrix.host }}-
+
       - name: Build depends
         shell: bash
         env:
@@ -403,7 +423,7 @@ jobs:
           HOST: ${{ matrix.host }}
         run: |
           set -euo pipefail
-          export PATH="/usr/local/opt/ccache/libexec:$PATH"
+          export PATH="/opt/homebrew/opt/ccache/libexec:/usr/local/opt/ccache/libexec:$PATH"
           ./autogen.sh
           export CONFIG_SITE="$PWD/depends/${HOST}/share/config.site"
           PREFIX="$PWD/depends/${HOST}"
@@ -413,7 +433,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          export PATH="/usr/local/opt/ccache/libexec:$PATH"
+          export PATH="/opt/homebrew/opt/ccache/libexec:/usr/local/opt/ccache/libexec:$PATH"
           ccache -M "${CCACHE_MAXSIZE}"
           make -j1 2>&1 | tee -a build.log
 
@@ -466,12 +486,16 @@ jobs:
     timeout-minutes: 180
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - { abi: arm64-v8a, host: aarch64-linux-android }
-          - { abi: armeabi-v7a, host: arm-linux-androideabi }
+    matrix:
+      include:
+        - { abi: arm64-v8a, host: aarch64-linux-android }
+        - { abi: armeabi-v7a, host: arm-linux-androideabi }
     steps:
       - uses: actions/checkout@v4
+
+      - name: Init ccache dir
+        shell: bash
+        run: echo "CCACHE_DIR=$RUNNER_TEMP/.ccache" >> "$GITHUB_ENV"
 
       - name: Install host tools
         shell: bash
@@ -510,6 +534,14 @@ jobs:
           mkdir -p cmdline-tools/latest
           mv cmdline-tools/cmdline-tools/* cmdline-tools/latest/
           yes | cmdline-tools/latest/bin/sdkmanager --sdk_root="$ANDROID_SDK_ROOT" "platform-tools" "platforms;android-34" "build-tools;34.0.0" "ndk;${ANDROID_NDK_VERSION}"
+
+      - name: Cache ccache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: android-ccache-${{ matrix.abi }}-${{ hashFiles('**/configure.ac', '**/Makefile.am') }}
+          restore-keys: |
+            android-ccache-${{ matrix.abi }}-
 
       - name: Build depends (Android)
         shell: bash
