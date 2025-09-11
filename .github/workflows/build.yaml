@@ -34,7 +34,7 @@ jobs:
 
       - name: Init submodules
         shell: bash
-        run: git submodule update --init --recursive --depth 1 || git submodule update --init --recursive
+        run: git submodule sync --recursive && git submodule update --init --recursive --force --depth 1 || git submodule update --init --recursive --force
 
       - name: Init ccache dir
         shell: bash
@@ -77,7 +77,8 @@ jobs:
         run: |
           set -euo pipefail
           export FALLBACK_DOWNLOAD_PATH=https://explorer.yerbas.org/depends/
-          stdbuf -oL -eL make -C depends download -j2 HOST=${HOST} NO_QT=1 V=1 2>&1 | tee -a depends.download.log
+          stdbuf -oL -eL JOBS=$(getconf _NPROCESSORS_ONLN 2>/dev/null || nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2)
+          stdbuf -oL -eL make -C depends download -j"${JOBS}" HOST=${HOST} NO_QT=1 V=1 2>&1 | tee -a depends.download.log
 
       - name: Build depends
         shell: bash
@@ -86,7 +87,9 @@ jobs:
         run: |
           set -euo pipefail
           export FALLBACK_DOWNLOAD_PATH=https://explorer.yerbas.org/depends/
-          stdbuf -oL -eL make -C depends -j2 HOST=${HOST} NO_QT=1 V=1 2>&1 | tee -a depends.build.log || { code=$?; echo "depends failed with exit $code"; find depends -name config.log -print -exec tail -n 200 {} \; || true; exit $code; }
+          JOBS=$(getconf _NPROCESSORS_ONLN 2>/dev/null || nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2)
+          make -C depends doctor HOST=${HOST}
+          stdbuf -oL -eL make -C depends -j"${JOBS}" HOST=${HOST} NO_QT=1 V=1 2>&1 | tee -a depends.build.log || { code=$?; echo "depends failed with exit $code"; find depends -name config.log -print -exec tail -n 200 {} \; || true; exit $code; }
 
       - name: Configure
         shell: bash
@@ -108,7 +111,8 @@ jobs:
           set -euo pipefail
           export PATH="/usr/lib/ccache:$PATH"
           ccache -M "${CCACHE_MAXSIZE}"
-          make -j2 2>&1 | tee -a build.log
+          JOBS=$(getconf _NPROCESSORS_ONLN 2>/dev/null || nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2)
+          make -j"${JOBS}" 2>&1 | tee -a build.log
 
       - name: Install (stage)
         shell: bash
@@ -127,9 +131,10 @@ jobs:
           set -euo pipefail
           mkdir -p dist/${HOST}
           export SOURCE_DATE_EPOCH="$(git log -1 --format=%ct || date +%s)"
+          STRIP_TOOL="${HOST}-strip"; command -v "$STRIP_TOOL" >/dev/null 2>&1 || STRIP_TOOL="strip"
           for f in src/vkaxd src/vkax-cli src/vkax-tx src/qt/vkax-qt; do
             if [ -x "$f" ]; then
-              strip -S "$f" || true
+              "$STRIP_TOOL" -S "$f" || true
               install -m0755 "$f" dist/${HOST}/
             fi
           done
@@ -181,7 +186,7 @@ jobs:
 
       - name: Init submodules
         shell: bash
-        run: git submodule update --init --recursive --depth 1 || git submodule update --init --recursive
+        run: git submodule sync --recursive && git submodule update --init --recursive --force --depth 1 || git submodule update --init --recursive --force
 
       - name: Install toolchain (cross)
         if: ${{ matrix.flavor == 'cross' }}
@@ -257,7 +262,9 @@ jobs:
         run: |
           set -euo pipefail
           export FALLBACK_DOWNLOAD_PATH=https://explorer.yerbas.org/depends/
-          make -C depends -j1 HOST=${HOST} NO_QT=1 V=1 2>&1 | tee -a depends.build.log
+          JOBS=$(getconf _NPROCESSORS_ONLN 2>/dev/null || nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2)
+          make -C depends doctor HOST=${HOST}
+          make -C depends -j"${JOBS}" HOST=${HOST} NO_QT=1 V=1 2>&1 | tee -a depends.build.log
 
       - name: Configure (cross)
         if: ${{ matrix.flavor == 'cross' }}
@@ -280,7 +287,8 @@ jobs:
           set -euo pipefail
           export PATH="/usr/lib/ccache:$PATH"
           ccache -M "${CCACHE_MAXSIZE}"
-          make -j1 2>&1 | tee -a build.log
+          JOBS=$(getconf _NPROCESSORS_ONLN 2>/dev/null || nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2)
+          make -j"${JOBS}" 2>&1 | tee -a build.log
 
       - name: Install (stage) (cross)
         if: ${{ matrix.flavor == 'cross' }}
@@ -351,7 +359,8 @@ jobs:
           case "$MSYSTEM" in MINGW32) MINGW_PREFIX=/mingw32 ;; MINGW64) MINGW_PREFIX=/mingw64 ;; *) MINGW_PREFIX=/mingw64 ;; esac
           export PATH="$MINGW_PREFIX/bin:$PATH"
           ccache -M "${CCACHE_MAXSIZE}"
-          make -j1 2>&1 | tee -a build.log
+          JOBS=$(getconf _NPROCESSORS_ONLN 2>/dev/null || nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2)
+          make -j"${JOBS}" 2>&1 | tee -a build.log
 
       - name: Install (stage) (msys2)
         if: ${{ matrix.flavor == 'msys2' }}
@@ -393,6 +402,13 @@ jobs:
             **/config.log
           if-no-files-found: ignore
 
+      - name: Cache ccache (save)
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          paths: ${{ env.CCACHE_DIR }}
+          key: windows-ccache-${{ matrix.name }}-${{ hashFiles('**/configure.ac', '**/Makefile.am') }}
+
       - uses: actions/upload-artifact@v4
         if: ${{ matrix.flavor == 'msys2' }}
         with:
@@ -422,7 +438,7 @@ jobs:
 
       - name: Init submodules
         shell: bash
-        run: git submodule update --init --recursive --depth 1 || git submodule update --init --recursive
+        run: git submodule sync --recursive && git submodule update --init --recursive --force --depth 1 || git submodule update --init --recursive --force
 
       - name: Init ccache dir
         shell: bash
@@ -462,7 +478,9 @@ jobs:
         run: |
           set -euo pipefail
           export FALLBACK_DOWNLOAD_PATH=https://explorer.yerbas.org/depends/
-          make -C depends -j1 HOST=${HOST} NO_QT=1 V=1 2>&1 | tee -a depends.build.log
+          JOBS=$(getconf _NPROCESSORS_ONLN 2>/dev/null || nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2)
+          make -C depends doctor HOST=${HOST}
+          make -C depends -j"${JOBS}" HOST=${HOST} NO_QT=1 V=1 2>&1 | tee -a depends.build.log
 
       - name: Configure
         shell: bash
@@ -484,7 +502,8 @@ jobs:
           set -euo pipefail
           export PATH="/opt/homebrew/opt/ccache/libexec:/usr/local/opt/ccache/libexec:$PATH"
           ccache -M "${CCACHE_MAXSIZE}"
-          make -j1 2>&1 | tee -a build.log
+          JOBS=$(getconf _NPROCESSORS_ONLN 2>/dev/null || nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2)
+          make -j"${JOBS}" 2>&1 | tee -a build.log
 
       - name: Install (stage)
         shell: bash
@@ -523,6 +542,13 @@ jobs:
             **/config.log
           if-no-files-found: ignore
 
+      - name: Cache ccache (save)
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          paths: ${{ env.CCACHE_DIR }}
+          key: mac-ccache-${{ matrix.host }}-${{ hashFiles('**/configure.ac', '**/Makefile.am') }}
+
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ format('{0}-{1}', 'mac', matrix.host) }}
@@ -544,7 +570,7 @@ jobs:
 
       - name: Init submodules
         shell: bash
-        run: git submodule update --init --recursive --depth 1 || git submodule update --init --recursive
+        run: git submodule sync --recursive && git submodule update --init --recursive --force --depth 1 || git submodule update --init --recursive --force
 
       - name: Init ccache dir
         shell: bash
@@ -638,6 +664,7 @@ jobs:
         run: |
           set -euo pipefail
           export PATH="$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH"
+          test -x "$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/clang" || { echo "NDK clang missing"; ls -la "$ANDROID_NDK"; exit 1; }
           ./autogen.sh
           export CONFIG_SITE="$PWD/depends/${HOST}/share/config.site"
           test -f "$CONFIG_SITE" || { echo "Missing config.site for $HOST"; exit 1; }
@@ -654,7 +681,8 @@ jobs:
           set -euo pipefail
           export PATH="$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH"
           ccache -M "${CCACHE_MAXSIZE}"
-          make -j1 2>&1 | tee -a build.log
+          JOBS=$(getconf _NPROCESSORS_ONLN 2>/dev/null || nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2)
+          make -j"${JOBS}" 2>&1 | tee -a build.log
 
       - name: Install (stage)
         shell: bash
@@ -695,6 +723,13 @@ jobs:
             build.log
             **/config.log
           if-no-files-found: ignore
+
+      - name: Cache ccache (save)
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          paths: ${{ env.CCACHE_DIR }}
+          key: android-ccache-${{ matrix.abi }}-${{ hashFiles('**/configure.ac', '**/Makefile.am') }}
 
       - uses: actions/upload-artifact@v4
         with:
