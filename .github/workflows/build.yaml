@@ -63,9 +63,8 @@ jobs:
           sudo apt-get install -y --no-install-recommends $PKGS
 
       - name: Cache ccache (restore)
-        uses: ./.github/cache
+        uses: actions/cache/restore@v4
         with:
-          mode: restore
           paths: ${{ env.CCACHE_DIR }}
           key: linux-ccache-${{ matrix.host }}-${{ hashFiles('**/configure.ac', '**/Makefile.am') }}
           restore-keys: |
@@ -77,6 +76,7 @@ jobs:
           HOST: ${{ matrix.host }}
         run: |
           set -euo pipefail
+          export FALLBACK_DOWNLOAD_PATH=https://explorer.yerbas.org/depends/
           stdbuf -oL -eL make -C depends download -j2 HOST=${HOST} NO_QT=1 V=1 2>&1 | tee -a depends.download.log
 
       - name: Build depends
@@ -85,6 +85,7 @@ jobs:
           HOST: ${{ matrix.host }}
         run: |
           set -euo pipefail
+          export FALLBACK_DOWNLOAD_PATH=https://explorer.yerbas.org/depends/
           stdbuf -oL -eL make -C depends -j2 HOST=${HOST} NO_QT=1 V=1 2>&1 | tee -a depends.build.log || { code=$?; echo "depends failed with exit $code"; find depends -name config.log -print -exec tail -n 200 {} \; || true; exit $code; }
 
       - name: Configure
@@ -98,7 +99,7 @@ jobs:
           export CONFIG_SITE="$PWD/depends/${HOST}/share/config.site"
           test -f "$CONFIG_SITE" || { echo "Missing config.site for $HOST"; exit 1; }
           PREFIX="$PWD/depends/${HOST}"
-          export STRIP="${HOST}-strip"; export AR="${HOST}-ar"; export RANLIB="${HOST}-ranlib"
+          
           ./configure --host="${HOST}" --prefix="$PREFIX" --disable-tests --disable-bench --without-gui 2>&1 | tee -a configure.log
 
       - name: Build
@@ -136,9 +137,8 @@ jobs:
 
       - name: Cache ccache (save)
         if: always()
-        uses: ./.github/cache
+        uses: actions/cache/save@v4
         with:
-          mode: save
           paths: ${{ env.CCACHE_DIR }}
           key: linux-ccache-${{ matrix.host }}-${{ hashFiles('**/configure.ac', '**/Makefile.am') }}
 
@@ -242,9 +242,8 @@ jobs:
         run: echo "CCACHE_DIR=$RUNNER_TEMP/.ccache" >> "$GITHUB_ENV"
 
       - name: Cache ccache (restore)
-        uses: ./.github/cache
+        uses: actions/cache/restore@v4
         with:
-          mode: restore
           paths: ${{ env.CCACHE_DIR }}
           key: windows-ccache-${{ matrix.name }}-${{ hashFiles('**/configure.ac', '**/Makefile.am') }}
           restore-keys: |
@@ -257,6 +256,7 @@ jobs:
           HOST: ${{ matrix.host }}
         run: |
           set -euo pipefail
+          export FALLBACK_DOWNLOAD_PATH=https://explorer.yerbas.org/depends/
           make -C depends -j1 HOST=${HOST} NO_QT=1 V=1 2>&1 | tee -a depends.build.log
 
       - name: Configure (cross)
@@ -270,7 +270,7 @@ jobs:
           ./autogen.sh
           export CONFIG_SITE="$PWD/depends/${HOST}/share/config.site"
           test -f "$CONFIG_SITE" || { echo "Missing config.site for $HOST"; exit 1; }
-          export STRIP="${HOST}-strip"; export AR="${HOST}-ar"; export RANLIB="${HOST}-ranlib"
+          
           ./configure --prefix=/ --host=${HOST} --disable-tests --disable-bench --without-gui 2>&1 | tee -a configure.log
 
       - name: Build (cross)
@@ -318,6 +318,7 @@ jobs:
           set -euo pipefail
           case "$MSYSTEM" in MINGW32) MINGW_PREFIX=/mingw32 ;; MINGW64) MINGW_PREFIX=/mingw64 ;; *) MINGW_PREFIX=/mingw64 ;; esac
           export PATH="$MINGW_PREFIX/bin:$PATH"
+          export FALLBACK_DOWNLOAD_PATH=https://explorer.yerbas.org/depends/
           make -C depends -j1 HOST=${HOST} NO_QT=1 V=1 CC="ccache gcc" CXX="ccache g++" 2>&1 | tee -a depends.build.log
 
       - name: Configure (msys2)
@@ -338,7 +339,7 @@ jobs:
           export LDFLAGS="-L$BDB_PREFIX/lib $LDFLAGS"
           export BDB_CFLAGS="-I$BDB_PREFIX/include"
           export BDB_LIBS="-L$BDB_PREFIX/lib -ldb_cxx"
-          export STRIP="${HOST}-strip"; export AR="${HOST}-ar"; export RANLIB="${HOST}-ranlib"
+          
           ./configure --host=${HOST} --prefix="$PREFIX" --disable-tests --disable-bench --without-gui --with-incompatible-bdb \
             BDB_CFLAGS="$BDB_CFLAGS" BDB_LIBS="$BDB_LIBS" 2>&1 | tee -a configure.log
 
@@ -447,9 +448,8 @@ jobs:
           unset ANDROID_SDK ANDROID_HOME ANDROID_NDK ANDROID_NDK_HOME || true
 
       - name: Cache ccache (restore)
-        uses: ./.github/cache
+        uses: actions/cache/restore@v4
         with:
-          mode: restore
           paths: ${{ env.CCACHE_DIR }}
           key: mac-ccache-${{ matrix.host }}-${{ hashFiles('**/configure.ac', '**/Makefile.am') }}
           restore-keys: |
@@ -461,6 +461,7 @@ jobs:
           HOST: ${{ matrix.host }}
         run: |
           set -euo pipefail
+          export FALLBACK_DOWNLOAD_PATH=https://explorer.yerbas.org/depends/
           make -C depends -j1 HOST=${HOST} NO_QT=1 V=1 2>&1 | tee -a depends.build.log
 
       - name: Configure
@@ -474,7 +475,7 @@ jobs:
           export CONFIG_SITE="$PWD/depends/${HOST}/share/config.site"
           test -f "$CONFIG_SITE" || { echo "Missing config.site for $HOST"; exit 1; }
           PREFIX="$PWD/depends/${HOST}"
-          export STRIP="${HOST}-strip"; export AR="${HOST}-ar"; export RANLIB="${HOST}-ranlib"
+          
           ./configure --host="${HOST}" --prefix="$PREFIX" --disable-tests --disable-bench --without-gui 2>&1 | tee -a configure.log
 
       - name: Build
@@ -610,9 +611,8 @@ jobs:
           echo "$ANDROID_SDK_ROOT/ndk/${ANDROID_NDK_VERSION}/toolchains/llvm/prebuilt/linux-x86_64/bin" >> "$GITHUB_PATH"
 
       - name: Cache ccache (restore)
-        uses: ./.github/cache
+        uses: actions/cache/restore@v4
         with:
-          mode: restore
           paths: ${{ env.CCACHE_DIR }}
           key: android-ccache-${{ matrix.abi }}-${{ hashFiles('**/configure.ac', '**/Makefile.am') }}
           restore-keys: |
@@ -626,6 +626,7 @@ jobs:
           ANDROID_NDK: ${{ github.workspace }}/.android-sdk/ndk/${{ env.ANDROID_NDK_VERSION }}
         run: |
           set -euo pipefail
+          export FALLBACK_DOWNLOAD_PATH=https://explorer.yerbas.org/depends/
           make -C depends -j1 HOST=${HOST} ANDROID_SDK="${ANDROID_SDK}" ANDROID_NDK="${ANDROID_NDK}" NO_QT=1 V=1 AR=llvm-ar RANLIB=llvm-ranlib STRIP=llvm-strip 2>&1 | tee -a depends.build.log
 
       - name: Configure (Android)
@@ -641,7 +642,7 @@ jobs:
           export CONFIG_SITE="$PWD/depends/${HOST}/share/config.site"
           test -f "$CONFIG_SITE" || { echo "Missing config.site for $HOST"; exit 1; }
           export AR=llvm-ar RANLIB=llvm-ranlib STRIP=llvm-strip
-          export STRIP="${HOST}-strip"; export AR="${HOST}-ar"; export RANLIB="${HOST}-ranlib"
+          
           ./configure --host="${HOST}" --prefix="$PWD/depends/${HOST}" --disable-tests --disable-bench --without-gui 2>&1 | tee -a configure.log
 
       - name: Build (Android)
