@@ -144,6 +144,7 @@ jobs:
           - { name: "mingw cross x86_64", runner: "ubuntu-24.04", flavor: "cross", host: "x86_64-w64-mingw32" }
           - { name: "mingw cross i686 (experimental)", runner: "ubuntu-24.04", flavor: "cross", host: "i686-w64-mingw32", apt_extra: "g++-mingw-w64-i686", experimental: true }
           - { name: "msys2 mingw x86_64", runner: "windows-2022", flavor: "msys2", host: "x86_64-w64-mingw32", msystem: "MINGW64" }
+          - { name: "msys2 mingw i686 (experimental)", runner: "windows-2022", flavor: "msys2", host: "i686-w64-mingw32", msystem: "MINGW32", experimental: true }
     continue-on-error: ${{ matrix.experimental == true }}
     steps:
       - uses: actions/checkout@v4
@@ -274,6 +275,8 @@ jobs:
             unzip
             mingw-w64-x86_64-toolchain
             mingw-w64-x86_64-ccache
+            mingw-w64-i686-toolchain
+            mingw-w64-i686-ccache
 
       - name: Init ccache dir (msys2)
         if: ${{ matrix.flavor == 'msys2' }}
@@ -303,20 +306,10 @@ jobs:
       - name: Build depends (msys2)
         if: ${{ matrix.flavor == 'msys2' }}
         shell: msys2 {0}
-        env:
-          HOST: ${{ matrix.host }}
         run: |
           set -euo pipefail
-          make -C depends -j2 HOST=${HOST}
-
-      - name: Configure (msys2)
-        if: ${{ matrix.flavor == 'msys2' }}
-        shell: msys2 {0}
-        env:
-          HOST: ${{ matrix.host }}
-        run: |
-          set -euo pipefail
-          export PATH="/mingw64/bin:$PATH"
+          case "$MSYSTEM" in MINGW32) MINGW_PREFIX=/mingw32 ;; MINGW64) MINGW_PREFIX=/mingw64 ;; *) MINGW_PREFIX=/mingw64 ;; esac
+          export PATH="$MINGW_PREFIX/bin:$PATH"
           ./autogen.sh
           export CONFIG_SITE="$PWD/depends/${HOST}/share/config.site"
           ./configure --host=${HOST} --prefix="$PWD/depends/${HOST}" --disable-tests --disable-bench
@@ -326,7 +319,8 @@ jobs:
         shell: msys2 {0}
         run: |
           set -euo pipefail
-          export PATH="/mingw64/bin:$PATH"
+          case "$MSYSTEM" in MINGW32) MINGW_PREFIX=/mingw32 ;; MINGW64) MINGW_PREFIX=/mingw64 ;; *) MINGW_PREFIX=/mingw64 ;; esac
+          export PATH="$MINGW_PREFIX/bin:$PATH"
           ccache -M "${CCACHE_MAXSIZE}"
           make -j$(nproc)
 
