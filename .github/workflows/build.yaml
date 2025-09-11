@@ -2,7 +2,7 @@ name: Build VKAX
 
 on:
   push:
-    branches: [ main, master, v100.11.5-android, release/* ]
+    branches: [ main, master, release/* ]
   pull_request:
   workflow_dispatch:
 
@@ -480,48 +480,7 @@ jobs:
           path: dist/${{ matrix.host }}/**
           if-no-files-found: error
 
-  android:
-    name: android • ${{ matrix.abi }} • depends
-    runs-on: ubuntu-24.04
-    timeout-minutes: 180
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - { abi: arm64-v8a, host: aarch64-linux-android }
-          - { abi: armeabi-v7a, host: arm-linux-androideabi }
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Init ccache dir
-        shell: bash
-        run: echo "CCACHE_DIR=$RUNNER_TEMP/.ccache" >> "$GITHUB_ENV"
-
-      - name: Install host tools
-        shell: bash
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends \
-            unzip zip curl file ca-certificates \
-            autoconf automake libtool pkg-config make cmake \
-            clang lld python3 ccache
-
-      - name: Add swap (android)
-        shell: bash
-        run: |
-          sudo fallocate -l 8G /swapfile || sudo dd if=/dev/zero of=/swapfile bs=1M count=8192
-          sudo chmod 600 /swapfile
-          sudo mkswap /swapfile
-          sudo swapon /swapfile
-          swapon --show
-
-      - name: Setup Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
-
-      - name: Install Android SDK + NDK
+  $1- name: Prepare Android SDK cmdline-tools
         shell: bash
         env:
           ANDROID_SDK_ROOT: ${{ github.workspace }}/.android-sdk
@@ -530,10 +489,32 @@ jobs:
           mkdir -p "$ANDROID_SDK_ROOT"
           cd "$ANDROID_SDK_ROOT"
           curl -sSL https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -o cmdtools.zip
+          rm -rf cmdline-tools || true
           unzip -q cmdtools.zip -d cmdline-tools
           mkdir -p cmdline-tools/latest
-          mv cmdline-tools/cmdline-tools/* cmdline-tools/latest/
-          yes | cmdline-tools/latest/bin/sdkmanager --sdk_root="$ANDROID_SDK_ROOT" "platform-tools" "platforms;android-34" "build-tools;34.0.0" "ndk;${ANDROID_NDK_VERSION}"
+          mv -f cmdline-tools/cmdline-tools/* cmdline-tools/latest/
+
+      - name: Accept Android licenses
+        uses: vkaxcore/VKAX/.github/actions/android-accept-licenses@v100.11.5-android
+        with:
+          sdk-root: ${{ github.workspace }}/.android-sdk
+
+      - name: Install Android packages (pinned)
+        shell: bash
+        env:
+          ANDROID_SDK_ROOT: ${{ github.workspace }}/.android-sdk
+        run: |
+          set -euo pipefail
+          SDKMGR="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          "$SDKMGR" --sdk_root="$ANDROID_SDK_ROOT" --install \
+            "platform-tools" \
+            "platforms;android-34" \
+            "build-tools;34.0.0" \
+            "ndk;${ANDROID_NDK_VERSION}"
+          echo "ANDROID_NDK=$ANDROID_SDK_ROOT/ndk/${ANDROID_NDK_VERSION}" >> "$GITHUB_ENV"
+          echo "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+          echo "$ANDROID_SDK_ROOT/platform-tools" >> "$GITHUB_PATH"
+          echo "$ANDROID_SDK_ROOT/ndk/${ANDROID_NDK_VERSION}/toolchains/llvm/prebuilt/linux-x86_64/bin" >> "$GITHUB_PATH"
 
       - name: Cache ccache
         uses: actions/cache@v4
