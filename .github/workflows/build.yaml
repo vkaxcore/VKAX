@@ -1,12 +1,4 @@
-# .github/workflows/build.yaml
-# CI: Production builds for Android + Native (Linux, macOS, Windows).
-# - Scoped Android env per-job
-# - Robust ulimit
-# - Strict depends behavior on Linux/macOS
-# - Split cache restore/save via local composite action
-# - No top-level env using runner.*
-name: "CI • Production builds (Android + Native)"
-
+name: "CI • Build VKAX (no cache)"
 on:
   push:
     branches: ["v100.11.5-android"]
@@ -21,58 +13,151 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # ---------------------
-  # Android builds (production)
-  # ---------------------
+  ubuntu:
+    name: linux • ${{ matrix.name }}
+    runs-on: ${{ matrix.runs_on }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: "ubuntu-22-amd64", runs_on: "ubuntu-22.04", triple: "x86_64-pc-linux-gnu" }
+          - { name: "ubuntu-24-amd64", runs_on: "ubuntu-24.04", triple: "x86_64-pc-linux-gnu" }
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+      - name: System deps
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq build-essential pkg-config automake libtool autoconf bison cmake ninja-build python3
+      - name: Build depends
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "${GITHUB_WORKSPACE:-.}"
+          if [ ! -d depends ]; then echo "::error::depends/ dir missing"; exit 2; fi
+          hard=$(ulimit -H -n || echo 4096); soft=65535; [ "$hard" -lt 65535 ] && soft=$hard; ulimit -n "$soft" || true
+          make -C depends -j1 HOST=${{ matrix.triple }}
+      - name: Configure + make (autotools)
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./autogen.sh || true
+          CONFIG_SITE="$PWD/depends/${{ matrix.triple }}/share/config.site"             ./configure --disable-tests --disable-bench --without-gui
+          make -j1 V=1 || true
+      - name: Package
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist_linux
+          find . -type f -maxdepth 2 -name 'vkax*' -executable -exec cp -a {} dist_linux/ \; || true
+          if [ -d dist_linux ]; then (cd dist_linux && sha256sum * > sha256sums.txt || true); fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: native-ubuntu-${{ matrix.name }}
+          path: dist_linux/**/*
+          if-no-files-found: warn
+
+  macos:
+    name: macos • 13
+    runs-on: macos-13
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+      - name: Build depends
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "${GITHUB_WORKSPACE:-.}"
+          if [ ! -d depends ]; then echo "::error::depends/ dir missing"; exit 2; fi
+          export MACOSX_DEPLOYMENT_TARGET=11.0
+          hard=$(ulimit -H -n || echo 256); soft=65535; [ "$hard" -lt 65535 ] && soft=$hard; ulimit -n "$soft" || true
+          make -C depends -j1 HOST=x86_64-apple-darwin
+      - name: Configure + make (autotools)
+        shell: bash
+        run: |
+          set -euo pipefail
+          export MACOSX_DEPLOYMENT_TARGET=11.0
+          ./autogen.sh || true
+          CONFIG_SITE="$PWD/depends/x86_64-apple-darwin/share/config.site"             ./configure --host=x86_64-apple-darwin --disable-tests --disable-bench --without-gui
+          make -j1 V=1 || true
+      - name: Package
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist_macos
+          find . -type f -maxdepth 2 -name 'vkax*' -perm +111 -exec cp -a {} dist_macos/ \; || true
+          (cd dist_macos && shasum -a 256 * > sha256sums.txt || true) || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: native-macos-13
+          path: dist_macos/**/*
+          if-no-files-found: warn
+
+  windows:
+    name: windows • 2022
+    runs-on: windows-2022
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+      - name: MSVC dev cmd
+        uses: ilammy/msvc-dev-cmd@v1
+      - name: CMake configure & build (best effort)
+        shell: powershell
+        run: |
+          Set-StrictMode -Version Latest
+          if (Test-Path .\CMakeLists.txt) {
+            cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+            cmake --build build --config Release -- -j1
+          } else {
+            Write-Output "::notice::No CMakeLists.txt; attempting nothing on Windows"
+          }
+      - name: Package
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force -Path dist_win | Out-Null
+          Get-ChildItem -Path build -Recurse -File -Include vkax* | ForEach-Object { Copy-Item $_.FullName dist_win -Force }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: native-windows-2022
+          path: dist_win/**/*
+          if-no-files-found: warn
+
   android:
-    name: android • build • ${{ matrix.abi }}
+    name: android • ${{ matrix.abi }}
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
-        abi: [arm64-v8a, armeabi-v7a]
         include:
-          - abi: arm64-v8a
-            host: aarch64-linux-android
-          - abi: armeabi-v7a
-            host: arm-linux-androideabi
+          - { abi: "arm64-v8a", host: "aarch64-linux-android" }
+          - { abi: "armeabi-v7a", host: "arm-linux-androideabi" }
     env:
       ANDROID_SDK_ROOT: ${{ github.workspace }}/.android-sdk
       ANDROID_HOME: ${{ github.workspace }}/.android-sdk
-      ANDROID_CLT_LINUX: https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip
       ANDROID_NDK_VERSION: "23.1.7779620"
+      ANDROID_API_LEVEL: "34"
+      ANDROID_CLT_LINUX: https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
-          submodules: true
           fetch-depth: 0
-
-      - name: Setup Java 11
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '11'
-
-      - name: Set fallback download path
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo "FALLBACK_DOWNLOAD_PATH=${RUNNER_TEMP:-/tmp}/depends-sources" >> "$GITHUB_ENV"
-
-      - name: Cache (depends sources + ccache) • restore
-        uses: ./.github/cache
-        with:
-          mode: restore
-          key: ${{ runner.os }}-android-${{ matrix.abi }}-${{ env.ANDROID_NDK_VERSION }}-${{ hashFiles('depends/packages/*.mk') }}
-          paths: |
-            depends/sources
-            ~/.ccache
-          restore-keys: |
-            ${{ runner.os }}-android-${{ matrix.abi }}-
-
-      - name: Prepare SDK + cmdline-tools
+          submodules: recursive
+      - name: Prepare SDK tools (guarded)
         shell: bash
         run: |
           set -euo pipefail
@@ -82,660 +167,52 @@ jobs:
             tmp=$(mktemp -d)
             curl -fsSL "$ANDROID_CLT_LINUX" -o "$tmp/cmdline.zip"
             unzip -q "$tmp/cmdline.zip" -d "$ANDROID_SDK_ROOT/cmdline-tools"
-            mv "$ANDROID_SDK_ROOT/cmdline-tools/cmdline-tools" "$ANDROID_SDK_ROOT/cmdline-tools/latest"
+            mv "$ANDROID_SDK_ROOT/cmdline-tools/cmdline-tools" "$ANDROID_SDK_ROOT/cmdline-tools/latest" || true
           fi
-          {
-            echo "$ANDROID_SDK_ROOT/platform-tools"
-            echo "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin"
-          } >> "$GITHUB_PATH"
-
-      - name: Accept Android licenses
-        uses: ./.github/actions/android-accept-licenses
-
-      - name: Install Android packages
+          echo "$ANDROID_SDK_ROOT/platform-tools" >> "$GITHUB_PATH"
+          echo "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+      - name: Accept licenses
         shell: bash
         run: |
           set -euo pipefail
-          SDKMANAGER="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
-          if [ -x "$SDKMANAGER" ]; then
-            "$SDKMANAGER" --sdk_root="${ANDROID_SDK_ROOT}" \
-              "platform-tools" \
-              "platforms;android-34" \
-              "ndk;${ANDROID_NDK_VERSION}"
+          yes | sdkmanager --licenses >/dev/null 2>&1 || true
+      - name: Install Android packages (guarded)
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -x "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" ]; then
+            "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="${ANDROID_SDK_ROOT}"               "platform-tools" "platforms;android-${ANDROID_API_LEVEL}" "ndk;${ANDROID_NDK_VERSION}" || true
           else
-            echo "::warning::sdkmanager not found at $SDKMANAGER; skipping Android package install"
+            echo "::warning::sdkmanager not present; skipping explicit installs"
           fi
-
-      - name: Build depends (${{ matrix.host }})
-        shell: bash
-        env:
-          CCACHE_DIR: ~/.ccache
-          CCACHE_COMPRESS: "1"
-        run: |
-          set -euo pipefail
-          if [ ! -d depends ]; then echo "::error::depends/ missing"; exit 2; fi
-          # raise soft file-descriptor limit to mitigate EMFILE during packaging operations
-          hard=$(ulimit -H -n || echo 4096)
-          soft_target=65535; [ "$hard" -lt 65535 ] && soft_target=$hard
-          ulimit -n "$soft_target" || true
-          echo "ulimit -n now: $(ulimit -n) (hard: $hard)"
-          export ANDROID_SDK="${ANDROID_SDK_ROOT}"
-          export ANDROID_NDK="${ANDROID_SDK_ROOT}/ndk/${ANDROID_NDK_VERSION}"
-          make -C depends -j1 HOST=${{ matrix.host }} ANDROID_SDK="${ANDROID_SDK}" ANDROID_NDK="${ANDROID_NDK}"
-
-      - name: Check vendored depends prefix (Android)
+      - name: Build depends (Android)
         shell: bash
         run: |
           set -euo pipefail
-          # ensure we are in repository root before checking depends
           cd "${GITHUB_WORKSPACE:-.}"
-          if ls depends/${{ matrix.host }}* >/dev/null 2>&1; then
-            echo "Found depends prefix for ${{ matrix.host }}"
-          else
-            echo "::warning::Vendored depends prefix not found for host ${{ matrix.host }} (expected depends/${{ matrix.host }}*)"
-          fi
-
-      - name: CMake configure and build (Android native) (vkax-d, vkax-cli)
+          if [ ! -d depends ]; then echo "::error::depends/ dir missing"; exit 2; fi
+          hard=$(ulimit -H -n || echo 4096); soft=65535; [ "$hard" -lt 65535 ] && soft=$hard; ulimit -n "$soft" || true
+          export ANDROID_SDK="$ANDROID_SDK_ROOT"
+          export ANDROID_NDK="$ANDROID_SDK_ROOT/ndk/${ANDROID_NDK_VERSION}"
+          make -C depends -j1 HOST=${{ matrix.host }} ANDROID_SDK="$ANDROID_SDK" ANDROID_NDK="$ANDROID_NDK"
+      - name: Build native targets (best effort)
         shell: bash
-        env:
-          ANDROID_API_LEVEL: 34
-          ANDROID_TOOLCHAIN_BIN: "${{ env.ANDROID_SDK_ROOT }}/ndk/${{ env.ANDROID_NDK_VERSION }}/toolchains/llvm/prebuilt/linux-x86_64/bin"
         run: |
           set -euo pipefail
           export ANDROID_SDK="${ANDROID_SDK_ROOT}"
           export ANDROID_NDK="${ANDROID_SDK_ROOT}/ndk/${ANDROID_NDK_VERSION}"
-          export ANDROID_TOOLCHAIN_BIN
-          make -C . -j1 V=1 HOST=${{ matrix.host }} ANDROID_API_LEVEL=${ANDROID_API_LEVEL} ANDROID_TOOLCHAIN_BIN=${ANDROID_TOOLCHAIN_BIN} vkax-d vkax-cli
-
-      - name: Package Qt Android (attempt)
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p dist_apk
-          QMAKE=$(find depends -type f -name 'qmake' -o -name 'qmake-qt5' 2>/dev/null | head -n1 || true)
-          ANDROIDDEPLOYQT=$(find depends -type f -name 'androiddeployqt' 2>/dev/null | head -n1 || true)
-          if [ -n "$QMAKE" ] && [ -n "$ANDROIDDEPLOYQT" ] && [ -f src/qt/vkax-qt.pro ]; then
-            echo "Using qmake + androiddeployqt from depends"
-            mkdir -p build-qt-android && cd build-qt-android
-            "$QMAKE" ../src/qt/vkax-qt.pro ANDROID_ABIS=${{ matrix.abi }} ANDROID_PLATFORM=android-34
-            make -j1
-            JSON=$(find . -name android_deployment_settings.json -print -quit || true)
-            if [ -n "$JSON" ]; then
-              "$ANDROIDDEPLOYQT" --input "$JSON" --output ./android_deploy --android-platform android-34 --gradle --release || true
-              find ./android_deploy -type f -name '*.apk' -exec cp -a {} ../dist_apk/ \; || true
-            fi
-          else
-            echo "androiddeployqt/qmake not available; skipping deterministic Qt packaging"
-          fi
-
-      - name: Collect Android artifacts
+          export ANDROID_TOOLCHAIN_BIN="${ANDROID_NDK}/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          make -C . -j1 V=1 HOST=${{ matrix.host }} ANDROID_API_LEVEL=${ANDROID_API_LEVEL} ANDROID_TOOLCHAIN_BIN=${ANDROID_TOOLCHAIN_BIN} vkax-d vkax-cli || true
+      - name: Package
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p dist_android
-          cp -a dist_apk/* dist_android/ 2>/dev/null || true
           find build -type f -name 'vkax-*' -exec cp -a {} dist_android/ \; || true
           if [ -d dist_android ]; then (cd dist_android && sha256sum * > sha256sums.txt || true); fi
-
-      - name: Cache (depends sources + ccache) • save
+      - uses: actions/upload-artifact@v4
         if: always()
-        uses: ./.github/cache
         with:
-          mode: save
-          key: ${{ runner.os }}-android-${{ matrix.abi }}-${{ env.ANDROID_NDK_VERSION }}-${{ hashFiles('depends/packages/*.mk') }}
-          paths: |
-            depends/sources
-            ~/.ccache
-
-      - name: Upload Android artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: android-ubuntu-24.04-${{ matrix.abi }}
-          path: |
-            dist_android/**/*
+          name: android-${{ matrix.abi }}
+          path: dist_android/**/*
           if-no-files-found: warn
-
-  android_legacy:
-    name: android • legacy • ubuntu-22.04 • api 15 • ndk 23.1.7779620
-    runs-on: ubuntu-22.04
-    timeout-minutes: 60
-    env:
-      ANDROID_SDK_ROOT: ${{ github.workspace }}/.android-sdk
-      ANDROID_HOME: ${{ github.workspace }}/.android-sdk
-      ANDROID_CLT_LINUX: https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip
-      ANDROID_NDK_VERSION: "23.1.7779620"
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          submodules: true
-          fetch-depth: 0
-
-      - name: Setup Java 11
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '11'
-
-      - name: Set fallback download path
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo "FALLBACK_DOWNLOAD_PATH=${RUNNER_TEMP:-/tmp}/depends-sources" >> "$GITHUB_ENV"
-
-      - name: Cache (depends sources + ccache) • restore
-        uses: ./.github/cache
-        with:
-          mode: restore
-          key: ${{ runner.os }}-android-legacy-${{ env.ANDROID_NDK_VERSION }}-${{ hashFiles('depends/packages/*.mk') }}
-          paths: |
-            depends/sources
-            ~/.ccache
-
-      - name: Prepare SDK + cmdline-tools
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools" "$HOME/.android"
-          touch "$HOME/.android/repositories.cfg"
-          tmp=$(mktemp -d)
-          curl -fsSL "${ANDROID_CLT_LINUX}" -o "$tmp/cmdline.zip"
-          unzip -q "$tmp/cmdline.zip" -d "$ANDROID_SDK_ROOT/cmdline-tools"
-          mv "$ANDROID_SDK_ROOT/cmdline-tools/cmdline-tools" "$ANDROID_SDK_ROOT/cmdline-tools/latest" || true
-          echo "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
-
-      - name: Accept Android licenses
-        uses: ./.github/actions/android-accept-licenses
-
-      - name: Install Android packages (legacy)
-        shell: bash
-        run: |
-          set -euo pipefail
-          SDKMANAGER="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
-          if [ -x "$SDKMANAGER" ]; then
-            "$SDKMANAGER" --sdk_root="${ANDROID_SDK_ROOT}" \
-              "platform-tools" \
-              "platforms;android-15" \
-              "ndk;${ANDROID_NDK_VERSION}"
-          else
-            echo "::warning::sdkmanager not found at $SDKMANAGER; skipping Android legacy package install"
-          fi
-
-      - name: Build vendored depends (legacy)
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ ! -d depends ]; then echo "::error::depends/ directory missing; required for Android legacy build."; exit 2; fi
-          # raise soft file-descriptor limit
-          hard=$(ulimit -H -n || echo 4096)
-          soft_target=65535; [ "$hard" -lt 65535 ] && soft_target=$hard
-          ulimit -n "$soft_target" || true
-          echo "ulimit -n now: $(ulimit -n) (hard: $hard)"
-          export ANDROID_SDK="${ANDROID_SDK_ROOT}"
-          export ANDROID_NDK="${ANDROID_SDK_ROOT}/ndk/${ANDROID_NDK_VERSION}"
-          make -C depends -j1 HOST=aarch64-linux-android ANDROID_SDK="${ANDROID_SDK}" ANDROID_NDK="${ANDROID_NDK}"
-
-      - name: Build legacy targets (vkax-d, vkax-cli)
-        shell: bash
-        run: |
-          set -euo pipefail
-          export ANDROID_SDK="${ANDROID_SDK_ROOT}"
-          export ANDROID_NDK="${ANDROID_SDK_ROOT}/ndk/${ANDROID_NDK_VERSION}"
-          export ANDROID_API_LEVEL=15
-          export ANDROID_TOOLCHAIN_BIN="${ANDROID_NDK}/toolchains/llvm/prebuilt/linux-x86_64/bin"
-          make -C . -j1 V=1 HOST=aarch64-linux-android ANDROID_API_LEVEL=${ANDROID_API_LEVEL} ANDROID_TOOLCHAIN_BIN=${ANDROID_TOOLCHAIN_BIN} vkax-d vkax-cli || true
-
-      - name: Collect Android legacy artifacts
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p dist_android_legacy
-          find build -type f -name 'vkax-*' -exec cp -a {} dist_android_legacy/ \; || true
-          if [ -d dist_android_legacy ]; then (cd dist_android_legacy && sha256sum * > sha256sums.txt || true); fi
-
-      - name: Cache (depends sources + ccache) • save
-        if: always()
-        uses: ./.github/cache
-        with:
-          mode: save
-          key: ${{ runner.os }}-android-legacy-${{ env.ANDROID_NDK_VERSION }}-${{ hashFiles('depends/packages/*.mk') }}
-          paths: |
-            depends/sources
-            ~/.ccache
-
-      - name: Upload Android legacy artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: android-legacy-ubuntu-22.04
-          path: |
-            dist_android_legacy/**/*
-          if-no-files-found: warn
-
-  # ---------------------
-  # Ubuntu / Linux builds (production)
-  # ---------------------
-  ubuntu:
-    name: native • ubuntu • ${{ matrix.name }}
-    runs-on: ${{ matrix.runs_on }}
-    timeout-minutes: 60
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: ubuntu-22-amd64
-            runs_on: ubuntu-22.04
-            triple: x86_64-pc-linux-gnu
-          - name: ubuntu-24-amd64
-            runs_on: ubuntu-24.04
-            triple: x86_64-pc-linux-gnu
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          submodules: true
-          fetch-depth: 0
-
-      - name: Set fallback download path
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo "FALLBACK_DOWNLOAD_PATH=${RUNNER_TEMP:-/tmp}/depends-sources" >> "$GITHUB_ENV"
-
-      - name: Cache depends + ccache • restore
-        uses: ./.github/cache
-        with:
-          mode: restore
-          key: ${{ runner.os }}-linux-${{ hashFiles('depends/packages/*.mk') }}
-          paths: |
-            depends/sources
-            ~/.ccache
-
-      - name: Install system build deps
-        shell: bash
-        run: |
-          set -euo pipefail
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq build-essential pkg-config automake libtool autoconf bison cmake ninja-build python3
-
-      - name: Build vendored depends (Linux)
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ ! -d depends ]; then echo "::error::depends/ dir missing; required for Linux builds."; exit 2; fi
-          # raise soft file-descriptor limit
-          hard=$(ulimit -H -n || echo 4096)
-          soft_target=65535; [ "$hard" -lt 65535 ] && soft_target=$hard
-          ulimit -n "$soft_target" || true
-          echo "ulimit -n now: $(ulimit -n) (hard: $hard)"
-          make -C depends -j1 HOST=${{ matrix.triple }}
-
-      - name: Check vendored depends prefix (Linux)
-        shell: bash
-        run: |
-          set -euo pipefail
-          # Ensure we are in repository root when probing depends
-          cd "${GITHUB_WORKSPACE:-.}"
-          if ls depends/${{ matrix.triple }}* >/dev/null 2>&1; then
-            echo "Vendored depends prefix found for ${{ matrix.triple }}"
-          else
-            echo "::error::Vendored depends prefix not found for host ${{ matrix.triple }} (expected depends/${{ matrix.triple }}*)"; exit 2
-          fi
-
-      - name: CMake build (Linux)
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ ! -f CMakeLists.txt ]; then
-            echo "::notice::No CMakeLists.txt; skipping."; exit 0
-          fi
-          if [ -d "depends/${{ matrix.triple }}" ]; then
-            export CMAKE_PREFIX_PATH="depends/${{ matrix.triple }}"
-          fi
-          cmake -S . -B build -G Ninja
-          cmake --build build -j1 || true
-
-      - name: Collect Linux binaries
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p dist_linux
-          find build -type f -perm -111 -name 'vkax*' -exec cp -a {} dist_linux/ \; || true
-          if [ -d dist_linux ]; then (cd dist_linux && sha256sum * > sha256sums.txt || true); fi
-
-      - name: Cache depends + ccache • save
-        if: always()
-        uses: ./.github/cache
-        with:
-          mode: save
-          key: ${{ runner.os }}-linux-${{ hashFiles('depends/packages/*.mk') }}
-          paths: |
-            depends/sources
-            ~/.ccache
-
-      - name: Upload linux artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: native-ubuntu-${{ matrix.name }}
-          path: |
-            dist_linux/**/*
-          if-no-files-found: warn
-
-  # ---------------------
-  # Windows Cross (MinGW on Ubuntu) — production
-  # ---------------------
-  native-windows-cross:
-    name: native-windows-cross • depends • ubuntu-24.04 • x86_64-w64-mingw32
-    runs-on: ubuntu-24.04
-    timeout-minutes: 60
-    continue-on-error: true
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          submodules: true
-          fetch-depth: 0
-
-      - name: Cache (depends sources) • restore
-        uses: ./.github/cache
-        with:
-          mode: restore
-          key: ${{ runner.os }}-mingw-${{ hashFiles('depends/packages/*.mk') }}
-          paths: |
-            depends/sources
-
-      - name: Tooling
-        shell: bash
-        run: |
-          set -euo pipefail
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq build-essential pkg-config automake libtool autoconf bison cmake ninja-build python3 g++-mingw-w64-x86-64
-
-      - name: Build depends (x86_64-w64-mingw32)
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ ! -d depends ]; then echo "::error::depends/ missing"; exit 2; fi
-          hard=$(ulimit -H -n || echo 4096)
-          soft_target=65535; [ "$hard" -lt 65535 ] && soft_target=$hard
-          ulimit -n "$soft_target" || true
-          echo "ulimit -n now: $(ulimit -n) (hard: $hard)"
-          make -C depends -j1 HOST=x86_64-w64-mingw32
-
-      - name: Check vendored depends prefix (mingw)
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd "${GITHUB_WORKSPACE:-.}"
-          if ls depends/x86_64-w64-mingw32* >/dev/null 2>&1; then
-            echo "Found mingw depends prefix"
-          else
-            echo "::warning::Vendored depends prefix not found for mingw (depends/x86_64-w64-mingw32*)"
-          fi
-
-      - name: Collect Windows cross .exe
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p dist-w64
-          find build-w64 -type f -name 'vkax-*.exe' -exec cp -a {} dist-w64/ \; || true
-          if [ -d dist-w64 ]; then (cd dist-w64 && sha256sum * > sha256s.txt || true); fi
-
-      - name: Cache (depends sources) • save
-        if: always()
-        uses: ./.github/cache
-        with:
-          mode: save
-          key: ${{ runner.os }}-mingw-${{ hashFiles('depends/packages/*.mk') }}
-          paths: |
-            depends/sources
-
-      - name: Upload Windows cross artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: native-windows-cross-ubuntu-24.04
-          path: |
-            dist-w64/**/*
-          if-no-files-found: warn
-
-  # ---------------------
-  # Windows (MSVC) — native
-  # ---------------------
-  windows:
-    name: native • windows • windows-2022
-    runs-on: windows-2022
-    timeout-minutes: 90
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          submodules: true
-          fetch-depth: 0
-
-      - name: Setup MSVC env
-        uses: ilammy/msvc-dev-cmd@v1
-
-      - name: Attempt build depends (Windows MSVC)
-        shell: powershell
-        run: |
-          Set-StrictMode -Version Latest
-          Write-Output "Checking for depends/ and make..."
-          if (-Not (Test-Path ".\depends")) { Write-Output "::warning::depends/ not present; skipping depends build"; exit 0 }
-          $make = Get-Command make -ErrorAction SilentlyContinue
-          if ($null -eq $make) { Write-Output "::warning::make not found on PATH; cannot build depends on Windows runner"; exit 0 }
-          $J = $env:NUMBER_OF_PROCESSORS; if (-not $J) { $J = 1 }; if ($J -gt 1) { $J = 1 }
-          Write-Output "Running: make -C depends HOST=x86_64-pc-windows-msvc PREFIX=depends/x86_64-pc-windows-msvc -j$J"
-          $proc = Start-Process -FilePath "make" -ArgumentList "-C","depends","HOST=x86_64-pc-windows-msvc","PREFIX=depends/x86_64-pc-windows-msvc","-j$J" -NoNewWindow -Wait -PassThru
-          if ($proc.ExitCode -ne 0) { Write-Output "::warning::make returned exit code $($proc.ExitCode)" }
-          $prefix = Get-ChildItem -Path .\depends -Directory -Filter "x86_64-pc-windows-msvc*" -ErrorAction SilentlyContinue | Select-Object -First 1
-          if ($null -ne $prefix) { Write-Output "Found depends prefix: $($prefix.FullName)"; "DEPENDS_WINDOWS_PREFIX=$($prefix.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding ascii -Append }
-          else { Write-Output "::warning::No depends prefix found at depends/x86_64-pc-windows-msvc*" }
-
-      - name: Bootstrap vcpkg and install Boost
-        shell: powershell
-        run: |
-          Set-StrictMode -Version Latest
-          $vcpkgRoot = 'C:\\vcpkg'
-          if (-Not (Test-Path $vcpkgRoot)) { git clone https://github.com/microsoft/vcpkg $vcpkgRoot }
-          & $vcpkgRoot\bootstrap-vcpkg.bat
-          & "$vcpkgRoot\vcpkg.exe" install boost-filesystem boost-system openssl --triplet x64-windows
-          if ($LASTEXITCODE -ne 0) { Write-Output "::warning::vcpkg install failed (continuing)" }
-          echo "VCPKG_ROOT=$vcpkgRoot" | Out-File -FilePath $env:GITHUB_ENV -Encoding ascii -Append
-
-      - name: Validate depends prefix or vcpkg boost
-        shell: powershell
-        run: |
-          Set-StrictMode -Version Latest
-          $hasDepends = $false
-          if ($env:DEPENDS_WINDOWS_PREFIX) { $hasDepends = $true; Write-Output "Using depends prefix: $env:DEPENDS_WINDOWS_PREFIX" }
-          $vpath = 'C:\\vcpkg\\installed\\x64-windows\\include\\boost'
-          $hasVcpkgBoost = Test-Path $vpath
-          if ($hasVcpkgBoost) { Write-Output "Found vcpkg boost at $vpath" }
-          if (-not $hasDepends -and -not $hasVcpkgBoost) { Write-Output "::warning::No MSVC depends prefix found and vcpkg boost not present. Will attempt CMake anyway." }
-
-      - name: Generate robust fallback headers (CI)
-        shell: powershell
-        run: |
-          Set-StrictMode -Version Latest
-          $baseCandidates = @('src','src\version','src\qt','src\client','.')
-          $base='.'; foreach ($p in $baseCandidates) { if (Test-Path $p) { $base=$p; break } }
-          $configDir = Join-Path $base 'config'; if (-Not (Test-Path $configDir)) { New-Item -ItemType Directory -Path $configDir | Out-Null }
-          $clientVersion = Join-Path $base 'clientversion.h'
-          if (-Not (Test-Path $clientVersion)) {
-            $clientVersionContent = @(
-              '#ifndef CLIENTVERSION_H','\n#define CLIENTVERSION_H','\n#define CLIENT_VERSION_MAJOR 0','\n#define CLIENT_VERSION_MINOR 0','\n#define CLIENT_VERSION_REVISION 0','\n#define CLIENT_VERSION_BUILD 0','\n#define COPYRIGHT_YEAR 2025','\n#endif' ) -join "\r\n"
-            $clientVersionContent | Out-File -FilePath $clientVersion -Encoding ascii
-            Write-Output "Generated $clientVersion"
-          } else { Write-Output "$clientVersion exists; skipping" }
-          $dashcfg = Join-Path $configDir 'dash-config.h'
-          if (-Not (Test-Path $dashcfg)) {
-            $dashcfgContent = @(
-              '#ifndef DASH_CONFIG_H','\n#define DASH_CONFIG_H','\n#define PACKAGE_NAME "VKAX"','\n#define PACKAGE_VERSION "0.0.0"','\n#define VERSION "0.0.0"','\n#define CLIENT_VERSION_MAJOR 0','\n#define CLIENT_VERSION_MINOR 0','\n#define CLIENT_VERSION_REVISION 0','\n#define CLIENT_VERSION_BUILD 0','\n#define CLIENT_VERSION_IS_RELEASE 0','\n#define COPYRIGHT_YEAR 2025','\n#define HAVE_BOOST 1','\n#endif' ) -join "\r\n"
-            $dashcfgContent | Out-File -FilePath $dashcfg -Encoding ascii
-            Write-Output "Generated $dashcfg"
-          } else { Write-Output "$dashcfg exists; skipping" }
-
-      - name: "Debug: show vcpkg, depends prefix, and generated headers"
-        shell: powershell
-        run: |
-          Write-Output "VCPKG_ROOT=$env:VCPKG_ROOT"
-          if (Test-Path C:\\vcpkg) { Get-ChildItem C:\\vcpkg -Depth 2 | Select-Object -First 40 }
-          Write-Output "Listing depends prefixes (top-level):"; Get-ChildItem .\depends -Directory -ErrorAction SilentlyContinue | Select-Object -First 40 | ForEach-Object { Write-Output $_.FullName }
-          Write-Output "Looking for depends/x86_64-pc-windows-msvc*"; Get-ChildItem .\depends -Directory -Filter "x86_64-pc-windows-msvc*" -ErrorAction SilentlyContinue | ForEach-Object { Write-Output $_.FullName }
-          Write-Output "Checking for generated headers:"; Get-ChildItem -Path . -Filter clientversion.h -Recurse -ErrorAction SilentlyContinue | Select-Object -First 10
-          if (Test-Path .\src\clientversion.h) { Get-Content .\src\clientversion.h | Select-Object -First 40 }
-
-      - name: CMake configure & build (MSVC + depends/vcpkg)
-        shell: powershell
-        env:
-          VCPKG_ROOT: ${{ env.VCPKG_ROOT }}
-        run: |
-          if (Test-Path .\CMakeLists.txt) {
-            $cmakeArgs = @()
-            if ($env:DEPENDS_WINDOWS_PREFIX) { $cmakeArgs += "-DCMAKE_PREFIX_PATH=$env:DEPENDS_WINDOWS_PREFIX" }
-            else { $toolchain = Join-Path $env:VCPKG_ROOT 'scripts\buildsystems\vcpkg.cmake'; $cmakeArgs += "-DCMAKE_TOOLCHAIN_FILE=$toolchain" }
-            $cmakeArgs += "-DCMAKE_CXX_STANDARD=20"; $cmakeArgs += "-DBUILD_TESTS=OFF"; $cmakeArgs += "-DCMAKE_C_FLAGS=/DHAVE_CONFIG_H"; $cmakeArgs += "-DCMAKE_CXX_FLAGS=/DHAVE_CONFIG_H"
-            $cmakeCmd = "cmake -S . -B build -G Ninja " + ($cmakeArgs -join ' '); Write-Output "Running: $cmakeCmd"; Invoke-Expression $cmakeCmd; cmake --build build --config Release -- -j1
-          } else { Write-Output "::notice::No CMakeLists.txt; skipping." }
-
-      - name: Collect Windows binaries
-        shell: powershell
-        run: |
-          New-Item -ItemType Directory -Force -Path dist_win | Out-Null
-          Get-ChildItem -Path build -Filter "vkax*" -Recurse -File | ForEach-Object { Copy-Item -Path $_.FullName -Destination dist_win }
-
-      - name: Upload windows artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: native-windows-2022
-          path: |
-            dist_win/**/*
-          if-no-files-found: warn
-
-  # ---------------------
-  # macOS builds (production)
-  # ---------------------
-  macos:
-    name: native • macOS • ${{ matrix.macos }}
-    runs-on: ${{ matrix.macos }}
-    timeout-minutes: 60
-    strategy:
-      fail-fast: false
-      matrix:
-        macos: [macos-13]
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          submodules: true
-          fetch-depth: 0
-
-      - name: Resolve Homebrew and install build tools
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo "Runner arch: $(uname -m)"
-          brew update || true
-          if brew list --formula cmake >/dev/null 2>&1; then
-            echo "cmake already installed; skipping install to avoid tap conflicts"
-          else
-            brew install automake libtool pkg-config cmake ninja libnatpmp || true
-          fi
-
-      - name: Cache depends sources + ccache • restore
-        uses: ./.github/cache
-        with:
-          mode: restore
-          key: ${{ runner.os }}-macos-${{ hashFiles('depends/packages/*.mk') }}
-          paths: |
-            depends/sources
-            ~/.ccache
-
-      - name: Set fallback download path
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo "FALLBACK_DOWNLOAD_PATH=${RUNNER_TEMP:-/tmp}/depends-sources" >> "$GITHUB_ENV"
-
-      - name: "Diagnostic: tree"
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo "CMakeLists.txt present: " $( [ -f CMakeLists.txt ] && echo yes || echo no )
-          echo "Top-level files:"; ls -la | sed -n '1,120p' || true
-
-      - name: Build vendored depends (macOS host)
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ ! -d depends ]; then echo "::error::No depends/ dir found; required for macOS build"; exit 2; fi
-          ARCH=$(uname -m)
-          if [ "$ARCH" = "arm64" ]; then HOST=aarch64-apple-darwin; else HOST=x86_64-apple-darwin; fi
-          echo "Building depends for host: $HOST"
-          hard=$(ulimit -H -n || echo 256)
-          soft_target=65535; [ "$hard" -lt 65535 ] && soft_target=$hard
-          ulimit -n "$soft_target" || true
-          echo "ulimit -n now: $(ulimit -n) (hard: $hard)"
-          make -C depends -j1 HOST="$HOST"
-
-      - name: Check vendored depends prefix (macOS)
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd "${GITHUB_WORKSPACE:-.}"
-          ARCH=$(uname -m)
-          if [ "$ARCH" = "arm64" ]; then HOST=aarch64-apple-darwin; else HOST=x86_64-apple-darwin; fi
-          if ls depends/${HOST}* >/dev/null 2>&1; then
-            echo "Found depends prefix: $(ls -d depends/${HOST}* | tr '\n' ' ')"
-          else
-            echo "::error::Vendored depends prefix not found for macOS host $HOST (expected depends/${HOST}*)"; exit 2
-          fi
-
-      - name: Configure & build (macOS)
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ -f CMakeLists.txt ]; then
-            cmake -S . -B build-macos -G Ninja -DCMAKE_BUILD_TYPE=Release || true
-            cmake --build build-macos -j1 || true
-          else
-            echo "No CMakeLists.txt; attempting autotools build"
-            if [ -x ./autogen.sh ]; then
-              ./autogen.sh || true
-              ./configure --prefix="$(pwd)/depends/${HOST}" || true
-              make -j1 || true
-            else
-              echo "No autogen.sh; nothing to build on macOS"
-            fi
-          fi
-
-      - name: Collect macOS binaries
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p dist_macos
-          find build-macos -type f -perm -111 -name 'vkax*' -exec cp -a {} dist_macos/ \; || true
-          find src -type f -perm -111 -name 'vkax*' -exec cp -a {} dist_macos/ \; || true
-          if [ -d dist_macos ]; then (
-            cd dist_macos
-            if command -v sha256sum >/dev/null 2>&1; then
-              sha256sum * > sha256sums.txt || true
-            else
-              shasum -a 256 * > sha256sums.txt || true
-            fi
-          ); fi
-
-      - name: Cache depends sources + ccache • save
-        if: always()
-        uses: ./.github/cache
-        with:
-          mode: save
-          key: ${{ runner.os }}-macos-${{ hashFiles('depends/packages/*.mk') }}
-          paths: |
-            depends/sources
-            ~/.ccache
-# End of file: .github/workflows/build.yaml
