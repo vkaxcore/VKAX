@@ -36,7 +36,6 @@ jobs:
         shell: bash
         run: git submodule update --init --recursive --depth 1 || git submodule update --init --recursive
 
-
       - name: Init ccache dir
         shell: bash
         run: echo "CCACHE_DIR=$RUNNER_TEMP/.ccache" >> "$GITHUB_ENV"
@@ -163,7 +162,6 @@ jobs:
       - name: Init submodules
         shell: bash
         run: git submodule update --init --recursive --depth 1 || git submodule update --init --recursive
-
 
       # CROSS (Ubuntu runner)
       - name: Install toolchain (cross)
@@ -396,7 +394,6 @@ jobs:
         shell: bash
         run: git submodule update --init --recursive --depth 1 || git submodule update --init --recursive
 
-
       - name: Init ccache dir
         shell: bash
         run: echo "CCACHE_DIR=$RUNNER_TEMP/.ccache" >> "$GITHUB_ENV"
@@ -495,7 +492,52 @@ jobs:
           path: dist/${{ matrix.host }}/**
           if-no-files-found: error
 
-  $1- name: Prepare Android SDK cmdline-tools
+  android:
+    name: android • ${{ matrix.abi }} • depends
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { abi: arm64-v8a, host: aarch64-linux-android }
+          - { abi: armeabi-v7a, host: arm-linux-androideabi }
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Init submodules
+        shell: bash
+        run: git submodule update --init --recursive --depth 1 || git submodule update --init --recursive
+
+      - name: Init ccache dir
+        shell: bash
+        run: echo "CCACHE_DIR=$RUNNER_TEMP/.ccache" >> "$GITHUB_ENV"
+
+      - name: Install host tools
+        shell: bash
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            unzip zip curl file ca-certificates \
+            autoconf automake libtool pkg-config make cmake \
+            clang lld python3 ccache
+
+      - name: Add swap (android)
+        shell: bash
+        run: |
+          sudo fallocate -l 8G /swapfile || sudo dd if=/dev/zero of=/swapfile bs=1M count=8192
+          sudo chmod 600 /swapfile
+          sudo mkswap /swapfile
+          sudo swapon /swapfile
+          swapon --show
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Prepare Android SDK cmdline-tools
         shell: bash
         env:
           ANDROID_SDK_ROOT: ${{ github.workspace }}/.android-sdk
