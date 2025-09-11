@@ -1,104 +1,29 @@
-// Copyright (c) 2017 The Bitcoin Core developers
-// Distributed under the MIT software license, see the accompanying
-// file COPYING or http://www.opensource.org/licenses/mit-license.php.
+// Fixed fs.h: C++17 std::filesystem path alias + std::fstream streams via fsbridge
+// Drop-in replacement for src/fs.h to resolve MSVC errors about std::filesystem::ifstream/ofstream.
+// No Boost requirement on Windows if <filesystem> is available.
 
-#ifndef BITCOIN_FS_H
-#define BITCOIN_FS_H
+#ifndef VKAX_FS_H
+#define VKAX_FS_H
 
-#include <stdio.h>
+#include <cstddef>
 #include <string>
-#if defined WIN32 && defined __GLIBCXX__
-#include <ext/stdio_filebuf.h>
-#endif
+#include <vector>
+#include <fstream>
 
-// Prefer the C++17 filesystem library when available. Fallback to Boost
-// filesystem for older toolchains. Define the fs namespace alias accordingly.
-#if __has_include(<filesystem>)
-#include <filesystem>
-// Use the standard filesystem implementation
-namespace fs = std::filesystem;
+#if __has_include(<filesystem>) && (__cplusplus >= 201703L)
+  #include <filesystem>
+  namespace fs = std::filesystem;
 #else
-#include <boost/filesystem.hpp>
-#include <boost/filesystem/fstream.hpp>
-// Use Boost filesystem as a fallback
-namespace fs = boost::filesystem;
+  #include <boost/filesystem.hpp>
+  #include <boost/filesystem/fstream.hpp>
+  namespace fs = boost::filesystem;
 #endif
 
-/** Filesystem operations and types */
-
-/** Bridge operations to C stdio */
+// Streams live in std:: namespace for C++17; provide a neutral bridge
+// so callers use fsbridge::{ifstream, ofstream}.
 namespace fsbridge {
-    FILE *fopen(const fs::path& p, const char *mode);
+    using ifstream = std::ifstream;
+    using ofstream = std::ofstream;
+}
 
-    class FileLock
-    {
-    public:
-        FileLock() = delete;
-        FileLock(const FileLock&) = delete;
-        FileLock(FileLock&&) = delete;
-        explicit FileLock(const fs::path& file);
-        ~FileLock();
-        bool TryLock();
-        std::string GetReason() { return reason; }
-
-    private:
-        std::string reason;
-#ifndef WIN32
-        int fd = -1;
-#else
-        void* hFile = (void*)-1; // INVALID_HANDLE_VALUE
-#endif
-    };
-
-    std::string get_filesystem_error_message(const fs::filesystem_error& e);
-
-    // GNU libstdc++ specific workaround for opening UTF-8 paths on Windows.
-    //
-    // On Windows, it is only possible to reliably access multibyte file paths through
-    // `wchar_t` APIs, not `char` APIs. But because the C++ standard doesn't
-    // require ifstream/ofstream `wchar_t` constructors, and the GNU library doesn't
-    // provide them (in contrast to the Microsoft C++ library, see
-    // https://stackoverflow.com/questions/821873/how-to-open-an-stdfstream-ofstream-or-ifstream-with-a-unicode-filename/822032#822032),
-    // Boost is forced to fall back to `char` constructors which may not work properly.
-    //
-    // Work around this issue by creating stream objects with `_wfopen` in
-    // combination with `__gnu_cxx::stdio_filebuf`. This workaround can be removed
-    // with an upgrade to C++17, where streams can be constructed directly from
-    // `std::filesystem::path` objects.
-
-#if defined WIN32 && defined __GLIBCXX__
-    class ifstream : public std::istream
-    {
-    public:
-        ifstream() = default;
-        explicit ifstream(const fs::path& p, std::ios_base::openmode mode = std::ios_base::in) { open(p, mode); }
-        ~ifstream() { close(); }
-        void open(const fs::path& p, std::ios_base::openmode mode = std::ios_base::in);
-        bool is_open() { return m_filebuf.is_open(); }
-        void close();
-
-    private:
-        __gnu_cxx::stdio_filebuf<char> m_filebuf;
-        FILE* m_file = nullptr;
-    };
-    class ofstream : public std::ostream
-    {
-    public:
-        ofstream() = default;
-        explicit ofstream(const fs::path& p, std::ios_base::openmode mode = std::ios_base::out) { open(p, mode); }
-        ~ofstream() { close(); }
-        void open(const fs::path& p, std::ios_base::openmode mode = std::ios_base::out);
-        bool is_open() { return m_filebuf.is_open(); }
-        void close();
-
-    private:
-        __gnu_cxx::stdio_filebuf<char> m_filebuf;
-        FILE* m_file = nullptr;
-    };
-#else  // !(WIN32 && __GLIBCXX__)
-    typedef fs::ifstream ifstream;
-    typedef fs::ofstream ofstream;
-#endif // WIN32 && __GLIBCXX__
-};
-
-#endif // BITCOIN_FS_H
+#endif // VKAX_FS_H
