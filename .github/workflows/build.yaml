@@ -1,4 +1,3 @@
-# .github/workflows/build.yaml
 name: "CI • Build VKAX"
 
 on:
@@ -15,7 +14,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  CCACHE_DIR: ${{ runner.temp }}/.ccache
+  CCACHE_DIR: ${{ github.workspace }}/.ccache
   CCACHE_MAXSIZE: 500M
 
 jobs:
@@ -295,6 +294,12 @@ jobs:
             autoconf automake libtool pkg-config make cmake \
             clang lld python3 ccache
 
+      - name: Setup Java (for sdkmanager)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
       - name: Prepare SDK tools (guarded)
         shell: bash
         run: |
@@ -308,8 +313,13 @@ jobs:
             mv "$ANDROID_SDK_ROOT/cmdline-tools/cmdline-tools" "$ANDROID_SDK_ROOT/cmdline-tools/latest" || true
           fi
 
-      - name: Accept licenses (seed)
-        uses: ./.github/actions/android-accept-licenses
+      - name: Accept licenses (guarded)
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -x "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" ]; then
+            yes | "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null 2>&1 || true
+          fi
 
       - name: Install SDK components (guarded)
         shell: bash
@@ -380,7 +390,6 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist/android-${{ matrix.abi }}
-          # Copy anything that successfully built
           for f in build/*/vkax* src/vkax*; do
             [ -f "$f" ] && cp -a "$f" dist/android-${{ matrix.abi }}/
           done
@@ -407,10 +416,9 @@ jobs:
       - name: Note
         shell: pwsh
         run: |
-          Write-Host "MSVC native build is not supported in this repository (CMakeLists.txt is a dummy)."
+          Write-Host "MSVC native build is not supported in this repository (CMakeLists.txt is a placeholder)."
           Write-Host "This job is provided as a placeholder and will be skipped."
 
-  # Optional NetBSD cross • placeholder
   netbsd-experimental:
     name: netbsd (experimental)
     runs-on: ubuntu-24.04
