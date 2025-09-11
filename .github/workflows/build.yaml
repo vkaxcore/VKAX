@@ -2,7 +2,7 @@ name: Build VKAX
 
 on:
   push:
-    branches: [ main, master, v100.11.5-android, release/* ]
+    branches: [ main, master, release/* ]
   pull_request:
   workflow_dispatch:
 
@@ -299,19 +299,15 @@ jobs:
           export PATH="$MINGW_PREFIX/bin:$PATH"
           make -C depends -j1 HOST=${HOST} NO_QT=1 V=1 CC="ccache gcc" CXX="ccache g++" 2>&1 | tee -a depends.build.log
 
-      - name: Configure (msys2)
-        if: ${{ matrix.flavor == 'msys2' }}
-        shell: msys2 {0}
-        env:
-          HOST: ${{ matrix.host }}
-        run: |
-          set -euo pipefail
-          case "$MSYSTEM" in MINGW32) MINGW_PREFIX=/mingw32 ;; MINGW64) MINGW_PREFIX=/mingw64 ;; *) MINGW_PREFIX=/mingw64 ;; esac
-          export PATH="$MINGW_PREFIX/bin:$PATH"
-          ./autogen.sh
-          export CONFIG_SITE="$PWD/depends/${HOST}/share/config.site"
-          PREFIX="$PWD/depends/${HOST}"
-          ./configure --host=${HOST} --prefix="$PREFIX" --disable-tests --disable-bench --without-gui 2>&1 | tee -a configure.log
+      $1
+          # Prefer depends' headers and libs explicitly for BDB on MSYS2 (i686 needs this)
+          export BDB_PREFIX=\"$PWD/depends/${HOST}\"
+          export CPPFLAGS=\"-I$BDB_PREFIX/include $CPPFLAGS\"
+          export LDFLAGS=\"-L$BDB_PREFIX/lib $LDFLAGS\"
+          export BDB_CFLAGS=\"-I$BDB_PREFIX/include\"
+          export BDB_LIBS=\"-L$BDB_PREFIX/lib -ldb_cxx\"
+          ./configure --host=${HOST} --prefix=\"$PREFIX\" --disable-tests --disable-bench --without-gui --with-incompatible-bdb \
+            BDB_CFLAGS=\"$BDB_CFLAGS\" BDB_LIBS=\"$BDB_LIBS\" 2>&1 | tee -a configure.log
 
       - name: Build (msys2)
         if: ${{ matrix.flavor == 'msys2' }}
