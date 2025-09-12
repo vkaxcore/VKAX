@@ -1,148 +1,237 @@
-name: build-all
+name: Build VKAX across all runners
 
 on:
   push:
-    branches: [ main, master, v100.11.5-android ]
+    branches: [ v100.11.5-android, "**" ]
   pull_request:
-    branches: [ main, master, v100.11.5-android ]
-  workflow_dispatch: {}
+    branches: [ "**" ]
+  workflow_dispatch:
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: false
 
 env:
   FALLBACK_DOWNLOAD_PATH: https://explorer.yerbas.org/depends/
-  ANDROID_NDK_VERSION: 23.1.7779620
-  ANDROID_API_LEVEL: 34
-
-concurrency:
-  group: build-all-${{ github.ref }}-${{ github.sha }}
-  cancel-in-progress: false
 
 jobs:
-
   linux:
-    name: linux • ${{ matrix.os }} • depends→autotools
+    name: linux • ${{ matrix.os }} • ${{ matrix.host }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-22.04, ubuntu-24.04]
+        host: [x86_64-pc-linux-gnu]
         include:
-          - os: ubuntu-22.04
-            host: x86_64-pc-linux-gnu
+          # Optional cross (can keep enabled if toolchain present)
           - os: ubuntu-24.04
-            host: x86_64-pc-linux-gnu
+            host: aarch64-linux-gnu
+            extra_apt: gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout (pinned ref)
+        uses: actions/checkout@v4
         with:
           submodules: false
-      - name: Sync submodules
+          fetch-depth: 0
+          ref: v100.11.5-android
+
+      - name: Prep toolchain
+        if: matrix.extra_apt != ''
+        run: |
+          set -euo pipefail
+          sudo apt-get update -y
+          sudo apt-get install -y ${{ matrix.extra_apt }}
+
+      - name: Initialize submodules
         run: |
           set -euo pipefail
           cd "${GITHUB_WORKSPACE:-.}"
           git submodule sync --recursive
           git submodule update --init --recursive --force --depth 1
-      - name: Install toolchain
-        run: |
-          set -euo pipefail
-          sudo apt-get update -y
-          sudo apt-get install -y build-essential autoconf automake libtool pkg-config bison python3 curl zip
-      - name: Autogen
+
+      - name: Autotools bootstrap
         run: |
           set -euo pipefail
           cd "${GITHUB_WORKSPACE:-.}"
           ./autogen.sh
-      - name: Build depends (${{ matrix.host }})
+
+      - name: depends • build
+        env:
+          HOST: ${{ matrix.host }}
         run: |
           set -euo pipefail
           cd "${GITHUB_WORKSPACE:-.}"
-          CORES=$(nproc || echo 2)
-          stdbuf -oL -eL make -C depends -j${CORES} HOST=${{ matrix.host }} V=1 2>&1 | tee depends.build.log
-          test -f "depends/${{ matrix.host }}/share/config.site" || { tail -n 200 depends/build-*.log || true; exit 1; }
-      - name: Configure (no wallet/gui)
+          CORES=$(nproc || getconf _NPROCESSORS_ONLN || echo 2)
+          stdbuf -oL -eL make -C depends -j"${CORES}" HOST="${HOST}" 2>&1 | tee depends.build.log
+          test -f "depends/${HOST}/share/config.site" || {
+            echo "::error title=depends failed::missing config.site for ${HOST}" >&2
+            # show last logs if any
+            shopt -s nullglob || true
+            logs=(depends/build-*.log)
+            if [ ${#logs[@]} -gt 0 ]; then
+              tail -n 200 "${logs[@]}" || true
+            else
+              echo "no per-package logs found under depends/" >&2
+              find depends -type f -name '*.log' | tail -n 50 || true
+            fi
+            exit 1
+          }
+
+      - name: configure
+        env:
+          HOST: ${{ matrix.host }}
         run: |
           set -euo pipefail
           cd "${GITHUB_WORKSPACE:-.}"
-          CONFIG_SITE="$PWD/depends/${{ matrix.host }}/share/config.site" \
-          ./configure --disable-tests --disable-bench --disable-wallet --without-gui
-      - name: Build
+          export CONFIG_SITE="$PWD/depends/${HOST}/share/config.site"
+          ./configure --disable-tests --disable-bench --without-gui
+      
+      - name: build
         run: |
           set -euo pipefail
           cd "${GITHUB_WORKSPACE:-.}"
-          CORES=$(nproc || echo 2)
-          stdbuf -oL -eL make -j${CORES} 2>&1 | tee build.log
-      - name: Stage + SHA256
+          CORES=$(nproc || getconf _NPROCESSORS_ONLN || echo 2)
+          stdbuf -oL -eL make -j"${CORES}" 2>&1 | tee build.log
+
+      - name: stage+package artifacts
+        env:
+          HOST: ${{ matrix.host }}
         run: |
           set -euo pipefail
           cd "${GITHUB_WORKSPACE:-.}"
-          mkdir -p "dist/${{ matrix.host }}"
-          set +e
-          cp -av src/vkaxd src/vkax-cli src/qt/vkax-qt "dist/${{ matrix.host }}/" 2>/dev/null || true
-          set -e
-          ls -la "dist/${{ matrix.host }}" || true
-          { find "dist/${{ matrix.host }}" -type f -maxdepth 1 | xargs -r sha256sum > "dist/${{ matrix.host }}/SHA256SUMS"; } || true
-          test -s "dist/${{ matrix.host }}/SHA256SUMS" || { echo "No binaries staged"; find src -maxdepth 2 -type f | sed -n '1,200p'; exit 1; }
-      - uses: actions/upload-artifact@v4
+          out="dist/${HOST}"
+          mkdir -p "${out}"
+          # Collect common binaries if present
+          for p in src/vkaxd src/vkax-cli src/qt/vkax-qt src/*.exe src/qt/*.exe; do
+            if [ -f "$p" ]; then
+              cp -v "$p" "${out}/"
+            fi
+          done
+          # Ensure we actually have artifacts
+          if ! compgen -G "${out}/*" > /dev/null; then
+            echo "::error::no binaries found after build"
+            echo "tree src:"; ls -laR src || true
+            echo "tree src/qt:"; ls -laR src/qt || true
+            exit 1
+          fi
+          (cd "${out}" && sha256sum * > SHA256SUMS)
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
         with:
-          name: linux-${{ matrix.os }}-${{ matrix.host }}
-          path: dist/${{ matrix.host }}/
+          name: vkax-${{ matrix.host }}-${{ matrix.os }}
+          path: dist/${{ matrix.host }}
+          if-no-files-found: error
 
   mingw-cross:
-    name: windows • mingw64 cross on ubuntu • depends→autotools
+    name: linux • mingw-cross • ${{ matrix.host }}
     runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        host: [x86_64-w64-mingw32]
+        include:
+          - host: i686-w64-mingw32
+            experimental: true
     steps:
-      - uses: actions/checkout@v4
-      - name: Sync submodules
+      - name: Checkout (pinned ref)
+        uses: actions/checkout@v4
+        with:
+          submodules: false
+          fetch-depth: 0
+          ref: v100.11.5-android
+
+      - name: Install mingw toolchain
+        run: |
+          set -euo pipefail
+          sudo apt-get update -y
+          sudo apt-get install -y mingw-w64 g++-mingw-w64 make automake libtool pkg-config zip unzip
+
+      - name: Use POSIX threading model
+        run: |
+          set -euo pipefail
+          sudo update-alternatives --set x86_64-w64-mingw32-g++ /usr/bin/x86_64-w64-mingw32-g++-posix || true
+          sudo update-alternatives --set x86_64-w64-mingw32-gcc /usr/bin/x86_64-w64-mingw32-gcc-posix || true
+          sudo update-alternatives --set i686-w64-mingw32-g++ /usr/bin/i686-w64-mingw32-g++-posix || true
+          sudo update-alternatives --set i686-w64-mingw32-gcc /usr/bin/i686-w64-mingw32-gcc-posix || true
+
+      - name: Initialize submodules
         run: |
           set -euo pipefail
           cd "${GITHUB_WORKSPACE:-.}"
           git submodule sync --recursive
           git submodule update --init --recursive --force --depth 1
-      - name: Install cross toolchain
-        run: |
-          set -euo pipefail
-          sudo apt-get update -y
-          sudo apt-get install -y autoconf automake libtool pkg-config bison python3 curl zip \
-                                  g++-mingw-w64-x86-64 mingw-w64 mingw-w64-tools
-          sudo update-alternatives --set x86_64-w64-mingw32-g++ /usr/bin/x86_64-w64-mingw32-g++-posix
-          sudo update-alternatives --set x86_64-w64-mingw32-gcc /usr/bin/x86_64-w64-mingw32-gcc-posix
-      - name: Autogen
+
+      - name: Autotools bootstrap
         run: |
           set -euo pipefail
           cd "${GITHUB_WORKSPACE:-.}"
           ./autogen.sh
-      - name: Build depends (x86_64-w64-mingw32)
+
+      - name: depends • build
+        env:
+          HOST: ${{ matrix.host }}
         run: |
           set -euo pipefail
           cd "${GITHUB_WORKSPACE:-.}"
-          CORES=$(nproc || echo 2)
-          stdbuf -oL -eL make -C depends -j${CORES} HOST=x86_64-w64-mingw32 V=1 2>&1 | tee depends.build.log
-          test -f "depends/x86_64-w64-mingw32/share/config.site" || { tail -n 200 depends/build-*.log || true; exit 1; }
-      - name: Configure (no wallet/gui)
+          CORES=$(nproc || getconf _NPROCESSORS_ONLN || echo 2)
+          stdbuf -oL -eL make -C depends -j"${CORES}" HOST="${HOST}" 2>&1 | tee depends.build.log
+          test -f "depends/${HOST}/share/config.site" || {
+            echo "::error title=depends failed::missing config.site for ${HOST}" >&2
+            shopt -s nullglob || true
+            logs=(depends/build-*.log)
+            if [ ${#logs[@]} -gt 0 ]; then
+              tail -n 200 "${logs[@]}" || true
+            else
+              echo "no per-package logs found under depends/" >&2
+              find depends -type f -name '*.log' | tail -n 50 || true
+            fi
+            exit 1
+          }
+
+      - name: configure (mingw)
+        env:
+          HOST: ${{ matrix.host }}
         run: |
           set -euo pipefail
           cd "${GITHUB_WORKSPACE:-.}"
-          CONFIG_SITE="$PWD/depends/x86_64-w64-mingw32/share/config.site" \
-          ./configure --host=x86_64-w64-mingw32 --disable-tests --disable-bench --disable-wallet --without-gui
-      - name: Build
+          export CONFIG_SITE="$PWD/depends/${HOST}/share/config.site"
+          ./configure --host="${HOST}" --disable-tests --disable-bench --without-gui
+
+      - name: build
         run: |
           set -euo pipefail
           cd "${GITHUB_WORKSPACE:-.}"
-          CORES=$(nproc || echo 2)
-          stdbuf -oL -eL make -j${CORES} 2>&1 | tee build.log
-      - name: Stage + SHA256
+          CORES=$(nproc || getconf _NPROCESSORS_ONLN || echo 2)
+          stdbuf -oL -eL make -j"${CORES}" 2>&1 | tee build.log
+
+      - name: stage+package artifacts
+        env:
+          HOST: ${{ matrix.host }}
         run: |
           set -euo pipefail
           cd "${GITHUB_WORKSPACE:-.}"
-          mkdir -p dist/x86_64-w64-mingw32
-          set +e
-          cp -av src/*.exe "dist/x86_64-w64-mingw32/" 2>/dev/null || true
-          set -e
-          ls -la dist/x86_64-w64-mingw32 || true
-          { find dist/x86_64-w64-mingw32 -type f -maxdepth 1 | xargs -r sha256sum > dist/x86_64-w64-mingw32/SHA256SUMS; } || true
-          test -s dist/x86_64-w64-mingw32/SHA256SUMS || { echo "No binaries staged"; find src -maxdepth 2 -type f | sed -n '1,200p'; exit 1; }
-      - uses: actions/upload-artifact@v4
+          out="dist/${HOST}"
+          mkdir -p "${out}"
+          for p in src/*.exe src/qt/*.exe; do
+            if [ -f "$p" ]; then
+              cp -v "$p" "${out}/"
+            fi
+          done
+          if ! compgen -G "${out}/*" > /dev/null; then
+            echo "::error::no windows binaries found"
+            ls -laR src || true
+            exit 1
+          fi
+          (cd "${out}" && sha256sum * > SHA256SUMS)
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
         with:
-          name: windows-cross-mingw64
-          path: dist/x86_64-w64-mingw32/
+          name: vkax-${{ matrix.host }}-mingw-cross
+          path: dist/${{ matrix.host }}
+          if-no-files-found: error
 
   windows-msys2:
     name: windows • msys2 mingw64 • depends→autotools
@@ -151,60 +240,119 @@ jobs:
       run:
         shell: msys2 {0}
     steps:
-      - uses: actions/checkout@v4
-      - uses: msys2/setup-msys2@v2
+      - name: Checkout (pinned ref)
+        uses: actions/checkout@v4
         with:
+          submodules: false
+          fetch-depth: 0
+          ref: v100.11.5-android
+
+      - name: Setup MSYS2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          release: false
           update: true
           install: >-
-            base-devel git mingw-w64-x86_64-toolchain
-            mingw-w64-x86_64-autotools mingw-w64-x86_64-libtool
-            mingw-w64-x86_64-pkg-config
-      - name: Sync submodules
+            base-devel
+            git
+            zip
+            unzip
+            wget
+            tar
+            patch
+            automake
+            autoconf
+            libtool
+            pkg-config
+            mingw-w64-x86_64-toolchain
+            mingw-w64-x86_64-python
+
+      - name: Env
+        run: |
+          set -euo pipefail
+          echo "MINGW_PREFIX=/mingw64" >> $GITHUB_ENV
+          echo "PATH=/mingw64/bin:$PATH" >> $GITHUB_ENV
+
+      - name: Initialize submodules
         run: |
           set -euo pipefail
           cd "${GITHUB_WORKSPACE:-.}"
           git submodule sync --recursive
           git submodule update --init --recursive --force --depth 1
-      - name: Autogen
+
+      - name: Autotools bootstrap
         run: |
           set -euo pipefail
           cd "${GITHUB_WORKSPACE:-.}"
           ./autogen.sh
-      - name: Build depends (x86_64-w64-mingw32)
+
+      - name: depends • build (msys2)
+        env:
+          HOST: x86_64-w64-mingw32
         run: |
           set -euo pipefail
           cd "${GITHUB_WORKSPACE:-.}"
           CORES=$(nproc || echo 2)
-          make -C depends -j${CORES} HOST=x86_64-w64-mingw32 V=1 | tee depends.build.log
-          test -f "depends/x86_64-w64-mingw32/share/config.site" || { tail -n 200 depends/build-*.log || true; exit 1; }
-      - name: Configure (no wallet/gui)
+          make -C depends -j"${CORES}" HOST="${HOST}" 2>&1 | tee depends.build.log
+          if [ ! -f "depends/${HOST}/share/config.site" ]; then
+            echo "::error title=depends failed::missing config.site for ${HOST}" >&2
+            shopt -s nullglob || true
+            logs=(depends/build-*.log)
+            if [ ${#logs[@]} -gt 0 ]; then
+              tail -n 200 "${logs[@]}" || true
+            else
+              echo "No depends/build-*.log to show." >&2
+            fi
+            exit 1
+          fi
+
+      - name: configure
+        env:
+          HOST: x86_64-w64-mingw32
         run: |
           set -euo pipefail
           cd "${GITHUB_WORKSPACE:-.}"
-          CONFIG_SITE="$PWD/depends/x86_64-w64-mingw32/share/config.site" \
-          ./configure --host=x86_64-w64-mingw32 --disable-tests --disable-bench --disable-wallet --without-gui
-      - name: Build
+          export PATH="/mingw64/bin:$PATH"
+          export CONFIG_SITE="$PWD/depends/${HOST}/share/config.site"
+          ./configure --host="${HOST}" --disable-tests --disable-bench --without-gui
+
+      - name: build
         run: |
           set -euo pipefail
           cd "${GITHUB_WORKSPACE:-.}"
           CORES=$(nproc || echo 2)
-          make -j${CORES} | tee build.log
-      - name: Stage + SHA256
+          make -j"${CORES}" 2>&1 | tee build.log
+
+      - name: stage+package artifacts
+        env:
+          HOST: x86_64-w64-mingw32
         run: |
           set -euo pipefail
           cd "${GITHUB_WORKSPACE:-.}"
-          mkdir -p dist/x86_64-w64-mingw32
-          cp -av src/*.exe "dist/x86_64-w64-mingw32/" 2>/dev/null || true
-          ls -la dist/x86_64-w64-mingw32 || true
-          { find dist/x86_64-w64-mingw32 -type f -maxdepth 1 | xargs -r sha256sum > dist/x86_64-w64-mingw32/SHA256SUMS; } || true
-          test -s dist/x86_64-w64-mingw32/SHA256SUMS || { echo "No binaries staged"; find src -maxdepth 2 -type f | sed -n '1,200p'; exit 1; }
-      - uses: actions/upload-artifact@v4
+          out="dist/${HOST}"
+          mkdir -p "${out}"
+          for p in src/*.exe src/qt/*.exe; do
+            if [ -f "$p" ]; then
+              cp -v "$p" "${out}/"
+            fi
+          done
+          if ! compgen -G "${out}/*" > /dev/null; then
+            echo "::error::no windows binaries found"
+            ls -laR src || true
+            exit 1
+          fi
+          (cd "${out}" && sha256sum * > SHA256SUMS || true)
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
         with:
-          name: windows-msys2-mingw64
-          path: dist/x86_64-w64-mingw32/
+          name: vkax-x86_64-w64-mingw32-windows-msys2
+          path: dist/x86_64-w64-mingw32
+          if-no-files-found: error
 
   macos:
-    name: mac • ${{ matrix.os }} • depends→autotools
+    name: macos • ${{ matrix.os }} • ${{ matrix.host }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -212,134 +360,223 @@ jobs:
         include:
           - os: macos-13
             host: x86_64-apple-darwin19
+            mac_deploy: "10.15"
           - os: macos-14
             host: aarch64-apple-darwin
+            mac_deploy: "11.0"
     steps:
-      - uses: actions/checkout@v4
-      - name: Sync submodules
+      - name: Checkout (pinned ref)
+        uses: actions/checkout@v4
+        with:
+          submodules: false
+          fetch-depth: 0
+          ref: v100.11.5-android
+
+      - name: Initialize submodules
         run: |
           set -euo pipefail
           cd "${GITHUB_WORKSPACE:-.}"
           git submodule sync --recursive
           git submodule update --init --recursive --force --depth 1
-      - name: Install toolchain
-        run: |
-          set -euo pipefail
-          brew install automake libtool pkg-config coreutils || true
-      - name: Autogen
+
+      - name: Autotools bootstrap
         run: |
           set -euo pipefail
           cd "${GITHUB_WORKSPACE:-.}"
           ./autogen.sh
-      - name: Build depends (${{ matrix.host }})
-        run: |
-          set -euo pipefail
-          cd "${GITHUB_WORKSPACE:-.}"
-          CORES=$(sysctl -n hw.logicalcpu || echo 3)
-          make -C depends -j${CORES} HOST=${{ matrix.host }} V=1 | tee depends.build.log
-          test -f "depends/${{ matrix.host }}/share/config.site" || { tail -n 200 depends/build-*.log || true; exit 1; }
-      - name: Configure (no wallet/gui)
+
+      - name: depends • build
         env:
-          MACOSX_DEPLOYMENT_TARGET: ${{ matrix.os == 'macos-13' && '10.15' || '11.0' }}
+          HOST: ${{ matrix.host }}
         run: |
           set -euo pipefail
           cd "${GITHUB_WORKSPACE:-.}"
-          CONFIG_SITE="$PWD/depends/${{ matrix.host }}/share/config.site" \
-          ./configure --disable-tests --disable-bench --disable-wallet --without-gui
-      - name: Build
+          CORES=$(sysctl -n hw.ncpu || echo 3)
+          make -C depends -j"${CORES}" HOST="${HOST}" 2>&1 | tee depends.build.log
+          test -f "depends/${HOST}/share/config.site" || {
+            echo "::error title=depends failed::missing config.site for ${HOST}" >&2
+            tail -n 200 depends/build-*.log || true
+            exit 1
+          }
+
+      - name: configure
+        env:
+          HOST: ${{ matrix.host }}
+          MACOSX_DEPLOYMENT_TARGET: ${{ matrix.mac_deploy }}
         run: |
           set -euo pipefail
           cd "${GITHUB_WORKSPACE:-.}"
-          CORES=$(sysctl -n hw.logicalcpu || echo 3)
-          make -j${CORES} | tee build.log
-      - name: Stage + SHA256
+          export CONFIG_SITE="$PWD/depends/${HOST}/share/config.site"
+          ./configure --disable-tests --disable-bench --without-gui
+
+      - name: build
         run: |
           set -euo pipefail
           cd "${GITHUB_WORKSPACE:-.}"
-          mkdir -p "dist/${{ matrix.host }}"
-          set +e
-          cp -av src/vkaxd src/vkax-cli src/qt/vkax-qt "dist/${{ matrix.host }}/" 2>/dev/null || true
-          set -e
-          ls -la "dist/${{ matrix.host }}" || true
-          { find "dist/${{ matrix.host }}" -type f -maxdepth 1 | xargs -r shasum -a 256 > "dist/${{ matrix.host }}/SHA256SUMS"; } || true
-          test -s "dist/${{ matrix.host }}/SHA256SUMS" || { echo "No binaries staged"; find src -maxdepth 2 -type f | sed -n '1,200p'; exit 1; }
-      - uses: actions/upload-artifact@v4
+          CORES=$(sysctl -n hw.ncpu || echo 3)
+          make -j"${CORES}" 2>&1 | tee build.log
+
+      - name: stage+package artifacts
+        env:
+          HOST: ${{ matrix.host }}
+        run: |
+          set -euo pipefail
+          cd "${GITHUB_WORKSPACE:-.}"
+          out="dist/${HOST}"
+          mkdir -p "${out}"
+          for p in src/vkaxd src/vkax-cli src/qt/vkax-qt; do
+            if [ -f "$p" ]; then
+              cp -v "$p" "${out}/"
+            fi
+          done
+          if ! compgen -G "${out}/*" > /dev/null; then
+            echo "::error::no binaries found"
+            ls -laR src || true
+            exit 1
+          fi
+          (cd "${out}" && shasum -a 256 * > SHA256SUMS)
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
         with:
-          name: macos-${{ matrix.os }}-${{ matrix.host }}
-          path: dist/${{ matrix.host }}/
+          name: vkax-${{ matrix.host }}-${{ matrix.os }}
+          path: dist/${{ matrix.host }}
+          if-no-files-found: error
 
   android:
-    name: android • arm64 & armv7 • core
-    runs-on: ubuntu-24.04
+    name: android • depends→autotools • ${{ matrix.host }}
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - host: aarch64-linux-android
+            abi: arm64-v8a
+            api: "21"
+          - host: arm-linux-androideabi
+            abi: armeabi-v7a
+            api: "19"
     steps:
-      - uses: actions/checkout@v4
-      - name: Sync submodules
+      - name: Checkout (pinned ref)
+        uses: actions/checkout@v4
+        with:
+          submodules: false
+          fetch-depth: 0
+          ref: v100.11.5-android
+
+      - name: Install Android cmdline-tools + NDK r23b
+        id: android
+        run: |
+          set -euo pipefail
+          cd "${GITHUB_WORKSPACE:-.}"
+          ANDROID_HOME="$PWD/android-sdk"
+          ANDROID_SDK_ROOT="$ANDROID_HOME"
+          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
+          echo "ANDROID_HOME=$ANDROID_HOME" >> $GITHUB_ENV
+          mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools"
+          curl -sSL https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip -o cmdline-tools.zip
+          unzip -q cmdline-tools.zip -d "$ANDROID_SDK_ROOT/cmdline-tools"
+          mv "$ANDROID_SDK_ROOT/cmdline-tools/cmdline-tools" "$ANDROID_SDK_ROOT/cmdline-tools/latest"
+          yes | "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$ANDROID_SDK_ROOT" "platform-tools" >/dev/null
+          yes | "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$ANDROID_SDK_ROOT" "ndk;23.1.7779620" >/dev/null
+          echo "ANDROID_NDK=$ANDROID_SDK_ROOT/ndk/23.1.7779620" >> $GITHUB_ENV
+          echo "ANDROID_API_LEVEL=${{ matrix.api }}" >> $GITHUB_ENV
+          echo "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin" >> $GITHUB_PATH
+          echo "$ANDROID_SDK_ROOT/platform-tools" >> $GITHUB_PATH
+          echo "$ANDROID_SDK_ROOT/ndk/23.1.7779620/toolchains/llvm/prebuilt/linux-x86_64/bin" >> $GITHUB_PATH
+
+      - name: Initialize submodules
         run: |
           set -euo pipefail
           cd "${GITHUB_WORKSPACE:-.}"
           git submodule sync --recursive
           git submodule update --init --recursive --force --depth 1
-      - name: Install base tools
-        run: |
-          set -euo pipefail
-          sudo apt-get update -y
-          sudo apt-get install -y unzip curl zip python3
-      - name: Install Android SDK cmdline-tools
+
+      - name: Autotools bootstrap
         run: |
           set -euo pipefail
           cd "${GITHUB_WORKSPACE:-.}"
-          mkdir -p "$HOME/android/sdk/cmdline-tools"
-          cd "$HOME/android/sdk/cmdline-tools"
-          if [ ! -d "latest" ]; then
-            curl -sSL https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -o cmdtools.zip
-            unzip -q cmdtools.zip -d latest && rm -f cmdtools.zip
-          fi
-          echo "ANDROID_SDK_ROOT=$HOME/android/sdk" >> $GITHUB_ENV
-      - name: Install platforms and NDK (guarded)
-        run: |
-          set -euo pipefail
-          cd "${GITHUB_WORKSPACE:-.}"
-          SDKM="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
-          if [ -x "$SDKM" ]; then
-            yes | "$SDKM" --licenses >/dev/null 2>&1 || true
-            "$SDKM" "platforms;android-${{ env.ANDROID_API_LEVEL }}" "platform-tools" "ndk;${{ env.ANDROID_NDK_VERSION }}"
-          else
-            echo "sdkmanager missing; skipping install"
-          fi
-          echo "ANDROID_NDK=$ANDROID_SDK_ROOT/ndk/${{ env.ANDROID_NDK_VERSION }}" >> $GITHUB_ENV
-          echo "$ANDROID_SDK_ROOT/ndk/${{ env.ANDROID_NDK_VERSION }}/toolchains/llvm/prebuilt/linux-x86_64/bin" >> $GITHUB_PATH
-      - name: Build depends (android)
+          ./autogen.sh
+
+      - name: depends • build
+        env:
+          HOST: ${{ matrix.host }}
         run: |
           set -euo pipefail
           cd "${GITHUB_WORKSPACE:-.}"
           CORES=$(nproc || echo 2)
-          stdbuf -oL -eL make -C depends -j${CORES} HOST=aarch64-linux-android V=1 2>&1 | tee depends.arm64.log
-          stdbuf -oL -eL make -C depends -j${CORES} HOST=arm-linux-androideabi V=1 2>&1 | tee depends.armv7.log
-          test -f "depends/aarch64-linux-android/share/config.site"
-          test -f "depends/arm-linux-androideabi/share/config.site"
-      - name: Build core (no gui)
+          stdbuf -oL -eL make -C depends -j"${CORES}" HOST="${HOST}" ANDROID_SDK="$ANDROID_SDK_ROOT" ANDROID_NDK="$ANDROID_NDK" ANDROID_API_LEVEL="${ANDROID_API_LEVEL}" 2>&1 | tee depends.build.log
+          test -f "depends/${HOST}/share/config.site" || {
+            echo "::error title=depends failed::missing config.site for ${HOST}" >&2
+            shopt -s nullglob || true
+            logs=(depends/build-*.log)
+            if [ ${#logs[@]} -gt 0 ]; then
+              tail -n 200 "${logs[@]}" || true
+            else
+              echo "no per-package logs found under depends/" >&2
+              find depends -type f -name '*.log' | tail -n 50 || true
+            fi
+            exit 1
+          }
+
+      - name: configure
+        env:
+          HOST: ${{ matrix.host }}
         run: |
           set -euo pipefail
           cd "${GITHUB_WORKSPACE:-.}"
-          ANDROID_TOOLCHAIN_BIN="$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin"
-          make -j1 HOST=aarch64-linux-android ANDROID_API_LEVEL=${{ env.ANDROID_API_LEVEL }} ANDROID_TOOLCHAIN_BIN="$ANDROID_TOOLCHAIN_BIN" vkax-d vkax-cli | tee build.arm64.log
-          make -j1 HOST=arm-linux-androideabi ANDROID_API_LEVEL=${{ env.ANDROID_API_LEVEL }} ANDROID_TOOLCHAIN_BIN="$ANDROID_TOOLCHAIN_BIN" vkax-d vkax-cli | tee build.armv7.log
-      - name: Stage + SHA256
+          export CONFIG_SITE="$PWD/depends/${HOST}/share/config.site"
+          ./configure --host="${HOST}" --disable-tests --disable-bench --without-gui
+
+      - name: build
         run: |
           set -euo pipefail
           cd "${GITHUB_WORKSPACE:-.}"
-          mkdir -p dist/aarch64-linux-android dist/arm-linux-androideabi
-          set +e
-          cp -av build/*/vkax-d build/*/vkax-cli dist/aarch64-linux-android/ 2>/dev/null || true
-          cp -av build/*/vkax-d build/*/vkax-cli dist/arm-linux-androideabi/ 2>/dev/null || true
-          set -e
-          { find dist/aarch64-linux-android -type f -maxdepth 1 | xargs -r sha256sum > dist/aarch64-linux-android/SHA256SUMS; } || true
-          { find dist/arm-linux-androideabi -type f -maxdepth 1 | xargs -r sha256sum > dist/arm-linux-androideabi/SHA256SUMS; } || true
-          test -s dist/aarch64-linux-android/SHA256SUMS || { echo "No arm64 binaries staged"; find build -maxdepth 2 -type f | sed -n '1,200p'; exit 1; }
-          test -s dist/arm-linux-androideabi/SHA256SUMS || { echo "No armv7 binaries staged"; find build -maxdepth 2 -type f | sed -n '1,200p'; exit 1; }
-      - uses: actions/upload-artifact@v4
+          CORES=$(nproc || echo 2)
+          stdbuf -oL -eL make -j"${CORES}" 2>&1 | tee build.log
+
+      - name: stage+package artifacts
+        env:
+          HOST: ${{ matrix.host }}
+          ABI: ${{ matrix.abi }}
+        run: |
+          set -euo pipefail
+          cd "${GITHUB_WORKSPACE:-.}"
+          out="dist/${HOST}-${ABI}"
+          mkdir -p "${out}"
+          # possible locations
+          for p in src/vkaxd src/vkax-cli build/*/vkaxd build/*/vkax-cli; do
+            if [ -f "$p" ]; then
+              cp -v "$p" "${out}/"
+            fi
+          done
+          if ! compgen -G "${out}/*" > /dev/null; then
+            echo "::error::no android binaries found"
+            find . -maxdepth 3 -type f -name 'vkax*' -print || true
+            exit 1
+          fi
+          (cd "${out}" && sha256sum * > SHA256SUMS)
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
         with:
-          name: android-core
-          path: |
-            dist/aarch64-linux-android/
-            dist/arm-linux-androideabi/
+          name: vkax-${{ matrix.host }}-${{ matrix.abi }}
+          path: dist/${{ matrix.host }}-${{ matrix.abi }}
+          if-no-files-found: error
+
+  # Optional experimental netbsd cross (non-blocking)
+  netbsd:
+    name: linux • netbsd-cross • experimental
+    runs-on: ubuntu-24.04
+    continue-on-error: true
+    steps:
+      - name: Checkout (pinned ref)
+        uses: actions/checkout@v4
+        with:
+          submodules: false
+          fetch-depth: 0
+          ref: v100.11.5-android
+
+      - name: Print note
+        run: |
+          echo "NetBSD cross build is experimental and may require custom toolchains not preinstalled."
