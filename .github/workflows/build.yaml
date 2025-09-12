@@ -1,744 +1,345 @@
-name: Build VKAX
+name: build-all
 
 on:
   push:
-    branches: [ main, master, v100.11.5-android, release/* ]
+    branches: [ main, master, v100.11.5-android ]
   pull_request:
-  workflow_dispatch:
-
-concurrency:
-  group: vkax-build-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+    branches: [ main, master, v100.11.5-android ]
+  workflow_dispatch: {}
 
 env:
-  CCACHE_MAXSIZE: 500M
-  ANDROID_NDK_VERSION: "26.1.10909125"
+  FALLBACK_DOWNLOAD_PATH: https://explorer.yerbas.org/depends/
+  ANDROID_NDK_VERSION: 23.1.7779620
+  ANDROID_API_LEVEL: 34
+
+concurrency:
+  group: build-all-${{ github.ref }}-${{ github.sha }}
+  cancel-in-progress: false
 
 jobs:
+
   linux:
-    name: linux • ${{ matrix.host }} • depends
-    runs-on: ubuntu-24.04
-    timeout-minutes: 150
+    name: linux • ${{ matrix.os }} • depends→autotools
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        host: [ x86_64-pc-linux-gnu, aarch64-linux-gnu, arm-linux-gnueabihf, i686-pc-linux-gnu, x86_64-unknown-netbsd ]
+        os: [ubuntu-22.04, ubuntu-24.04]
         include:
-          - host: i686-pc-linux-gnu
-            experimental: true
-          - host: x86_64-unknown-netbsd
-            experimental: true
-    continue-on-error: ${{ matrix.experimental == true }}
+          - os: ubuntu-22.04
+            host: x86_64-pc-linux-gnu
+          - os: ubuntu-24.04
+            host: x86_64-pc-linux-gnu
     steps:
       - uses: actions/checkout@v4
-
-      - name: Init submodules
-        shell: bash
-        run: git submodule sync --recursive && git submodule update --init --recursive --force --depth 1 || git submodule update --init --recursive --force
-
-      - name: Init ccache dir
-        shell: bash
-        run: echo "CCACHE_DIR=$RUNNER_TEMP/.ccache" >> "$GITHUB_ENV"
-
-      - name: Add swap
-        shell: bash
-        run: |
-          sudo fallocate -l 8G /swapfile || sudo dd if=/dev/zero of=/swapfile bs=1M count=8192
-          sudo chmod 600 /swapfile
-          sudo mkswap /swapfile
-          sudo swapon /swapfile
-          swapon --show
-
-      - name: Install build deps
-        shell: bash
-        run: |
-          sudo dpkg --add-architecture i386 || true
-          sudo apt-get update -qq
-          PKGS="autoconf automake libtool pkg-config make cmake gcc g++ binutils clang lld bison python3 curl zip unzip xz-utils file gperf faketime ccache"
-          case "${{ matrix.host }}" in
-            aarch64-linux-gnu) PKGS="$PKGS gcc-aarch64-linux-gnu g++-aarch64-linux-gnu" ;;
-            arm-linux-gnueabihf) PKGS="$PKGS gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf" ;;
-            i686-pc-linux-gnu) PKGS="$PKGS gcc-multilib g++-multilib" ;;
-          esac
-          sudo apt-get install -y --no-install-recommends $PKGS
-
-      - name: Cache ccache (restore)
-        uses: actions/cache/restore@v4
         with:
-          path: ${{ env.CCACHE_DIR }}
-          key: linux-ccache-${{ matrix.host }}-${{ hashFiles('**/configure.ac', '**/Makefile.am') }}
-          restore-keys: |
-            linux-ccache-${{ matrix.host }}-
-
-      - name: Pre-download depends sources
-        shell: bash
-        env:
-          HOST: ${{ matrix.host }}
+          submodules: false
+      - name: Sync submodules
         run: |
           set -euo pipefail
-          export FALLBACK_DOWNLOAD_PATH=https://explorer.yerbas.org/depends/
-          JOBS=$(getconf _NPROCESSORS_ONLN 2>/dev/null || nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2)
-          stdbuf -oL -eL make -C depends download -j"${JOBS}" HOST=${HOST} NO_QT=1 V=1 2>&1 | tee -a depends.download.log
-
-      - name: Build depends
-        shell: bash
-        env:
-          HOST: ${{ matrix.host }}
+          cd "${GITHUB_WORKSPACE:-.}"
+          git submodule sync --recursive
+          git submodule update --init --recursive --force --depth 1
+      - name: Install toolchain
         run: |
           set -euo pipefail
-          export FALLBACK_DOWNLOAD_PATH=https://explorer.yerbas.org/depends/
-          JOBS=$(getconf _NPROCESSORS_ONLN 2>/dev/null || nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2)
-          if grep -qE '^doctor:' depends/Makefile 2>/dev/null; then make -C depends doctor HOST=${HOST}; fi
-          stdbuf -oL -eL make -C depends -j"${JOBS}" HOST=${HOST} NO_QT=1 V=1 2>&1 | tee -a depends.build.log || { code=$?; echo "depends failed with exit $code"; find depends -name config.log -print -exec tail -n 200 {} \; || true; exit $code; }
-
-      - name: Configure
-        shell: bash
-        env:
-          HOST: ${{ matrix.host }}
+          sudo apt-get update -y
+          sudo apt-get install -y build-essential autoconf automake libtool pkg-config bison python3 curl zip
+      - name: Autogen
         run: |
           set -euo pipefail
-          export PATH="/usr/lib/ccache:$PATH"
+          cd "${GITHUB_WORKSPACE:-.}"
           ./autogen.sh
-          export CONFIG_SITE="$PWD/depends/${HOST}/share/config.site"
-          test -f "$CONFIG_SITE" || { echo "Missing config.site for $HOST"; exit 1; }
-          PREFIX="$PWD/depends/${HOST}"
-          
-          ./configure --host="${HOST}" --prefix="$PREFIX" --disable-tests --disable-bench --without-gui 2>&1 | tee -a configure.log
-
+      - name: Build depends (${{ matrix.host }})
+        run: |
+          set -euo pipefail
+          cd "${GITHUB_WORKSPACE:-.}"
+          CORES=$(nproc || echo 2)
+          stdbuf -oL -eL make -C depends -j${CORES} HOST=${{ matrix.host }} V=1 2>&1 | tee depends.build.log
+          test -f "depends/${{ matrix.host }}/share/config.site" || { tail -n 200 depends/build-*.log || true; exit 1; }
+      - name: Configure (no wallet/gui)
+        run: |
+          set -euo pipefail
+          cd "${GITHUB_WORKSPACE:-.}"
+          CONFIG_SITE="$PWD/depends/${{ matrix.host }}/share/config.site" \
+          ./configure --disable-tests --disable-bench --disable-wallet --without-gui
       - name: Build
-        shell: bash
         run: |
           set -euo pipefail
-          export PATH="/usr/lib/ccache:$PATH"
-          ccache -M "${CCACHE_MAXSIZE}"
-          JOBS=$(getconf _NPROCESSORS_ONLN 2>/dev/null || nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2)
-          make -j"${JOBS}" 2>&1 | tee -a build.log
-
-      - name: Install (stage)
-        shell: bash
-        env:
-          HOST: ${{ matrix.host }}
+          cd "${GITHUB_WORKSPACE:-.}"
+          CORES=$(nproc || echo 2)
+          stdbuf -oL -eL make -j${CORES} 2>&1 | tee build.log
+      - name: Stage + SHA256
         run: |
           set -euo pipefail
-          PREFIX="$PWD/depends/${HOST}"
-          make install DESTDIR="$PWD/stage/${HOST}" PREFIX="$PREFIX" || true
-
-      - name: Package
-        shell: bash
-        env:
-          HOST: ${{ matrix.host }}
-        run: |
-          set -euo pipefail
-          mkdir -p dist/${HOST}
-          export SOURCE_DATE_EPOCH="$(git log -1 --format=%ct || date +%s)"
-          STRIP_TOOL="${HOST}-strip"; command -v "$STRIP_TOOL" >/dev/null 2>&1 || STRIP_TOOL="strip"
-          for f in src/vkaxd src/vkax-cli src/vkax-tx src/qt/vkax-qt; do
-            if [ -x "$f" ]; then
-              "$STRIP_TOOL" -S "$f" || true
-              install -m0755 "$f" dist/${HOST}/
-            fi
-          done
-          (cd dist/${HOST} && sha256sum * > SHA256SUMS || true)
-
-      - name: Cache ccache (save)
-        if: always()
-        uses: actions/cache/save@v4
-        with:
-          path: ${{ env.CCACHE_DIR }}
-          key: linux-ccache-${{ matrix.host }}-${{ hashFiles('**/configure.ac', '**/Makefile.am') }}
-
-      - name: Upload logs
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: logs-linux-${{ matrix.host }}
-          path: |
-            depends.download.log
-            depends.build.log
-            configure.log
-            build.log
-            **/config.log
-          if-no-files-found: ignore
-
+          cd "${GITHUB_WORKSPACE:-.}"
+          mkdir -p "dist/${{ matrix.host }}"
+          set +e
+          cp -av src/vkaxd src/vkax-cli src/qt/vkax-qt "dist/${{ matrix.host }}/" 2>/dev/null || true
+          set -e
+          ls -la "dist/${{ matrix.host }}" || true
+          { find "dist/${{ matrix.host }}" -type f -maxdepth 1 | xargs -r sha256sum > "dist/${{ matrix.host }}/SHA256SUMS"; } || true
+          test -s "dist/${{ matrix.host }}/SHA256SUMS" || { echo "No binaries staged"; find src -maxdepth 2 -type f | sed -n '1,200p'; exit 1; }
       - uses: actions/upload-artifact@v4
         with:
-          name: ${{ format('{0}-{1}', 'linux', matrix.host) }}
-          path: dist/${{ matrix.host }}/**
-          if-no-files-found: error
+          name: linux-${{ matrix.os }}-${{ matrix.host }}
+          path: dist/${{ matrix.host }}/
 
-  windows:
-    name: windows • ${{ matrix.name }} • depends
-    runs-on: ${{ matrix.runner }}
-    timeout-minutes: 150
-    env:
-      HOST: ${{ matrix.host }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - { name: "mingw cross x86_64", runner: "ubuntu-24.04", flavor: "cross", host: "x86_64-w64-mingw32" }
-          - { name: "mingw cross i686 (experimental)", runner: "ubuntu-24.04", flavor: "cross", host: "i686-w64-mingw32", apt_extra: "g++-mingw-w64-i686", experimental: true }
-          - { name: "msys2 mingw x86_64", runner: "windows-2022", flavor: "msys2", host: "x86_64-w64-mingw32", msystem: "MINGW64", msys_pkgs: "mingw-w64-x86_64-toolchain mingw-w64-x86_64-ccache" }
-          - { name: "msys2 mingw i686 (experimental)", runner: "windows-2022", flavor: "msys2", host: "i686-w64-mingw32", msystem: "MINGW32", experimental: true, msys_pkgs: "mingw-w64-i686-toolchain mingw-w64-i686-ccache" }
-    continue-on-error: ${{ matrix.experimental == true }}
+  mingw-cross:
+    name: windows • mingw64 cross on ubuntu • depends→autotools
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-
-      - name: Init submodules
-        shell: bash
-        run: git submodule sync --recursive && git submodule update --init --recursive --force --depth 1 || git submodule update --init --recursive --force
-
-      - name: Install toolchain (cross)
-        if: ${{ matrix.flavor == 'cross' }}
-        shell: bash
-        env:
-          APT_EXTRA: ${{ matrix.apt_extra }}
+      - name: Sync submodules
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends \
-            autoconf automake libtool pkg-config make cmake \
-            gcc g++ mingw-w64 nsis bison python3 curl patch zip unzip ccache ${APT_EXTRA:-}
-
-      - name: Add swap (cross)
-        if: ${{ matrix.flavor == 'cross' }}
-        shell: bash
+          set -euo pipefail
+          cd "${GITHUB_WORKSPACE:-.}"
+          git submodule sync --recursive
+          git submodule update --init --recursive --force --depth 1
+      - name: Install cross toolchain
         run: |
-          sudo fallocate -l 8G /swapfile || sudo dd if=/dev/zero of=/swapfile bs=1M count=8192
-          sudo chmod 600 /swapfile
-          sudo mkswap /swapfile
-          sudo swapon /swapfile
-          swapon --show
-
-      - name: Select POSIX threads (cross)
-        if: ${{ matrix.flavor == 'cross' }}
-        shell: bash
+          set -euo pipefail
+          sudo apt-get update -y
+          sudo apt-get install -y autoconf automake libtool pkg-config bison python3 curl zip \
+                                  g++-mingw-w64-x86-64 mingw-w64 mingw-w64-tools
+          sudo update-alternatives --set x86_64-w64-mingw32-g++ /usr/bin/x86_64-w64-mingw32-g++-posix
+          sudo update-alternatives --set x86_64-w64-mingw32-gcc /usr/bin/x86_64-w64-mingw32-gcc-posix
+      - name: Autogen
         run: |
-          if [[ "${{ matrix.host }}" == "x86_64-w64-mingw32" ]]; then
-            sudo update-alternatives --set x86_64-w64-mingw32-g++ /usr/bin/x86_64-w64-mingw32-g++-posix || true
-            sudo update-alternatives --set x86_64-w64-mingw32-gcc /usr/bin/x86_64-w64-mingw32-gcc-posix || true
-          else
-            sudo update-alternatives --set i686-w64-mingw32-g++ /usr/bin/i686-w64-mingw32-g++-posix || true
-            sudo update-alternatives --set i686-w64-mingw32-gcc /usr/bin/i686-w64-mingw32-gcc-posix || true
-          fi
-
-      - name: Setup MSYS2
-        if: ${{ matrix.flavor == 'msys2' }}
-        uses: msys2/setup-msys2@v2
+          set -euo pipefail
+          cd "${GITHUB_WORKSPACE:-.}"
+          ./autogen.sh
+      - name: Build depends (x86_64-w64-mingw32)
+        run: |
+          set -euo pipefail
+          cd "${GITHUB_WORKSPACE:-.}"
+          CORES=$(nproc || echo 2)
+          stdbuf -oL -eL make -C depends -j${CORES} HOST=x86_64-w64-mingw32 V=1 2>&1 | tee depends.build.log
+          test -f "depends/x86_64-w64-mingw32/share/config.site" || { tail -n 200 depends/build-*.log || true; exit 1; }
+      - name: Configure (no wallet/gui)
+        run: |
+          set -euo pipefail
+          cd "${GITHUB_WORKSPACE:-.}"
+          CONFIG_SITE="$PWD/depends/x86_64-w64-mingw32/share/config.site" \
+          ./configure --host=x86_64-w64-mingw32 --disable-tests --disable-bench --disable-wallet --without-gui
+      - name: Build
+        run: |
+          set -euo pipefail
+          cd "${GITHUB_WORKSPACE:-.}"
+          CORES=$(nproc || echo 2)
+          stdbuf -oL -eL make -j${CORES} 2>&1 | tee build.log
+      - name: Stage + SHA256
+        run: |
+          set -euo pipefail
+          cd "${GITHUB_WORKSPACE:-.}"
+          mkdir -p dist/x86_64-w64-mingw32
+          set +e
+          cp -av src/*.exe "dist/x86_64-w64-mingw32/" 2>/dev/null || true
+          set -e
+          ls -la dist/x86_64-w64-mingw32 || true
+          { find dist/x86_64-w64-mingw32 -type f -maxdepth 1 | xargs -r sha256sum > dist/x86_64-w64-mingw32/SHA256SUMS; } || true
+          test -s dist/x86_64-w64-mingw32/SHA256SUMS || { echo "No binaries staged"; find src -maxdepth 2 -type f | sed -n '1,200p'; exit 1; }
+      - uses: actions/upload-artifact@v4
         with:
-          msystem: ${{ matrix.msystem }}
+          name: windows-cross-mingw64
+          path: dist/x86_64-w64-mingw32/
+
+  windows-msys2:
+    name: windows • msys2 mingw64 • depends→autotools
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: msys2/setup-msys2@v2
+        with:
           update: true
           install: >-
-            base-devel
-            git
-            make
-            autoconf
-            automake
-            libtool
-            pkgconf
-            cmake
-            bison
-            patch
-            zip
-            unzip
-            ${{ matrix.msys_pkgs }}
-
-      - name: Init ccache dir
-        shell: bash
-        run: echo "CCACHE_DIR=$RUNNER_TEMP/.ccache" >> "$GITHUB_ENV"
-
-      - name: Cache ccache (restore)
-        uses: actions/cache/restore@v4
-        with:
-          path: ${{ env.CCACHE_DIR }}
-          key: windows-ccache-${{ matrix.name }}-${{ hashFiles('**/configure.ac', '**/Makefile.am') }}
-          restore-keys: |
-            windows-ccache-${{ matrix.name }}-
-
-      - name: Build depends (cross)
-        if: ${{ matrix.flavor == 'cross' }}
-        shell: bash
-        env:
-          HOST: ${{ matrix.host }}
+            base-devel git mingw-w64-x86_64-toolchain
+            mingw-w64-x86_64-autotools mingw-w64-x86_64-libtool
+            mingw-w64-x86_64-pkg-config
+      - name: Sync submodules
         run: |
           set -euo pipefail
-          export FALLBACK_DOWNLOAD_PATH=https://explorer.yerbas.org/depends/
-          JOBS=$(getconf _NPROCESSORS_ONLN 2>/dev/null || nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2)
-          if grep -qE '^doctor:' depends/Makefile 2>/dev/null; then make -C depends doctor HOST=${HOST}; fi
-          make -C depends -j"${JOBS}" HOST=${HOST} NO_QT=1 V=1 2>&1 | tee -a depends.build.log
-
-      - name: Configure (cross)
-        if: ${{ matrix.flavor == 'cross' }}
-        shell: bash
-        env:
-          HOST: ${{ matrix.host }}
+          cd "${GITHUB_WORKSPACE:-.}"
+          git submodule sync --recursive
+          git submodule update --init --recursive --force --depth 1
+      - name: Autogen
         run: |
           set -euo pipefail
-          export PATH="/usr/lib/ccache:$PATH"
+          cd "${GITHUB_WORKSPACE:-.}"
           ./autogen.sh
-          export CONFIG_SITE="$PWD/depends/${HOST}/share/config.site"
-          test -f "$CONFIG_SITE" || { echo "Missing config.site for $HOST"; exit 1; }
-          
-          ./configure --prefix=/ --host=${HOST} --disable-tests --disable-bench --without-gui 2>&1 | tee -a configure.log
-
-      - name: Build (cross)
-        if: ${{ matrix.flavor == 'cross' }}
-        shell: bash
+      - name: Build depends (x86_64-w64-mingw32)
         run: |
           set -euo pipefail
-          export PATH="/usr/lib/ccache:$PATH"
-          ccache -M "${CCACHE_MAXSIZE}"
-          JOBS=$(getconf _NPROCESSORS_ONLN 2>/dev/null || nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2)
-          make -j"${JOBS}" 2>&1 | tee -a build.log
-
-      - name: Install (stage) (cross)
-        if: ${{ matrix.flavor == 'cross' }}
-        shell: bash
-        env:
-          HOST: ${{ matrix.host }}
+          cd "${GITHUB_WORKSPACE:-.}"
+          CORES=$(nproc || echo 2)
+          make -C depends -j${CORES} HOST=x86_64-w64-mingw32 V=1 | tee depends.build.log
+          test -f "depends/x86_64-w64-mingw32/share/config.site" || { tail -n 200 depends/build-*.log || true; exit 1; }
+      - name: Configure (no wallet/gui)
         run: |
           set -euo pipefail
-          make install DESTDIR="$PWD/stage/${HOST}" PREFIX=/ || true
-
-      - name: Package (cross)
-        if: ${{ matrix.flavor == 'cross' }}
-        shell: bash
-        env:
-          HOST: ${{ matrix.host }}
+          cd "${GITHUB_WORKSPACE:-.}"
+          CONFIG_SITE="$PWD/depends/x86_64-w64-mingw32/share/config.site" \
+          ./configure --host=x86_64-w64-mingw32 --disable-tests --disable-bench --disable-wallet --without-gui
+      - name: Build
         run: |
           set -euo pipefail
-          mkdir -p dist/${HOST}
-          export SOURCE_DATE_EPOCH="$(git log -1 --format=%ct || date +%s)"
-          STRIP="${HOST}-strip"
-          for f in src/vkaxd.exe src/vkax-cli.exe src/vkax-tx.exe src/qt/vkax-qt.exe; do
-            if [ -f "$f" ]; then
-              $STRIP -s "$f" || true
-              install -m0755 "$f" dist/${HOST}/
-            fi
-          done
-          (cd dist/${HOST} && sha256sum * > SHA256SUMS || true)
-
-      - name: Build depends (msys2)
-        if: ${{ matrix.flavor == 'msys2' }}
-        shell: msys2 {0}
-        env:
-          HOST: ${{ matrix.host }}
+          cd "${GITHUB_WORKSPACE:-.}"
+          CORES=$(nproc || echo 2)
+          make -j${CORES} | tee build.log
+      - name: Stage + SHA256
         run: |
           set -euo pipefail
-          case "$MSYSTEM" in MINGW32) MINGW_PREFIX=/mingw32 ;; MINGW64) MINGW_PREFIX=/mingw64 ;; *) MINGW_PREFIX=/mingw64 ;; esac
-          export PATH="$MINGW_PREFIX/bin:$PATH"
-          export FALLBACK_DOWNLOAD_PATH=https://explorer.yerbas.org/depends/
-          JOBS=$(getconf _NPROCESSORS_ONLN 2>/dev/null || nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2)
-          if grep -qE '^doctor:' depends/Makefile 2>/dev/null; then make -C depends doctor HOST=${HOST}; fi
-          make -C depends -j"${JOBS}" HOST=${HOST} NO_QT=1 V=1 CC="ccache gcc" CXX="ccache g++" 2>&1 | tee -a depends.build.log
-
-      - name: Configure (msys2)
-        if: ${{ matrix.flavor == 'msys2' }}
-        shell: msys2 {0}
-        env:
-          HOST: ${{ matrix.host }}
-        run: |
-          set -euo pipefail
-          case "$MSYSTEM" in MINGW32) MINGW_PREFIX=/mingw32 ;; MINGW64) MINGW_PREFIX=/mingw64 ;; *) MINGW_PREFIX=/mingw64 ;; esac
-          export PATH="$MINGW_PREFIX/bin:$PATH"
-          ./autogen.sh
-          export CONFIG_SITE="$PWD/depends/${HOST}/share/config.site"
-          test -f "$CONFIG_SITE" || { echo "Missing config.site for $HOST"; exit 1; }
-          PREFIX="$PWD/depends/${HOST}"
-          export BDB_PREFIX="$PWD/depends/${HOST}"
-          export CPPFLAGS="-I$BDB_PREFIX/include $CPPFLAGS"
-          export LDFLAGS="-L$BDB_PREFIX/lib $LDFLAGS"
-          export BDB_CFLAGS="-I$BDB_PREFIX/include"
-          export BDB_LIBS="-L$BDB_PREFIX/lib -ldb_cxx"
-          
-          ./configure --host=${HOST} --prefix="$PREFIX" --disable-tests --disable-bench --without-gui --with-incompatible-bdb \
-            BDB_CFLAGS="$BDB_CFLAGS" BDB_LIBS="$BDB_LIBS" 2>&1 | tee -a configure.log
-
-      - name: Build (msys2)
-        if: ${{ matrix.flavor == 'msys2' }}
-        shell: msys2 {0}
-        run: |
-          set -euo pipefail
-          case "$MSYSTEM" in MINGW32) MINGW_PREFIX=/mingw32 ;; MINGW64) MINGW_PREFIX=/mingw64 ;; *) MINGW_PREFIX=/mingw64 ;; esac
-          export PATH="$MINGW_PREFIX/bin:$PATH"
-          ccache -M "${CCACHE_MAXSIZE}"
-          JOBS=$(getconf _NPROCESSORS_ONLN 2>/dev/null || nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2)
-          make -j"${JOBS}" 2>&1 | tee -a build.log
-
-      - name: Install (stage) (msys2)
-        if: ${{ matrix.flavor == 'msys2' }}
-        shell: msys2 {0}
-        env:
-          HOST: ${{ matrix.host }}
-        run: |
-          set -euo pipefail
-          make install DESTDIR="$PWD/stage/${HOST}" PREFIX=/ || true
-
-      - name: Package (msys2)
-        if: ${{ matrix.flavor == 'msys2' }}
-        shell: msys2 {0}
-        env:
-          HOST: ${{ matrix.host }}
-        run: |
-          set -euo pipefail
-          case "$MSYSTEM" in MINGW32) MINGW_PREFIX=/mingw32 ;; MINGW64) MINGW_PREFIX=/mingw64 ;; *) MINGW_PREFIX=/mingw64 ;; esac
-          export SOURCE_DATE_EPOCH="$(git log -1 --format=%ct || date +%s)"
-          mkdir -p dist/${HOST}
-          STRIP="${HOST}-strip"
-          for f in src/vkaxd.exe src/vkax-cli.exe src/vkax-tx.exe src/qt/vkax-qt.exe; do
-            if [ -f "$f" ]; then
-              $STRIP -s "$f" || true
-              install -m0755 "$f" dist/${HOST}/
-            fi
-          done
-          (cd dist/${HOST} && sha256sum * > SHA256SUMS || true)
-
-      - name: Upload logs
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: logs-windows-${{ matrix.name }}
-          path: |
-            depends.build.log
-            configure.log
-            build.log
-            **/config.log
-          if-no-files-found: ignore
-
-      - name: Cache ccache (save)
-        if: always()
-        uses: actions/cache/save@v4
-        with:
-          path: ${{ env.CCACHE_DIR }}
-          key: windows-ccache-${{ matrix.name }}-${{ hashFiles('**/configure.ac', '**/Makefile.am') }}
-
+          cd "${GITHUB_WORKSPACE:-.}"
+          mkdir -p dist/x86_64-w64-mingw32
+          cp -av src/*.exe "dist/x86_64-w64-mingw32/" 2>/dev/null || true
+          ls -la dist/x86_64-w64-mingw32 || true
+          { find dist/x86_64-w64-mingw32 -type f -maxdepth 1 | xargs -r sha256sum > dist/x86_64-w64-mingw32/SHA256SUMS; } || true
+          test -s dist/x86_64-w64-mingw32/SHA256SUMS || { echo "No binaries staged"; find src -maxdepth 2 -type f | sed -n '1,200p'; exit 1; }
       - uses: actions/upload-artifact@v4
-        if: ${{ matrix.flavor == 'msys2' }}
         with:
-          name: windows-${{ matrix.host }}-msys2
-          path: dist/${{ matrix.host }}/**
-          if-no-files-found: error
+          name: windows-msys2-mingw64
+          path: dist/x86_64-w64-mingw32/
 
-      - uses: actions/upload-artifact@v4
-        if: ${{ matrix.flavor == 'cross' }}
-        with:
-          name: windows-${{ matrix.host }}-cross
-          path: dist/${{ matrix.host }}/**
-          if-no-files-found: error
-
-  mac:
-    name: mac • ${{ matrix.host }} • depends
-    runs-on: ${{ matrix.runner }}
-    timeout-minutes: 150
+  macos:
+    name: mac • ${{ matrix.os }} • depends→autotools
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { host: "x86_64-apple-darwin", runner: "macos-13" }
-          - { host: "arm64-apple-darwin", runner: "macos-14" }
+          - os: macos-13
+            host: x86_64-apple-darwin19
+          - os: macos-14
+            host: aarch64-apple-darwin
     steps:
       - uses: actions/checkout@v4
-
-      - name: Init submodules
-        shell: bash
-        run: git submodule sync --recursive && git submodule update --init --recursive --force --depth 1 || git submodule update --init --recursive --force
-
-      - name: Init ccache dir
-        shell: bash
-        run: echo "CCACHE_DIR=$RUNNER_TEMP/.ccache" >> "$GITHUB_ENV"
-
+      - name: Sync submodules
+        run: |
+          set -euo pipefail
+          cd "${GITHUB_WORKSPACE:-.}"
+          git submodule sync --recursive
+          git submodule update --init --recursive --force --depth 1
       - name: Install toolchain
-        shell: bash
-        run: |
-          export HOMEBREW_NO_AUTO_UPDATE=1
-          export HOMEBREW_NO_INSTALL_CLEANUP=1
-          export HOMEBREW_NO_ANALYTICS=1
-          brew update
-          brew install autoconf automake libtool pkg-config ccache libnatpmp
-
-      - name: Pin Homebrew formulae
-        shell: bash
-        run: |
-          brew pin autoconf automake libtool pkg-config ccache libnatpmp || true
-
-      - name: Unset Android env
-        shell: bash
-        run: |
-          unset ANDROID_SDK ANDROID_HOME ANDROID_NDK ANDROID_NDK_HOME || true
-
-      - name: Cache ccache (restore)
-        uses: actions/cache/restore@v4
-        with:
-          path: ${{ env.CCACHE_DIR }}
-          key: mac-ccache-${{ matrix.host }}-${{ hashFiles('**/configure.ac', '**/Makefile.am') }}
-          restore-keys: |
-            mac-ccache-${{ matrix.host }}-
-
-      - name: Build depends
-        shell: bash
-        env:
-          HOST: ${{ matrix.host }}
         run: |
           set -euo pipefail
-          export FALLBACK_DOWNLOAD_PATH=https://explorer.yerbas.org/depends/
-          JOBS=$(getconf _NPROCESSORS_ONLN 2>/dev/null || nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2)
-          if grep -qE '^doctor:' depends/Makefile 2>/dev/null; then make -C depends doctor HOST=${HOST}; fi
-          make -C depends -j"${JOBS}" HOST=${HOST} NO_QT=1 V=1 2>&1 | tee -a depends.build.log
-
-      - name: Configure
-        shell: bash
-        env:
-          HOST: ${{ matrix.host }}
+          brew install automake libtool pkg-config coreutils || true
+      - name: Autogen
         run: |
           set -euo pipefail
-          export PATH="/opt/homebrew/opt/ccache/libexec:/usr/local/opt/ccache/libexec:$PATH"
+          cd "${GITHUB_WORKSPACE:-.}"
           ./autogen.sh
-          export CONFIG_SITE="$PWD/depends/${HOST}/share/config.site"
-          test -f "$CONFIG_SITE" || { echo "Missing config.site for $HOST"; exit 1; }
-          PREFIX="$PWD/depends/${HOST}"
-          
-          ./configure --host="${HOST}" --prefix="$PREFIX" --disable-tests --disable-bench --without-gui 2>&1 | tee -a configure.log
-
+      - name: Build depends (${{ matrix.host }})
+        run: |
+          set -euo pipefail
+          cd "${GITHUB_WORKSPACE:-.}"
+          CORES=$(sysctl -n hw.logicalcpu || echo 3)
+          make -C depends -j${CORES} HOST=${{ matrix.host }} V=1 | tee depends.build.log
+          test -f "depends/${{ matrix.host }}/share/config.site" || { tail -n 200 depends/build-*.log || true; exit 1; }
+      - name: Configure (no wallet/gui)
+        env:
+          MACOSX_DEPLOYMENT_TARGET: ${{ matrix.os == 'macos-13' && '10.15' || '11.0' }}
+        run: |
+          set -euo pipefail
+          cd "${GITHUB_WORKSPACE:-.}"
+          CONFIG_SITE="$PWD/depends/${{ matrix.host }}/share/config.site" \
+          ./configure --disable-tests --disable-bench --disable-wallet --without-gui
       - name: Build
-        shell: bash
         run: |
           set -euo pipefail
-          export PATH="/opt/homebrew/opt/ccache/libexec:/usr/local/opt/ccache/libexec:$PATH"
-          ccache -M "${CCACHE_MAXSIZE}"
-          JOBS=$(getconf _NPROCESSORS_ONLN 2>/dev/null || nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2)
-          make -j"${JOBS}" 2>&1 | tee -a build.log
-
-      - name: Install (stage)
-        shell: bash
-        env:
-          HOST: ${{ matrix.host }}
+          cd "${GITHUB_WORKSPACE:-.}"
+          CORES=$(sysctl -n hw.logicalcpu || echo 3)
+          make -j${CORES} | tee build.log
+      - name: Stage + SHA256
         run: |
           set -euo pipefail
-          PREFIX="$PWD/depends/${HOST}"
-          make install DESTDIR="$PWD/stage/${HOST}" PREFIX="$PREFIX" || true
-
-      - name: Package
-        shell: bash
-        env:
-          HOST: ${{ matrix.host }}
-        run: |
-          set -euo pipefail
-          mkdir -p dist/${HOST}
-          export SOURCE_DATE_EPOCH="$(git log -1 --format=%ct || date +%s)"
-          for f in src/vkaxd src/vkax-cli src/vkax-tx src/qt/vkax-qt; do
-            if [ -x "$f" ]; then
-              strip -S "$f" || true
-              install -m0755 "$f" dist/${HOST}/
-            fi
-          done
-          (cd dist/${HOST} && shasum -a 256 * > SHA256SUMS || true)
-
-      - name: Upload logs
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: logs-mac-${{ matrix.host }}
-          path: |
-            depends.build.log
-            configure.log
-            build.log
-            **/config.log
-          if-no-files-found: ignore
-
-      - name: Cache ccache (save)
-        if: always()
-        uses: actions/cache/save@v4
-        with:
-          path: ${{ env.CCACHE_DIR }}
-          key: mac-ccache-${{ matrix.host }}-${{ hashFiles('**/configure.ac', '**/Makefile.am') }}
-
+          cd "${GITHUB_WORKSPACE:-.}"
+          mkdir -p "dist/${{ matrix.host }}"
+          set +e
+          cp -av src/vkaxd src/vkax-cli src/qt/vkax-qt "dist/${{ matrix.host }}/" 2>/dev/null || true
+          set -e
+          ls -la "dist/${{ matrix.host }}" || true
+          { find "dist/${{ matrix.host }}" -type f -maxdepth 1 | xargs -r shasum -a 256 > "dist/${{ matrix.host }}/SHA256SUMS"; } || true
+          test -s "dist/${{ matrix.host }}/SHA256SUMS" || { echo "No binaries staged"; find src -maxdepth 2 -type f | sed -n '1,200p'; exit 1; }
       - uses: actions/upload-artifact@v4
         with:
-          name: ${{ format('{0}-{1}', 'mac', matrix.host) }}
-          path: dist/${{ matrix.host }}/**
-          if-no-files-found: error
+          name: macos-${{ matrix.os }}-${{ matrix.host }}
+          path: dist/${{ matrix.host }}/
 
   android:
-    name: android • ${{ matrix.abi }} • depends
+    name: android • arm64 & armv7 • core
     runs-on: ubuntu-24.04
-    timeout-minutes: 180
-    env:
-      ANDROID_API_LEVEL: ${{ matrix.api }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - { abi: arm64-v8a, host: aarch64-linux-android, api: 24 }
-          - { abi: armeabi-v7a, host: arm-linux-androideabi, api: 21 }
     steps:
       - uses: actions/checkout@v4
-
-      - name: Init submodules
-        shell: bash
-        run: git submodule sync --recursive && git submodule update --init --recursive --force --depth 1 || git submodule update --init --recursive --force
-
-      - name: Init ccache dir
-        shell: bash
-        run: echo "CCACHE_DIR=$RUNNER_TEMP/.ccache" >> "$GITHUB_ENV"
-
-      - name: Install host tools
-        shell: bash
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends \
-            unzip zip curl file ca-certificates \
-            autoconf automake libtool pkg-config make cmake \
-            clang lld python3 ccache
-
-      - name: Add swap (android)
-        shell: bash
-        run: |
-          sudo fallocate -l 8G /swapfile || sudo dd if=/dev/zero of=/swapfile bs=1M count=8192
-          sudo chmod 600 /swapfile
-          sudo mkswap /swapfile
-          sudo swapon /swapfile
-          swapon --show
-
-      - name: Setup Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
-
-      - name: Prepare Android SDK cmdline-tools
-        shell: bash
-        env:
-          ANDROID_SDK_ROOT: ${{ github.workspace }}/.android-sdk
+      - name: Sync submodules
         run: |
           set -euo pipefail
-          mkdir -p "$ANDROID_SDK_ROOT"
-          cd "$ANDROID_SDK_ROOT"
-          curl -sSL https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -o cmdtools.zip
-          rm -rf cmdline-tools || true
-          unzip -q cmdtools.zip -d cmdline-tools
-          mkdir -p cmdline-tools/latest
-          mv -f cmdline-tools/cmdline-tools/* cmdline-tools/latest/
-
-      - name: Accept Android licenses
-        uses: vkaxcore/VKAX/.github/actions/android-accept-licenses@v100.11.5-android
-        with:
-          sdk-root: ${{ github.workspace }}/.android-sdk
-
-      - name: Install Android packages (pinned)
-        shell: bash
-        env:
-          ANDROID_SDK_ROOT: ${{ github.workspace }}/.android-sdk
+          cd "${GITHUB_WORKSPACE:-.}"
+          git submodule sync --recursive
+          git submodule update --init --recursive --force --depth 1
+      - name: Install base tools
         run: |
           set -euo pipefail
-          SDKMGR="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
-          "$SDKMGR" --sdk_root="$ANDROID_SDK_ROOT" --install \
-            "platform-tools" \
-            "platforms;android-34" \
-            "build-tools;34.0.0" \
-            "ndk;${ANDROID_NDK_VERSION}"
-          echo "ANDROID_NDK=$ANDROID_SDK_ROOT/ndk/${ANDROID_NDK_VERSION}" >> "$GITHUB_ENV"
-          echo "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
-          echo "$ANDROID_SDK_ROOT/platform-tools" >> "$GITHUB_PATH"
-          echo "$ANDROID_SDK_ROOT/ndk/${ANDROID_NDK_VERSION}/toolchains/llvm/prebuilt/linux-x86_64/bin" >> "$GITHUB_PATH"
-
-      - name: Cache ccache (restore)
-        uses: actions/cache/restore@v4
-        with:
-          path: ${{ env.CCACHE_DIR }}
-          key: android-ccache-${{ matrix.abi }}-${{ hashFiles('**/configure.ac', '**/Makefile.am') }}
-          restore-keys: |
-            android-ccache-${{ matrix.abi }}-
-
-      - name: Build depends (Android)
-        shell: bash
-        env:
-          HOST: ${{ matrix.host }}
-          ANDROID_SDK: ${{ github.workspace }}/.android-sdk
-          ANDROID_NDK: ${{ github.workspace }}/.android-sdk/ndk/${{ env.ANDROID_NDK_VERSION }}
+          sudo apt-get update -y
+          sudo apt-get install -y unzip curl zip python3
+      - name: Install Android SDK cmdline-tools
         run: |
           set -euo pipefail
-          export FALLBACK_DOWNLOAD_PATH=https://explorer.yerbas.org/depends/
-          JOBS=$(getconf _NPROCESSORS_ONLN 2>/dev/null || nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2)
-          if grep -qE '^doctor:' depends/Makefile 2>/dev/null; then make -C depends doctor HOST=${HOST}; fi
-          make -C depends -j"${JOBS}" HOST=${HOST} ANDROID_SDK="${ANDROID_SDK}" ANDROID_NDK="${ANDROID_NDK}" NO_QT=1 V=1 AR=llvm-ar RANLIB=llvm-ranlib STRIP=llvm-strip 2>&1 | tee -a depends.build.log
-
-      - name: Configure (Android)
-        shell: bash
-        env:
-          HOST: ${{ matrix.host }}
-          ANDROID_SDK: ${{ github.workspace }}/.android-sdk
-          ANDROID_NDK: ${{ github.workspace }}/.android-sdk/ndk/${{ env.ANDROID_NDK_VERSION }}
+          cd "${GITHUB_WORKSPACE:-.}"
+          mkdir -p "$HOME/android/sdk/cmdline-tools"
+          cd "$HOME/android/sdk/cmdline-tools"
+          if [ ! -d "latest" ]; then
+            curl -sSL https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -o cmdtools.zip
+            unzip -q cmdtools.zip -d latest && rm -f cmdtools.zip
+          fi
+          echo "ANDROID_SDK_ROOT=$HOME/android/sdk" >> $GITHUB_ENV
+      - name: Install platforms and NDK (guarded)
         run: |
           set -euo pipefail
-          export PATH="$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH"
-          test -x "$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/clang" || { echo "NDK clang missing"; ls -la "$ANDROID_NDK"; exit 1; }
-          ./autogen.sh
-          export CONFIG_SITE="$PWD/depends/${HOST}/share/config.site"
-          test -f "$CONFIG_SITE" || { echo "Missing config.site for $HOST"; exit 1; }
-          export AR=llvm-ar RANLIB=llvm-ranlib STRIP=llvm-strip
-          
-          ./configure --host="${HOST}" --prefix="$PWD/depends/${HOST}" --disable-tests --disable-bench --without-gui 2>&1 | tee -a configure.log
-
-      - name: Build (Android)
-        shell: bash
-        env:
-          HOST: ${{ matrix.host }}
-          ANDROID_NDK: ${{ github.workspace }}/.android-sdk/ndk/${{ env.ANDROID_NDK_VERSION }}
+          cd "${GITHUB_WORKSPACE:-.}"
+          SDKM="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          if [ -x "$SDKM" ]; then
+            yes | "$SDKM" --licenses >/dev/null 2>&1 || true
+            "$SDKM" "platforms;android-${{ env.ANDROID_API_LEVEL }}" "platform-tools" "ndk;${{ env.ANDROID_NDK_VERSION }}"
+          else
+            echo "sdkmanager missing; skipping install"
+          fi
+          echo "ANDROID_NDK=$ANDROID_SDK_ROOT/ndk/${{ env.ANDROID_NDK_VERSION }}" >> $GITHUB_ENV
+          echo "$ANDROID_SDK_ROOT/ndk/${{ env.ANDROID_NDK_VERSION }}/toolchains/llvm/prebuilt/linux-x86_64/bin" >> $GITHUB_PATH
+      - name: Build depends (android)
         run: |
           set -euo pipefail
-          export PATH="$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH"
-          ccache -M "${CCACHE_MAXSIZE}"
-          JOBS=$(getconf _NPROCESSORS_ONLN 2>/dev/null || nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2)
-          make -j"${JOBS}" 2>&1 | tee -a build.log
-
-      - name: Install (stage)
-        shell: bash
-        env:
-          HOST: ${{ matrix.host }}
+          cd "${GITHUB_WORKSPACE:-.}"
+          CORES=$(nproc || echo 2)
+          stdbuf -oL -eL make -C depends -j${CORES} HOST=aarch64-linux-android V=1 2>&1 | tee depends.arm64.log
+          stdbuf -oL -eL make -C depends -j${CORES} HOST=arm-linux-androideabi V=1 2>&1 | tee depends.armv7.log
+          test -f "depends/aarch64-linux-android/share/config.site"
+          test -f "depends/arm-linux-androideabi/share/config.site"
+      - name: Build core (no gui)
         run: |
           set -euo pipefail
-          PREFIX="$PWD/depends/${HOST}"
-          make install DESTDIR="$PWD/stage/android-${{ matrix.abi }}" PREFIX="$PREFIX" || true
-
-      - name: Package (Android)
-        shell: bash
-        env:
-          ABI: ${{ matrix.abi }}
-          ANDROID_SDK_ROOT: ${{ github.workspace }}/.android-sdk
-          ANDROID_NDK_VERSION: "26.1.10909125"
+          cd "${GITHUB_WORKSPACE:-.}"
+          ANDROID_TOOLCHAIN_BIN="$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          make -j1 HOST=aarch64-linux-android ANDROID_API_LEVEL=${{ env.ANDROID_API_LEVEL }} ANDROID_TOOLCHAIN_BIN="$ANDROID_TOOLCHAIN_BIN" vkax-d vkax-cli | tee build.arm64.log
+          make -j1 HOST=arm-linux-androideabi ANDROID_API_LEVEL=${{ env.ANDROID_API_LEVEL }} ANDROID_TOOLCHAIN_BIN="$ANDROID_TOOLCHAIN_BIN" vkax-d vkax-cli | tee build.armv7.log
+      - name: Stage + SHA256
         run: |
           set -euo pipefail
-          mkdir -p dist/android-${ABI}
-          export SOURCE_DATE_EPOCH="$(git log -1 --format=%ct || date +%s)"
-          export PATH="$ANDROID_SDK_ROOT/ndk/${ANDROID_NDK_VERSION}/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH"
-          for f in build/*/vkax* src/vkax*; do
-            if [ -f "$f" ]; then
-              llvm-strip -s "$f" || true
-              cp -a "$f" dist/android-${ABI}/
-            fi
-          done
-          (cd dist/android-${ABI} && sha256sum * > SHA256SUMS || true)
-
-      - name: Upload logs
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: logs-android-${{ matrix.abi }}
-          path: |
-            depends.build.log
-            configure.log
-            build.log
-            **/config.log
-          if-no-files-found: ignore
-
-      - name: Cache ccache (save)
-        if: always()
-        uses: actions/cache/save@v4
-        with:
-          path: ${{ env.CCACHE_DIR }}
-          key: android-ccache-${{ matrix.abi }}-${{ hashFiles('**/configure.ac', '**/Makefile.am') }}
-
+          cd "${GITHUB_WORKSPACE:-.}"
+          mkdir -p dist/aarch64-linux-android dist/arm-linux-androideabi
+          set +e
+          cp -av build/*/vkax-d build/*/vkax-cli dist/aarch64-linux-android/ 2>/dev/null || true
+          cp -av build/*/vkax-d build/*/vkax-cli dist/arm-linux-androideabi/ 2>/dev/null || true
+          set -e
+          { find dist/aarch64-linux-android -type f -maxdepth 1 | xargs -r sha256sum > dist/aarch64-linux-android/SHA256SUMS; } || true
+          { find dist/arm-linux-androideabi -type f -maxdepth 1 | xargs -r sha256sum > dist/arm-linux-androideabi/SHA256SUMS; } || true
+          test -s dist/aarch64-linux-android/SHA256SUMS || { echo "No arm64 binaries staged"; find build -maxdepth 2 -type f | sed -n '1,200p'; exit 1; }
+          test -s dist/arm-linux-androideabi/SHA256SUMS || { echo "No armv7 binaries staged"; find build -maxdepth 2 -type f | sed -n '1,200p'; exit 1; }
       - uses: actions/upload-artifact@v4
         with:
-          name: ${{ format('android-{0}', matrix.abi) }}
-          path: dist/android-${{ matrix.abi }}/**
-          if-no-files-found: warn
+          name: android-core
+          path: |
+            dist/aarch64-linux-android/
+            dist/arm-linux-androideabi/
