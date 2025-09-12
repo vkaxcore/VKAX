@@ -1,7 +1,7 @@
 AC_PREREQ([2.69])
 define(_CLIENT_VERSION_MAJOR, 100)
 define(_CLIENT_VERSION_MINOR, 11)
-define(_CLIENT_VERSION_BUILD, 5)
+define(_CLIENT_VERSION_BUILD, 2)
 define(_CLIENT_VERSION_RC, 0)
 define(_CLIENT_VERSION_IS_RELEASE, true)
 define(_COPYRIGHT_YEAR, 2025)
@@ -26,6 +26,7 @@ if test "x${ARFLAGS+set}" != "xset"; then
 fi
 
 AC_CANONICAL_HOST
+AC_CANONICAL_BUILD
 
 AH_TOP([#ifndef DASH_CONFIG_H])
 AH_TOP([#define DASH_CONFIG_H])
@@ -739,6 +740,7 @@ case $host in
              fi
              ;;
          esac
+
        fi
      else
        case $build_os in
@@ -1941,6 +1943,17 @@ case ${OS} in
      mv test/config-2.ini test/config.ini
    ;;
 esac
+
+
+dnl Ensure Android env is ignored on non-Android hosts to prevent accidental NDK usage
+if test "x$TARGET_OS" != "xandroid"; then
+  unset ANDROID_SDK_ROOT ANDROID_SDK ANDROID_HOME ANDROID_NDK ANDROID_NDK_HOME
+fi
+
+dnl Define ANDROID macro when targeting Android
+if test "x$TARGET_OS" = "xandroid"; then
+  AC_DEFINE([ANDROID], [1], [Building for Android target])
+fi
 
 echo
 echo "Options used to compile and link:"
