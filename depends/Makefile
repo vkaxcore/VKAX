@@ -47,7 +47,7 @@ ifneq (,$(findstring linux,$(host)))
 endif
 
 # Autoconf site defaults path (used by configure for all packages)
-CONFIG_SITE_DIR  := $(BASE_CACHE)/$(host)/share
+CONFIG_SITE_DIR  := $(top)/$(host)/share
 CONFIG_SITE_FILE := $(CONFIG_SITE_DIR)/config.site
 export CONFIG_SITE := $(CONFIG_SITE_FILE)
 
@@ -130,4 +130,4 @@ print-vars:
 	echo "BASE_CACHE=$(BASE_CACHE)"; \
 	echo "SDK_PATH=$(SDK_PATH)"; \
 	echo "CONFIG_SITE=$(CONFIG_SITE)";
-# depends/Makefile • final
+# depends/Makefile • fixed
