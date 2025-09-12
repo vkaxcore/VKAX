@@ -52,7 +52,8 @@ jobs:
           set -euo pipefail
           cd "${GITHUB_WORKSPACE:-.}"
           CORES="$(nproc)"
-          ANDROID_SDK= ANDROID_HOME= ANDROID_NDK= ANDROID_NDK_HOME= make -C depends HOST="${{ matrix.host }}" -j"${CORES}" V=1 2>&1 | tee depends.build.log
+          ANDROID_SDK= ANDROID_HOME= ANDROID_NDK= ANDROID_NDK_HOME= env -u ANDROID_SDK_ROOT -u ANDROID_SDK -u ANDROID_HOME -u ANDROID_NDK -u ANDROID_NDK_HOME \
+          make -C depends HOST="${{ matrix.host }}" -j"${CORES}" V=1 2>&1 | tee depends.build.log
           test -f "depends/${{ matrix.host }}/share/config.site" || {
             echo "::error::depends config.site missing"
             tail -n 200 depends.build.log || true
@@ -272,12 +273,6 @@ jobs:
   macos:
     name: macOS (${{ matrix.os }} • ${{ matrix.host }})
     runs-on: ${{ matrix.os }}
-    env:
-      HOST: ${{ matrix.host }}
-      ANDROID_SDK:
-      ANDROID_HOME:
-      ANDROID_NDK:
-      ANDROID_NDK_HOME:
     timeout-minutes: 150
     strategy:
       fail-fast: false
@@ -331,6 +326,7 @@ jobs:
           cd "${GITHUB_WORKSPACE:-.}"
           ./autogen.sh
           CONFIG_SITE="$PWD/depends/${{ matrix.host }}/share/config.site" \
+          env -u ANDROID_SDK_ROOT -u ANDROID_SDK -u ANDROID_HOME -u ANDROID_NDK -u ANDROID_NDK_HOME \
           ./configure --disable-tests --disable-bench --without-gui
 
       - name: Build
