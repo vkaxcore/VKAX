@@ -53,6 +53,7 @@ jobs:
           cd "${GITHUB_WORKSPACE:-.}"
           CORES="$(nproc)"
           ANDROID_SDK= ANDROID_HOME= ANDROID_NDK= ANDROID_NDK_HOME= env -u ANDROID_SDK_ROOT -u ANDROID_SDK -u ANDROID_HOME -u ANDROID_NDK -u ANDROID_NDK_HOME \
+          env -u ANDROID_SDK_ROOT -u ANDROID_SDK -u ANDROID_HOME -u ANDROID_NDK -u ANDROID_NDK_HOME \
           make -C depends HOST="${{ matrix.host }}" -j"${CORES}" V=1 2>&1 | tee depends.build.log
           test -f "depends/${{ matrix.host }}/share/config.site" || {
             echo "::error::depends config.site missing"
@@ -234,7 +235,7 @@ jobs:
             gperf
             ${{ matrix.pkgs }}
 
-      - name: Build (MSYS2 ${{ matrix.msystem }}) ${{ matrix.msystem }})
+      - name: Build (MSYS2 ${{ matrix.msystem }})
         shell: msys2 {0}
         run: |
           set -euo pipefail
@@ -250,7 +251,7 @@ jobs:
           make -C depends HOST="$HOST" -j"$CORES" V=1 2>&1 | tee depends.build.log
           echo "::group::depends config.site probe"
           find depends -maxdepth 4 -type f -name config.site -print || true
-          echo "::endgroup::
+          echo "::endgroup::"
           test -f "depends/$HOST/share/config.site" || { echo "missing config.site for $HOST"; echo "::group::depends tail";tail -n 200 depends.build.log || true; exit 1; }
           ./autogen.sh
           CONFIG_SITE="$PWD/depends/$HOST/share/config.site" \
